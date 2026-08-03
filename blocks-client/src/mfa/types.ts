@@ -7,6 +7,21 @@ export type BlocksMfaConfig = Record<string, unknown> & {
   userMfaType?: number[];
 };
 
+export type BlocksMfaConfigSaveRequest = Record<string, unknown> & {
+  allowBackupCodes?: boolean;
+  allowUserOptOut?: boolean;
+  backupCodesCount?: number;
+  enableMfa?: boolean;
+  mfaExemptRoles?: string[];
+  mfaRequiredRoles?: string[];
+  mfaTemplate?: {
+    templateId?: string;
+    templateName?: string;
+  };
+  requireMfaForAllUsers?: boolean;
+  userMfaType?: number[];
+};
+
 export type BlocksMfaGenerateRequest = {
   /** IAM-defined numeric MFA method (its enum names aren't in the swagger contract -- treat as opaque). */
   mfaType: number;

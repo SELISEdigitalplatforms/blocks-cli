@@ -141,6 +141,30 @@ test("iam maps controller sections without ProjectKey query", async () => {
   assert.equal(Object.fromEntries(calls[0].init.headers)["x-blocks-key"], "tenant-1");
 });
 
+test("mfa exposes self-service endpoints plus admin config save", async () => {
+  const calls = [];
+  const blocks = createBlocksClient({
+    accessToken: () => "user-token",
+    apiUrl: "https://api.seliseblocks.com",
+    fetch: async (url, init) => {
+      calls.push({ url, init });
+      return jsonResponse({ ok: true });
+    },
+    xBlocksKey: "tenant-1"
+  });
+
+  await blocks.mfa.config();
+  await blocks.mfa.saveConfig({ enableMfa: true, mfaRequiredRoles: ["admin"], userMfaType: [1] });
+  await blocks.mfa.generate({ mfaType: 1 });
+
+  assert.equal(calls[0].url, "https://api.seliseblocks.com/iam/v4/mfa/config");
+  assert.equal(calls[0].init.method, "GET");
+  assert.equal(calls[1].url, "https://api.seliseblocks.com/iam/v4/mfa/config");
+  assert.equal(calls[1].init.method, "POST");
+  assert.deepEqual(JSON.parse(calls[1].init.body), { enableMfa: true, mfaRequiredRoles: ["admin"], userMfaType: [1] });
+  assert.equal(calls[2].url, "https://api.seliseblocks.com/iam/v4/mfa/generate");
+});
+
 test("localization uses x-blocks-key header for runtime endpoints", async () => {
   const calls = [];
   const blocks = createBlocksClient({

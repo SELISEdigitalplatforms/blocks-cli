@@ -80,6 +80,7 @@ export type {
 export type {
   BlocksMfaBackupCodeUseRequest,
   BlocksMfaConfig,
+  BlocksMfaConfigSaveRequest,
   BlocksMfaGenerateRequest,
   BlocksMfaPassThroughResponse,
   BlocksMfaResendRequest,
