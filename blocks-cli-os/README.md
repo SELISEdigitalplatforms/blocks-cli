@@ -45,7 +45,13 @@ node bin/run.js --version
 | `blocks-os projects:get [tenantId] [--json]` | Read one project from `Project/Gets`. Uses selected project when `tenantId` is omitted. Read-only. |
 | `blocks-os projects:create <name> [--env dev] [--yes] [--dry-run] [--json]` | Create a Blocks project/environment via `/os/v4/Project/Create` using the account token. Mutating; supports dry-run and confirmation. |
 | `blocks-os use <tenantId>` | Save the selected project tenant globally and in `blocks.json` when present. Does not call cloud APIs. |
-| `blocks-os iam:me [--json]` | Read the current user from IAM using the account token. This is the only IAM admin surface exposed in the MVP. |
+| `blocks-os iam:me [--json]` | Read the current user from IAM using the account token (CLI operator identity, not a project resource). |
+| `blocks-os iam:users:*`, `iam:email:available`, `iam:roles:*`, `iam:permissions:*`, `iam:resources:*`, `iam:organizations:*`, `iam:signup-settings:*` | Full IAM admin surface for the selected project (users, roles, permissions, resource metadata, organizations and their config, signup settings). Project-scoped: requires a selected project and always uses an impersonated project token, never the account token. Mutating commands support `--dry-run`/`--yes`; rich payloads accept `--body '<json>'`/`--file <path>` on top of common convenience flags. Run `blocks-os --help` for the full command/flag list. |
+| `blocks-os mfa:config:*`, `mfa:totp:*`, `mfa:generate`, `mfa:resend`, `mfa:verify`, `mfa:method:set`, `mfa:disable`, `mfa:backup-codes:*` | Project-scoped MFA admin and self-service surface (tenant MFA policy, TOTP enrollment, OTP challenge/verify, method switch, backup codes). Same project-selection and impersonation-only rules as IAM above. |
+| `blocks-os auth:idp:*`, `auth:config:*`, `auth:client-credentials:*`, `auth:oidc-clients:*` | Auth admin surface: identity providers, AuthController tenant config, machine-to-machine client credentials, and OIDC client app registrations. Project-scoped, impersonated project token only. `idp:delete`, `client-credentials:save`/`delete`, and `oidc-clients:save`/`delete`/`rotate-secret` return or handle secrets shown only once - treat CLI output as sensitive and never log it. |
+| `blocks-os mail:config:*`, `mail:template:*`, `mail:mailbox:*` | Project-scoped mail admin surface via `/os/v4/Mail/*`: SMTP/inbound configuration upsert/delete/duplicate, mail template CRUD/clone, and mailbox message reads. Impersonated project token only. `mail:config:save`'s `--account-password` is redacted in `--dry-run` output only. |
+| `blocks-os notification:*` | Project-scoped notification channel configuration via `/os/v4/Notification/*` (list/get/save/delete). Impersonated project token only. `--channel`/`--type` are raw numeric enum values from the API. |
+| `blocks-os storage:config:*` | Project-scoped storage backend configuration via `/os/v4/Storage/*` (list/get/save/delete). Impersonated project token only. `--secret-key`/`--access-key`/`--password`/`--connection-string` are redacted in `--dry-run` output only. |
 | `blocks-os data:validate [--json]` | Validate local `blocks/data/schemas/*.json` and `blocks/data/rules.json` before pushing. Local-only. |
 | `blocks-os data:schema:list [--json]` | List project schemas via `/data/v4/schemas` using an impersonated project token. Read-only. |
 | `blocks-os data:schema:pull [--json]` | Download project schemas into `blocks/data/schemas/*.json`. Writes local files only. |
@@ -129,7 +135,7 @@ Localization dictionaries default to `blocks/localization/<module>.<language>.js
 
 ## Boundaries
 
-- IAM is limited to `iam:me` for now.
+- `iam:me` reads the CLI operator's own account identity; every other `iam:*`, `mfa:*`, `auth:idp:*`/`auth:config:*`/`auth:client-credentials:*`/`auth:oidc-clients:*`, `mail:*`, `notification:*`, and `storage:config:*` command is project-scoped and requires a selected project (`blocks-os use <tenantId>`) plus an impersonated project token - none of them ever run against the account token.
 - Data covers schema/rules/reload/validate only.
 - Localization covers dictionary validate/pull/push through the Localization service.
 - Release covers deploy trigger and build status/read commands only.
