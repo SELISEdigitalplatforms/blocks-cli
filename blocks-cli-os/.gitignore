@@ -1,0 +1,8 @@
+node_modules/
+dist/
+.tmp-*/
+.tmp-smoke-config/
+seliseblocks/
+.env
+npm-debug.log*
+device-login.pid
