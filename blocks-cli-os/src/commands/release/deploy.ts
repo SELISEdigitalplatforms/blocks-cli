@@ -3,19 +3,9 @@ import { blocksRequest } from "../../lib/api.js";
 import { confirmMutation } from "../../lib/confirm.js";
 import { CliActionableError } from "../../lib/errors.js";
 import { writeOutput } from "../../lib/output.js";
+import { getProjectAssets, resolveSelectedProject } from "../../lib/project-info.js";
 import { requestContext } from "../../lib/request-context.js";
-import { parseCommand, selectedProject } from "../../lib/workspace.js";
-
-type ProjectGroup = {
-  projects?: Array<{ environment?: string; tenantId?: string }>;
-  tenantGroupId?: string;
-};
-
-type TenantAssetResponse = {
-  assets?: {
-    resources?: Array<{ link?: string; name?: string; resourceId?: string }>;
-  };
-};
+import { parseCommand } from "../../lib/workspace.js";
 
 type RepoDetailsResponse = {
   data?: {
@@ -28,8 +18,12 @@ export async function releaseDeploy(argv: string[]): Promise<void> {
   const domain = stringFlag(flags, "domain");
   const dryRun = booleanFlag(flags, "dry-run");
 
-  const projectKey = await selectedProject(flags);
-  const { environment, tenantGroupId } = await resolveProjectContext(projectKey, flags);
+  const { project, group, tenantId: projectKey } = await resolveSelectedProject(flags);
+  const environment = project.environment;
+  const tenantGroupId = group.tenantGroupId;
+  if (!environment || !tenantGroupId) {
+    throw new Error(`Project '${projectKey}' was not found in Project/Gets.`);
+  }
   const repoId = await resolveRepoId(tenantGroupId, environment, flags);
   const { branch, repoUrl } = await resolveRepoBranch(repoId, projectKey, flags);
 
@@ -79,36 +73,12 @@ export async function releaseDeploy(argv: string[]): Promise<void> {
   writeOutput(result, flags);
 }
 
-async function resolveProjectContext(
-  tenantId: string,
-  flags: Record<string, string | boolean>
-): Promise<{ environment: string; tenantGroupId: string }> {
-  const groups = await blocksRequest<ProjectGroup[]>("/os/v4/Project/Gets", {
-    accountAuth: true,
-    query: { page: 0, pageSize: 100, tenantGroupId: "" },
-    ...requestContext(flags)
-  });
-
-  for (const group of groups) {
-    const project = (group.projects ?? []).find((item) => item.tenantId === tenantId);
-    if (project?.environment && group.tenantGroupId) {
-      return { environment: project.environment, tenantGroupId: group.tenantGroupId };
-    }
-  }
-
-  throw new Error(`Project '${tenantId}' was not found in Project/Gets.`);
-}
-
 async function resolveRepoId(
   tenantGroupId: string,
   environment: string,
   flags: Record<string, string | boolean>
 ): Promise<string> {
-  const response = await blocksRequest<TenantAssetResponse>("/os/v4/Project/GetAsset", {
-    accountAuth: true,
-    query: { page: 0, pageSize: 100, tenantGroupId },
-    ...requestContext(flags)
-  });
+  const response = await getProjectAssets(tenantGroupId, flags);
 
   const resources = response.assets?.resources ?? [];
   if (resources.length === 0) {
