@@ -12,6 +12,42 @@ import { dataSchemaPull } from "./commands/data/schema/pull.js";
 import { dataSchemaPush } from "./commands/data/schema/push.js";
 import { iamMe } from "./commands/iam/me.js";
 import { init } from "./commands/init.js";
+import { localizationAssistantTranslationSuggestion } from "./commands/localization/assistant/translation-suggestion.js";
+import { localizationConfigGetWebhook } from "./commands/localization/config/get-webhook.js";
+import { localizationConfigSaveWebhook } from "./commands/localization/config/save-webhook.js";
+import { localizationGlossaryDelete } from "./commands/localization/glossary/delete.js";
+import { localizationGlossaryGet } from "./commands/localization/glossary/get.js";
+import { localizationGlossaryList } from "./commands/localization/glossary/list.js";
+import { localizationGlossarySave } from "./commands/localization/glossary/save.js";
+import { localizationGlossarySuggested } from "./commands/localization/glossary/suggested.js";
+import { localizationKeyDelete } from "./commands/localization/key/delete.js";
+import { localizationKeyDeleteKeys } from "./commands/localization/key/delete-keys.js";
+import { localizationKeyGenerateUilmFile } from "./commands/localization/key/generate-uilm-file.js";
+import { localizationKeyGet } from "./commands/localization/key/get.js";
+import { localizationKeyGetByNames } from "./commands/localization/key/get-by-names.js";
+import { localizationKeyGetLanguageFileGenerationHistory } from "./commands/localization/key/get-language-file-generation-history.js";
+import { localizationKeyGetLocalizationTimeline } from "./commands/localization/key/get-localization-timeline.js";
+import { localizationKeyGetTimeline } from "./commands/localization/key/get-timeline.js";
+import { localizationKeyGetTimelineByOperationId } from "./commands/localization/key/get-timeline-by-operation-id.js";
+import { localizationKeyGetUilmExportedFiles } from "./commands/localization/key/get-uilm-exported-files.js";
+import { localizationKeyGetUilmFile } from "./commands/localization/key/get-uilm-file.js";
+import { localizationKeyList } from "./commands/localization/key/list.js";
+import { localizationKeyRollback } from "./commands/localization/key/rollback.js";
+import { localizationKeySave } from "./commands/localization/key/save.js";
+import { localizationKeyTranslateAll } from "./commands/localization/key/translate-all.js";
+import { localizationKeyTranslateKey } from "./commands/localization/key/translate-key.js";
+import { localizationKeyTranslateKeys } from "./commands/localization/key/translate-keys.js";
+import { localizationKeyUilmExport } from "./commands/localization/key/uilm-export.js";
+import { localizationKeyUilmImport } from "./commands/localization/key/uilm-import.js";
+import { localizationLanguageDelete } from "./commands/localization/language/delete.js";
+import { localizationLanguageList } from "./commands/localization/language/list.js";
+import { localizationLanguageListForTenant } from "./commands/localization/language/list-for-tenant.js";
+import { localizationLanguageSave } from "./commands/localization/language/save.js";
+import { localizationLanguageSetDefault } from "./commands/localization/language/set-default.js";
+import { localizationModuleList } from "./commands/localization/module/list.js";
+import { localizationModuleListForTenant } from "./commands/localization/module/list-for-tenant.js";
+import { localizationModuleSave } from "./commands/localization/module/save.js";
+import { localizationModuleTagGlossary } from "./commands/localization/module/tag-glossary.js";
 import { localizationPull } from "./commands/localization/pull.js";
 import { localizationPush } from "./commands/localization/push.js";
 import { localizationValidate } from "./commands/localization/validate.js";
@@ -169,6 +205,78 @@ try {
     await localizationPush([subcommand, ...rest].filter(Boolean));
   } else if (command === "localization:pull") {
     await localizationPull([subcommand, ...rest].filter(Boolean));
+  } else if (command === "localization:assistant:translation-suggestion") {
+    await localizationAssistantTranslationSuggestion([subcommand, ...rest].filter(Boolean));
+  } else if (command === "localization:config:get-webhook") {
+    await localizationConfigGetWebhook([subcommand, ...rest].filter(Boolean));
+  } else if (command === "localization:config:save-webhook") {
+    await localizationConfigSaveWebhook([subcommand, ...rest].filter(Boolean));
+  } else if (command === "localization:glossary:save") {
+    await localizationGlossarySave([subcommand, ...rest].filter(Boolean));
+  } else if (command === "localization:glossary:list") {
+    await localizationGlossaryList([subcommand, ...rest].filter(Boolean));
+  } else if (command === "localization:glossary:get") {
+    await localizationGlossaryGet([subcommand, ...rest].filter(Boolean));
+  } else if (command === "localization:glossary:suggested") {
+    await localizationGlossarySuggested([subcommand, ...rest].filter(Boolean));
+  } else if (command === "localization:glossary:delete") {
+    await localizationGlossaryDelete([subcommand, ...rest].filter(Boolean));
+  } else if (command === "localization:key:save") {
+    await localizationKeySave([subcommand, ...rest].filter(Boolean));
+  } else if (command === "localization:key:list") {
+    await localizationKeyList([subcommand, ...rest].filter(Boolean));
+  } else if (command === "localization:key:get-by-names") {
+    await localizationKeyGetByNames([subcommand, ...rest].filter(Boolean));
+  } else if (command === "localization:key:get-timeline") {
+    await localizationKeyGetTimeline([subcommand, ...rest].filter(Boolean));
+  } else if (command === "localization:key:get-localization-timeline") {
+    await localizationKeyGetLocalizationTimeline([subcommand, ...rest].filter(Boolean));
+  } else if (command === "localization:key:get-timeline-by-operation-id") {
+    await localizationKeyGetTimelineByOperationId([subcommand, ...rest].filter(Boolean));
+  } else if (command === "localization:key:get") {
+    await localizationKeyGet([subcommand, ...rest].filter(Boolean));
+  } else if (command === "localization:key:delete") {
+    await localizationKeyDelete([subcommand, ...rest].filter(Boolean));
+  } else if (command === "localization:key:delete-keys") {
+    await localizationKeyDeleteKeys([subcommand, ...rest].filter(Boolean));
+  } else if (command === "localization:key:get-uilm-file") {
+    await localizationKeyGetUilmFile([subcommand, ...rest].filter(Boolean));
+  } else if (command === "localization:key:generate-uilm-file") {
+    await localizationKeyGenerateUilmFile([subcommand, ...rest].filter(Boolean));
+  } else if (command === "localization:key:translate-all") {
+    await localizationKeyTranslateAll([subcommand, ...rest].filter(Boolean));
+  } else if (command === "localization:key:translate-key") {
+    await localizationKeyTranslateKey([subcommand, ...rest].filter(Boolean));
+  } else if (command === "localization:key:translate-keys") {
+    await localizationKeyTranslateKeys([subcommand, ...rest].filter(Boolean));
+  } else if (command === "localization:key:uilm-import") {
+    await localizationKeyUilmImport([subcommand, ...rest].filter(Boolean));
+  } else if (command === "localization:key:uilm-export") {
+    await localizationKeyUilmExport([subcommand, ...rest].filter(Boolean));
+  } else if (command === "localization:key:get-uilm-exported-files") {
+    await localizationKeyGetUilmExportedFiles([subcommand, ...rest].filter(Boolean));
+  } else if (command === "localization:key:get-language-file-generation-history") {
+    await localizationKeyGetLanguageFileGenerationHistory([subcommand, ...rest].filter(Boolean));
+  } else if (command === "localization:key:rollback") {
+    await localizationKeyRollback([subcommand, ...rest].filter(Boolean));
+  } else if (command === "localization:language:save") {
+    await localizationLanguageSave([subcommand, ...rest].filter(Boolean));
+  } else if (command === "localization:language:list") {
+    await localizationLanguageList([subcommand, ...rest].filter(Boolean));
+  } else if (command === "localization:language:list-for-tenant") {
+    await localizationLanguageListForTenant([subcommand, ...rest].filter(Boolean));
+  } else if (command === "localization:language:delete") {
+    await localizationLanguageDelete([subcommand, ...rest].filter(Boolean));
+  } else if (command === "localization:language:set-default") {
+    await localizationLanguageSetDefault([subcommand, ...rest].filter(Boolean));
+  } else if (command === "localization:module:save") {
+    await localizationModuleSave([subcommand, ...rest].filter(Boolean));
+  } else if (command === "localization:module:list") {
+    await localizationModuleList([subcommand, ...rest].filter(Boolean));
+  } else if (command === "localization:module:list-for-tenant") {
+    await localizationModuleListForTenant([subcommand, ...rest].filter(Boolean));
+  } else if (command === "localization:module:tag-glossary") {
+    await localizationModuleTagGlossary([subcommand, ...rest].filter(Boolean));
   } else if (command === "release:deploy") {
     await releaseDeploy([subcommand, ...rest].filter(Boolean));
   } else if (command === "release:status") {
@@ -699,6 +807,90 @@ Localization:
   blocks-os localization:pull --module <name> --language <culture> [--out <path>] [--json]
     Download published cloud localization via
     /localization/v4/Key/GetCloudUilmFile and write a local JSON dictionary.
+
+  Raw API (/localization/v4/* — project-scoped: requires a selected project, impersonated
+            project token only). These call the Localization service endpoints directly,
+            in addition to the file-oriented validate/push/pull commands above.
+
+    blocks-os localization:assistant:translation-suggestion --source-text <text>
+                              --destination-language <culture> [--current-language]
+                              [--element-type] [--element-application-context]
+                              [--element-detail-context] [--temperature] [--max-character-length]
+                              [--glossary-ids a,b] [--module-id] [--destination-language-code]
+                              [--body '<json>'|--file <path>] [--json]
+
+    blocks-os localization:config:get-webhook [--json]
+    blocks-os localization:config:save-webhook --url <url> --content-type <type>
+                              --secret <s> --header-key <k> [--item-id <id>] [--is-disabled]
+                              [--body '<json>'|--file <path>] [--dry-run] [--yes] [--json]
+
+    blocks-os localization:glossary:save --name <n> [--item-id] [--language] [--type]
+                              [--context] [--additional-note] [--is-global] [--module-ids a,b]
+                              [--body '<json>'|--file <path>] [--dry-run] [--yes] [--json]
+    blocks-os localization:glossary:list [--search] [--page-number] [--page-size]
+                              [--is-global] [--module-id] [--json]
+    blocks-os localization:glossary:get <itemId> [--json]
+    blocks-os localization:glossary:suggested <itemId> [--max-results <n>] [--json]
+    blocks-os localization:glossary:delete <itemId> [--dry-run] [--yes] [--json]
+
+    blocks-os localization:key:save --key-name <n> --module-id <id> [--item-id] [--value]
+                              [--culture] [--routes a,b] [--glossary-ids a,b] [--context]
+                              [--is-new-key] [--is-partially-translated] [--should-publish]
+                              [--body '<json>'|--file <path>] [--dry-run] [--yes] [--json]
+    blocks-os localization:key:list [--key-search-text] [--search-key] [--module-ids a,b]
+                              [--page-number] [--page-size] [--sort-by] [--sort-desc]
+                              [--is-partially-translated] [--missing-languages a,b]
+                              [--create-date-start] [--create-date-end]
+                              [--last-update-date-start] [--last-update-date-end]
+                              [--glossary-id] [--body '<json>'|--file <path>] [--json]
+    blocks-os localization:key:get-by-names <keyName...>|--key-names a,b [--module-id] [--json]
+    blocks-os localization:key:get <itemId> [--json]
+    blocks-os localization:key:delete <itemId> [--dry-run] [--yes] [--json]
+    blocks-os localization:key:delete-keys <itemId...>|--item-ids a,b [--dry-run] [--yes] [--json]
+    blocks-os localization:key:get-timeline [--entity-id] [--user-id] [--page-number]
+                              [--page-size] [--sort-by] [--sort-desc] [--create-date-start]
+                              [--create-date-end] [--json]
+    blocks-os localization:key:get-localization-timeline [--user-id] [--log-from]
+                              [--log-from-values a,b] [--exclude-log-from-values a,b]
+                              [--page-number] [--page-size] [--sort-by] [--sort-desc]
+                              [--create-date-start] [--create-date-end] [--json]
+    blocks-os localization:key:get-timeline-by-operation-id <operationId> [--page-number]
+                              [--page-size] [--json]
+    blocks-os localization:key:get-uilm-file --module <name> --language <culture> [--json]
+    blocks-os localization:key:generate-uilm-file --module-id <id> [--guid]
+                              [--dry-run] [--yes] [--json]
+    blocks-os localization:key:translate-all --module-id <id> [--default-language]
+                              [--message-co-relation-id] [--dry-run] [--yes] [--json]
+    blocks-os localization:key:translate-key <keyId> --default-language <culture>
+                              [--message-co-relation-id] [--dry-run] [--yes] [--json]
+    blocks-os localization:key:translate-keys <keyId...>|--key-ids a,b --default-language <culture>
+                              [--message-co-relation-id] [--project-key]
+                              [--dry-run] [--yes] [--json]
+    blocks-os localization:key:uilm-import <fileId> [--message-co-relation-id]
+                              [--dry-run] [--yes] [--json]
+    blocks-os localization:key:uilm-export [--output-type <0-5>] [--app-ids a,b] [--languages a,b]
+                              [--reference-file-id] [--caller-tenant-id] [--start-date]
+                              [--end-date] [--message-co-relation-id] [--dry-run] [--yes] [--json]
+    blocks-os localization:key:get-uilm-exported-files [--search] [--page-number] [--page-size]
+                              [--create-date-start] [--create-date-end] [--json]
+    blocks-os localization:key:get-language-file-generation-history [--page-number]
+                              [--page-size] [--json]
+    blocks-os localization:key:rollback <itemId> [--dry-run] [--yes] [--json]
+
+    blocks-os localization:language:save --language-name <n> --language-code <c> [--item-id]
+                              [--is-default] [--body '<json>'|--file <path>]
+                              [--dry-run] [--yes] [--json]
+    blocks-os localization:language:list [--json]
+    blocks-os localization:language:list-for-tenant [--json]
+    blocks-os localization:language:delete <languageName> [--dry-run] [--yes] [--json]
+    blocks-os localization:language:set-default <languageName> [--dry-run] [--yes] [--json]
+
+    blocks-os localization:module:save --module-name <n> [--item-id]
+                              [--body '<json>'|--file <path>] [--dry-run] [--yes] [--json]
+    blocks-os localization:module:list [--json]
+    blocks-os localization:module:list-for-tenant [--json]
+    blocks-os localization:module:tag-glossary <moduleId> --glossary-ids a,b
+                              [--dry-run] [--yes] [--json]
 
 Release:
   blocks-os release:deploy --repo-id <repoId> [--dry-run] [--yes] [--json]
