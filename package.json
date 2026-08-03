@@ -1,0 +1,13 @@
+{
+  "name": "@seliseblocks/packages",
+  "private": true,
+  "description": "Umbrella workspace for SELISE Blocks npm packages.",
+  "workspaces": [
+    "blocks-cli-os",
+    "blocks-client"
+  ],
+  "scripts": {
+    "build": "npm run build --workspaces",
+    "test": "npm run test --workspaces"
+  }
+}
