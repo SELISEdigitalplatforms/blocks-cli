@@ -56,3 +56,21 @@ export function integerFlag(
 export function booleanFlag(flags: Record<string, string | boolean>, name: string): boolean {
   return flags[name] === true || flags[name] === "true";
 }
+
+export function optionalIntegerFlag(
+  flags: Record<string, string | boolean>,
+  name: string
+): number | undefined {
+  const value = flags[name];
+  if (value === undefined || value === true) return undefined;
+
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed)) throw new Error(`--${name} must be an integer`);
+  return parsed;
+}
+
+/** Unlike `booleanFlag`, distinguishes "not passed" (undefined) from an explicit `--flag=false`. */
+export function optionalBooleanFlag(flags: Record<string, string | boolean>, name: string): boolean | undefined {
+  if (!(name in flags)) return undefined;
+  return booleanFlag(flags, name);
+}
