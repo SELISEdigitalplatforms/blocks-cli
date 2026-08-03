@@ -74,6 +74,18 @@ import { iamUsersExists } from "./commands/iam/users/exists.js";
 import { iamUsersGet } from "./commands/iam/users/get.js";
 import { iamUsersList } from "./commands/iam/users/list.js";
 import { iamUsersUpdate } from "./commands/iam/users/update.js";
+import { mailConfigDelete } from "./commands/mail/config/delete.js";
+import { mailConfigDuplicate } from "./commands/mail/config/duplicate.js";
+import { mailConfigGet } from "./commands/mail/config/get.js";
+import { mailConfigList } from "./commands/mail/config/list.js";
+import { mailConfigSave } from "./commands/mail/config/save.js";
+import { mailMailboxGet } from "./commands/mail/mailbox/get.js";
+import { mailMailboxList } from "./commands/mail/mailbox/list.js";
+import { mailTemplateClone } from "./commands/mail/template/clone.js";
+import { mailTemplateDelete } from "./commands/mail/template/delete.js";
+import { mailTemplateGet } from "./commands/mail/template/get.js";
+import { mailTemplateList } from "./commands/mail/template/list.js";
+import { mailTemplateSave } from "./commands/mail/template/save.js";
 import { mfaBackupCodesGenerate } from "./commands/mfa/backup-codes/generate.js";
 import { mfaBackupCodesList } from "./commands/mfa/backup-codes/list.js";
 import { mfaBackupCodesUse } from "./commands/mfa/backup-codes/use.js";
@@ -86,6 +98,14 @@ import { mfaResend } from "./commands/mfa/resend.js";
 import { mfaTotpSetup } from "./commands/mfa/totp-setup.js";
 import { mfaTotpVerifySetup } from "./commands/mfa/totp-verify-setup.js";
 import { mfaVerify } from "./commands/mfa/verify.js";
+import { notificationDelete } from "./commands/notification/delete.js";
+import { notificationGet } from "./commands/notification/get.js";
+import { notificationList } from "./commands/notification/list.js";
+import { notificationSave } from "./commands/notification/save.js";
+import { storageConfigDelete } from "./commands/storage/config/delete.js";
+import { storageConfigGet } from "./commands/storage/config/get.js";
+import { storageConfigList } from "./commands/storage/config/list.js";
+import { storageConfigSave } from "./commands/storage/config/save.js";
 import { CliActionableError } from "./lib/errors.js";
 
 const [command, subcommand, ...rest] = process.argv.slice(2);
@@ -245,6 +265,46 @@ try {
     await mfaBackupCodesGenerate([subcommand, ...rest].filter(Boolean));
   } else if (command === "mfa:backup-codes:use") {
     await mfaBackupCodesUse([subcommand, ...rest].filter(Boolean));
+  } else if (command === "mail:config:list") {
+    await mailConfigList([subcommand, ...rest].filter(Boolean));
+  } else if (command === "mail:config:get") {
+    await mailConfigGet([subcommand, ...rest].filter(Boolean));
+  } else if (command === "mail:config:save") {
+    await mailConfigSave([subcommand, ...rest].filter(Boolean));
+  } else if (command === "mail:config:delete") {
+    await mailConfigDelete([subcommand, ...rest].filter(Boolean));
+  } else if (command === "mail:config:duplicate") {
+    await mailConfigDuplicate([subcommand, ...rest].filter(Boolean));
+  } else if (command === "mail:template:list") {
+    await mailTemplateList([subcommand, ...rest].filter(Boolean));
+  } else if (command === "mail:template:get") {
+    await mailTemplateGet([subcommand, ...rest].filter(Boolean));
+  } else if (command === "mail:template:save") {
+    await mailTemplateSave([subcommand, ...rest].filter(Boolean));
+  } else if (command === "mail:template:delete") {
+    await mailTemplateDelete([subcommand, ...rest].filter(Boolean));
+  } else if (command === "mail:template:clone") {
+    await mailTemplateClone([subcommand, ...rest].filter(Boolean));
+  } else if (command === "mail:mailbox:list") {
+    await mailMailboxList([subcommand, ...rest].filter(Boolean));
+  } else if (command === "mail:mailbox:get") {
+    await mailMailboxGet([subcommand, ...rest].filter(Boolean));
+  } else if (command === "notification:list") {
+    await notificationList([subcommand, ...rest].filter(Boolean));
+  } else if (command === "notification:get") {
+    await notificationGet([subcommand, ...rest].filter(Boolean));
+  } else if (command === "notification:save") {
+    await notificationSave([subcommand, ...rest].filter(Boolean));
+  } else if (command === "notification:delete") {
+    await notificationDelete([subcommand, ...rest].filter(Boolean));
+  } else if (command === "storage:config:list") {
+    await storageConfigList([subcommand, ...rest].filter(Boolean));
+  } else if (command === "storage:config:get") {
+    await storageConfigGet([subcommand, ...rest].filter(Boolean));
+  } else if (command === "storage:config:save") {
+    await storageConfigSave([subcommand, ...rest].filter(Boolean));
+  } else if (command === "storage:config:delete") {
+    await storageConfigDelete([subcommand, ...rest].filter(Boolean));
   } else if (command === "auth:idp:list") {
     await authIdpList([subcommand, ...rest].filter(Boolean));
   } else if (command === "auth:idp:get") {
@@ -499,6 +559,50 @@ MFA (/iam/v4/mfa*, project-scoped: requires a selected project, impersonated pro
   blocks-os mfa:backup-codes:list [--json]
   blocks-os mfa:backup-codes:generate [--dry-run] [--yes] [--json]
   blocks-os mfa:backup-codes:use <userId> <code> [--json]
+
+Mail (/os/v4/Mail/* — project-scoped: requires a selected project, impersonated project token only):
+  blocks-os mail:config:list [--json]
+    List SMTP/inbound mail configurations for the selected project.
+  blocks-os mail:config:get <name> [--json]
+  blocks-os mail:config:save [--configuration-id <id>] [--name <n>] [--host <h>] [--port <n>]
+                              [--enable-ssl] [--sender-name] [--sender-address] [--sender-username]
+                              [--account-password] [--inbound] [--provider <0|1>]
+                              [--body '<json>'|--file <path>] [--dry-run] [--yes] [--json]
+    Upsert: omit --configuration-id to create; pass it to update.
+  blocks-os mail:config:delete <configurationId> [--dry-run] [--yes] [--json]
+  blocks-os mail:config:duplicate <configurationId> [--dry-run] [--yes] [--json]
+  blocks-os mail:template:list [--page-number] [--page-size] [--search] [--sort-by] [--sort-desc]
+                              [--configuration-id] [--language] [--json]
+  blocks-os mail:template:get <itemId> [--json]
+  blocks-os mail:template:save [--item-id <id>] [--configuration-id] [--name] [--language]
+                              [--subject] [--template-body] [--json-content] [--image-id]
+                              [--image-url] [--body '<json>'|--file <path>] [--dry-run] [--yes] [--json]
+    Upsert: omit --item-id to create; pass it to update.
+  blocks-os mail:template:delete <itemId> [--dry-run] [--yes] [--json]
+  blocks-os mail:template:clone <itemId> [--configuration-id] [--language] [--name] [--subject]
+                              [--dry-run] [--yes] [--json]
+  blocks-os mail:mailbox:list [--page-number] [--page-size] [--status] [--search]
+                              [--start-date] [--end-date] [--inbound] [--json]
+  blocks-os mail:mailbox:get <messageId> [--json]
+
+Notification (/os/v4/Notification/* — project-scoped: requires a selected project, impersonated project token only):
+  blocks-os notification:list [--page] [--page-size] [--sort-by] [--sort-desc] [--filter] [--json]
+  blocks-os notification:get <itemId> [--json]
+  blocks-os notification:save [--name <n>] [--channel <0|1>] [--type <0-3>] [--enable-persistence]
+                              [--notify-method] [--update] [--body '<json>'|--file <path>]
+                              [--dry-run] [--yes] [--json]
+    Pass --update when saving over an existing notification configuration.
+  blocks-os notification:delete <itemId> [--dry-run] [--yes] [--json]
+
+Storage (/os/v4/Storage/* — project-scoped: requires a selected project, impersonated project token only):
+  blocks-os storage:config:list [--json]
+  blocks-os storage:config:get <name> [--json]
+  blocks-os storage:config:save [--item-id <id>] [--name <n>] [--strategy] [--connection-string]
+                              [--secret-key] [--access-key] [--region-endpoint] [--host] [--port]
+                              [--username] [--password] [--remote-base-path] [--update]
+                              [--body '<json>'|--file <path>] [--dry-run] [--yes] [--json]
+    Upsert: omit --item-id to create; pass --update to update.
+  blocks-os storage:config:delete <name> [--dry-run] [--yes] [--json]
 
 Auth Admin (/iam/v4/auth/identity-providers*, /config, /client-credentials, /oidc-clients —
             project-scoped: requires a selected project, impersonated project token only):

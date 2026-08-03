@@ -124,15 +124,36 @@ For local browser login on the real host domain:
 
 The generated cert script uses the `selfsigned` Node dependency, so it works from normal PowerShell after `npm install`; do not tell Windows users to switch to Git Bash just for OpenSSL. If hosted login or secure cookies fail locally, confirm the app is opened with the HTTPS dev URL from `VITE_BLOCKS_DEV_HOST`.
 
-## IAM
+## IAM, MFA, and Auth Admin
 
-The CLI exposes only the current user:
+`iam:me` reads the CLI operator's own account identity (bootstrapping, not a project resource):
 
 ```bash
 blocks-os iam:me --json
 ```
 
-Do not add IAM admin behavior outside the supported CLI commands unless the CLI package is explicitly extended and tested.
+Every other command below is project-scoped: it requires a project already selected (`blocks-os use <tenantId>`) and always calls IAM through an impersonated project token - never the account token, and never something you construct yourself. If no project is selected, the command fails with `project_not_selected`; run `blocks-os use <tenantId>` first (see Agent Failure Handling).
+
+Command families (run `blocks-os --help` for the full flag reference on each):
+
+- `iam:users:*`, `iam:email:available` - list/get/create/update/activate/deactivate, access grant/revoke, existence and email-availability checks.
+- `iam:roles:*` - list/get/create/update, assign-permissions, assignable.
+- `iam:permissions:*` - list/get/create/update, by-severity.
+- `iam:resources:*` - resource groups and feature flags (read-only).
+- `iam:organizations:*` - list/get/create/update, `my`, and organization config get/save.
+- `iam:signup-settings:*` - get/save tenant signup policy.
+- `mfa:config:*`, `mfa:totp:*`, `mfa:generate`/`resend`/`verify`, `mfa:method:set`, `mfa:disable`, `mfa:backup-codes:*` - tenant MFA policy plus enrollment/verification/backup-code flows.
+- `auth:idp:*` - identity provider (SSO/OIDC) configuration: list/get/create/update/delete/status.
+- `auth:config:*` - AuthController tenant config (token lifetimes, lockout policy, etc.).
+- `auth:client-credentials:*` - machine-to-machine client credentials: list/save/delete.
+- `auth:oidc-clients:*` - OIDC client app registrations: list/get/save (upsert)/delete/rotate-secret.
+
+Rules:
+
+- Use `--dry-run` before any mutating command in these families, the same as Data/Localization/Release, then `--yes` only after explicit approval.
+- Rich payloads (identity provider config, OIDC client config, user/role/permission create-update bodies, etc.) accept `--body '<json>'` or `--file <path.json>` on top of the documented convenience flags - use whichever is easier for the exact fields you need to set.
+- `auth:idp:create`/`update`, `auth:client-credentials:save`, and `auth:oidc-clients:save`/`rotate-secret` can return a `client_secret` shown only once. Never print, log, commit, or otherwise persist it outside what the user explicitly asked to store; treat that response the same as any other CLI-managed secret.
+- Do not add IAM/MFA/Auth admin behavior outside these supported CLI commands unless the CLI package is explicitly extended and tested.
 
 ## Data
 
@@ -230,6 +251,60 @@ blocks-os localization:pull --module common --language en --json
 ```
 
 Use Localization gateway v4 paths without `/api`: `/localization/v4/Module/Gets`, `/localization/v4/Module/Save`, `/localization/v4/Key/SaveKeys`, and `/localization/v4/Key/GetCloudUilmFile`.
+
+## Mail
+
+Project-scoped SMTP/inbound mail configuration, templates, and mailbox reads via `/os/v4/Mail/*`:
+
+```bash
+blocks-os mail:config:list --json
+blocks-os mail:config:get <name> --json
+blocks-os mail:config:save --name <n> --host <h> --port <p> --enable-ssl \
+  --sender-name <n> --sender-address <addr> --account-password <p> --dry-run --json
+blocks-os mail:config:save --configuration-id <id> ... --yes --json   # update
+blocks-os mail:config:delete <configurationId> --dry-run --json
+blocks-os mail:config:duplicate <configurationId> --dry-run --json
+
+blocks-os mail:template:list --configuration-id <id> --json
+blocks-os mail:template:get <itemId> --json
+blocks-os mail:template:save --configuration-id <id> --name <n> --language <l> \
+  --subject <s> --template-body <html> --dry-run --json
+blocks-os mail:template:delete <itemId> --dry-run --json
+blocks-os mail:template:clone <itemId> --name <n> --dry-run --json
+
+blocks-os mail:mailbox:list --configuration-id <id> --json
+blocks-os mail:mailbox:get <messageId> --json
+```
+
+Treat `--account-password` as a secret; the CLI redacts it in `--dry-run` output but the live response is still yours to protect.
+
+## Notification
+
+Project-scoped notification channel configuration via `/os/v4/Notification/*`:
+
+```bash
+blocks-os notification:list --json
+blocks-os notification:get <itemId> --json
+blocks-os notification:save --name <n> --channel <0|1> --type <0-3> --dry-run --json
+blocks-os notification:save --name <n> --channel <0|1> --type <0-3> --update --yes --json
+blocks-os notification:delete <itemId> --dry-run --json
+```
+
+`--channel` and `--type` are raw numeric enum values from the Blocks OS API (`NotifierTypes`, `NotificationReceiverTypes`) — the API does not publish names for them.
+
+## Storage
+
+Project-scoped storage backend configuration via `/os/v4/Storage/*`:
+
+```bash
+blocks-os storage:config:list --json
+blocks-os storage:config:get <name> --json
+blocks-os storage:config:save --name <n> --strategy <s> --secret-key <k> --access-key <k> --dry-run --json
+blocks-os storage:config:save --item-id <id> --update ... --yes --json   # update
+blocks-os storage:config:delete <name> --dry-run --json
+```
+
+`--secret-key`, `--access-key`, `--password`, and `--connection-string` are secrets; the CLI redacts them in `--dry-run` output only.
 
 ## Release
 
