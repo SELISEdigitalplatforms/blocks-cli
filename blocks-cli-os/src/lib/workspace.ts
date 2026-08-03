@@ -16,9 +16,6 @@ export type BlocksWorkspaceConfig = {
     appDomain?: string;
     tenantId?: string;
   };
-  release?: {
-    config?: string;
-  };
 };
 
 export async function readWorkspaceConfig(): Promise<BlocksWorkspaceConfig> {
@@ -89,10 +86,9 @@ export async function clearSelectedProject(): Promise<string | undefined> {
   return tenantId;
 }
 
-export function pathsFromWorkspace(config: BlocksWorkspaceConfig): { dictionaries: string; releaseConfig: string; rules: string; schemas: string } {
+export function pathsFromWorkspace(config: BlocksWorkspaceConfig): { dictionaries: string; rules: string; schemas: string } {
   return {
     dictionaries: config.localization?.dictionaries ?? "blocks/localization",
-    releaseConfig: config.release?.config ?? "blocks/release/deploy.json",
     rules: config.data?.rules ?? "blocks/data/rules.json",
     schemas: config.data?.schemas ?? "blocks/data/schemas"
   };
