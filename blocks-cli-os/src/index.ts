@@ -37,6 +37,11 @@ import { authIdpGet } from "./commands/auth/idp/get.js";
 import { authIdpList } from "./commands/auth/idp/list.js";
 import { authIdpStatus } from "./commands/auth/idp/status.js";
 import { authIdpUpdate } from "./commands/auth/idp/update.js";
+import { authOidcClientsDelete } from "./commands/auth/oidc-clients/delete.js";
+import { authOidcClientsGet } from "./commands/auth/oidc-clients/get.js";
+import { authOidcClientsList } from "./commands/auth/oidc-clients/list.js";
+import { authOidcClientsRotateSecret } from "./commands/auth/oidc-clients/rotate-secret.js";
+import { authOidcClientsSave } from "./commands/auth/oidc-clients/save.js";
 import { iamEmailAvailable } from "./commands/iam/email/available.js";
 import { iamOrganizationsConfigGet } from "./commands/iam/organizations/config-get.js";
 import { iamOrganizationsConfigSave } from "./commands/iam/organizations/config-save.js";
@@ -262,6 +267,16 @@ try {
     await authClientCredentialsSave([subcommand, ...rest].filter(Boolean));
   } else if (command === "auth:client-credentials:delete") {
     await authClientCredentialsDelete([subcommand, ...rest].filter(Boolean));
+  } else if (command === "auth:oidc-clients:list") {
+    await authOidcClientsList([subcommand, ...rest].filter(Boolean));
+  } else if (command === "auth:oidc-clients:get") {
+    await authOidcClientsGet([subcommand, ...rest].filter(Boolean));
+  } else if (command === "auth:oidc-clients:save") {
+    await authOidcClientsSave([subcommand, ...rest].filter(Boolean));
+  } else if (command === "auth:oidc-clients:delete") {
+    await authOidcClientsDelete([subcommand, ...rest].filter(Boolean));
+  } else if (command === "auth:oidc-clients:rotate-secret") {
+    await authOidcClientsRotateSecret([subcommand, ...rest].filter(Boolean));
   } else {
     throw new Error(`Unknown command: ${[command, subcommand].filter(Boolean).join(" ")}`);
   }
@@ -485,8 +500,8 @@ MFA (/iam/v4/mfa*, project-scoped: requires a selected project, impersonated pro
   blocks-os mfa:backup-codes:generate [--dry-run] [--yes] [--json]
   blocks-os mfa:backup-codes:use <userId> <code> [--json]
 
-Auth Admin (/iam/v4/auth/identity-providers*, /config, /client-credentials — project-scoped:
-            requires a selected project, impersonated project token only):
+Auth Admin (/iam/v4/auth/identity-providers*, /config, /client-credentials, /oidc-clients —
+            project-scoped: requires a selected project, impersonated project token only):
   blocks-os auth:idp:list [--json]
   blocks-os auth:idp:get <id> [--json]
   blocks-os auth:idp:create --provider <p> --provider-type <t> --protocol <proto>
@@ -517,6 +532,27 @@ Auth Admin (/iam/v4/auth/identity-providers*, /config, /client-credentials — p
     Omit --item-id to create; pass it to update. The response's clientSecret is
     shown once and is not retrievable again afterward.
   blocks-os auth:client-credentials:delete <id> [--dry-run] [--yes] [--json]
+
+  blocks-os auth:oidc-clients:list [--json]
+    List registered OAuth 2.0 / OIDC client applications for the tenant. client_secret
+    is excluded from list/get responses.
+  blocks-os auth:oidc-clients:get <clientId> [--json]
+  blocks-os auth:oidc-clients:save [--item-id <id>] [--client-display-name] [--client-type]
+                              [--redirect-uris a,b] [--post-logout-redirect-uris a,b]
+                              [--scope] [--allowed-scopes a,b] [--allowed-response-types a,b]
+                              [--require-pkce] [--require-consent] [--require-mfa]
+                              [--allowed-mfa-methods 0,1] [--front-channel-logout-uri]
+                              [--back-channel-logout-uri] [--auto-redirect]
+                              [--external-discovery-endpoint] [--active] [--login-mode]
+                              [--client-logo-url] [--client-brand-color] [--use-tokens-cookie]
+                              [--register-as-identity-provider] [--device-flow-client]
+                              [--body '<json>'|--file <path>] [--dry-run] [--yes] [--json]
+    Upsert: omit --item-id to register a new client, pass it to update an existing one.
+    The response's client_secret is shown once and is not retrievable again afterward.
+  blocks-os auth:oidc-clients:delete <clientId> [--dry-run] [--yes] [--json]
+    Irreversible; revokes all tokens issued to the client.
+  blocks-os auth:oidc-clients:rotate-secret <clientId> [--dry-run] [--yes] [--json]
+    Generates a new client_secret, shown once; the old secret stops working immediately.
 
 Data:
   blocks-os data:validate [--json]

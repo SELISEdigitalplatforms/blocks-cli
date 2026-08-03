@@ -2,6 +2,7 @@ import { BlocksHttpClient } from "../http/http-client.js";
 import {
   BlocksMfaBackupCodeUseRequest,
   BlocksMfaConfig,
+  BlocksMfaConfigSaveRequest,
   BlocksMfaGenerateRequest,
   BlocksMfaPassThroughResponse,
   BlocksMfaResendRequest,
@@ -13,10 +14,10 @@ import {
 const MFA_API = "/iam/v4/mfa";
 
 /**
- * Consumer-facing MFA surface: enroll, verify, switch, or disable the signed-in user's own MFA,
- * and manage their own backup codes. Tenant-wide MFA policy (`POST /iam/v4/mfa/config`) is
- * deliberately not exposed here -- that's an admin/tenant-settings action, not a user self-service
- * flow, the same distinction the SDK already draws for `identityProviders` admin methods.
+ * MFA surface: enroll, verify, switch, or disable the signed-in user's own MFA and manage
+ * their own backup codes, plus `saveConfig` for the tenant-wide MFA policy. Like
+ * `identityProviders`/`config`/`clientCredentials` on `BlocksAuthenticationClient`, `saveConfig`
+ * is an admin/tenant-settings action -- IAM enforces the required role, the SDK does not gate it.
  */
 export class BlocksMfaClient {
   constructor(private readonly http: BlocksHttpClient) {}
@@ -28,6 +29,16 @@ export class BlocksMfaClient {
    */
   config(): Promise<BlocksMfaConfig> {
     return this.http.request<BlocksMfaConfig>(`${MFA_API}/config`);
+  }
+
+  /**
+   * What: saves the tenant's MFA policy through `POST /iam/v4/mfa/config`.
+   * Why: tenant admin/settings screens need to turn MFA on/off, require it for specific roles,
+   * or configure backup codes -- this is not a user self-service action.
+   * How: pass IAM's full config payload with an authorized, sufficiently-privileged token.
+   */
+  saveConfig(request: BlocksMfaConfigSaveRequest): Promise<BlocksMfaPassThroughResponse> {
+    return this.http.request<BlocksMfaPassThroughResponse>(`${MFA_API}/config`, { body: request });
   }
 
   readonly totp = {
