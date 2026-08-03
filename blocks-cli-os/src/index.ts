@@ -86,7 +86,7 @@ import { localizationValidate } from "./commands/localization/validate.js";
 import { login } from "./commands/login.js";
 import { logout } from "./commands/logout.js";
 import { newWeb } from "./commands/new/web.js";
-import { createProject } from "./commands/projects/create.js";
+// import { createProject } from "./commands/projects/create.js"; // disabled for now
 import { getProject } from "./commands/projects/get.js";
 import { listProjects } from "./commands/projects/list.js";
 import { releaseBuildsGet } from "./commands/release/builds/get.js";
@@ -207,8 +207,6 @@ try {
     await listProjects([subcommand, ...rest].filter(Boolean));
   } else if (command === "projects" && subcommand === "list") {
     await listProjects(rest);
-  } else if (command === "projects:create" || (command === "projects" && subcommand === "create")) {
-    await createProject(command === "projects" ? rest : [subcommand, ...rest].filter(Boolean));
   } else if (command === "projects:get" || (command === "projects" && subcommand === "get")) {
     await getProject(command === "projects" ? rest : [subcommand, ...rest].filter(Boolean));
   } else if (command === "use") {
@@ -645,13 +643,11 @@ Projects:
     List accessible Blocks projects via /os/v4/Project/Gets using the account
     token. Read-only.
 
-  blocks-os projects:get [tenantId] [--json]
+  blocks-os projects:get [tenantId] [--deployment] [--json]
     Read one project from Project/Gets. Uses selected project when tenantId is
-    omitted. Read-only.
-
-  blocks-os projects:create <name> [--env dev] [--yes] [--dry-run] [--json]
-    Create a Blocks project/environment via /os/v4/Project/Create using the
-    account token. Mutating; supports dry-run and confirmation.
+    omitted. Pass --deployment to also include the environment, tenantGroupId,
+    and linked repo assets (from Project/GetAsset) that 'release:deploy' uses
+    to resolve its target. Read-only.
 
   blocks-os use <project-tenant-id>
     Save the selected project tenant globally and in blocks.json when present.
@@ -1101,20 +1097,30 @@ Release:
     Read Release build status by build id using an impersonated project
     token. Read-only.
 
-  blocks-os release:builds:list --repo-id <repoId> [--json]
+  blocks-os release:builds:list [repoId] [--repo-id <repoId>] [--json]
     List Release build details for a repository using an impersonated project
-    token. Read-only.
+    token. When repoId is omitted, resolves it from the selected project's
+    linked repo assets (Project/GetAsset, account token) -- auto-picked if
+    there's exactly one, otherwise you're prompted to choose. Read-only.
 
   blocks-os release:builds:get <buildId> [--json]
     Alias for release:status. Read-only.
 
 Scaffold:
-  blocks-os new web <name> --x-blocks-key <tenantId> --app-domain <domain> [--client-id <oidcClientId>]
-                    [--blocks-api-url <url>] [--oidc-url <url>]
+  blocks-os new web <name> [--app-domain <domain>] [--client-id <oidcClientId>]
+                    [--x-blocks-key <tenantId>] [--blocks-api-url <url>] [--oidc-url <url>]
     Create a Vite React starter app with a real browser Authorization Code +
     PKCE login flow against Blocks IAM (login page, /login/callback handler,
     route guards), plus Data schema listing, Release build lookup, environment
     config, and safe .gitignore defaults.
+    Uses the selected project (see 'use') unless --x-blocks-key overrides it.
+    --app-domain and --client-id are resolved from the project when omitted:
+    if the project has one domain it's used automatically, otherwise you're
+    prompted to choose; the OIDC client is picked from a list of the
+    project's existing clients, or you can create a minimal one (display
+    name + redirect URI, active, registered as a Blocks OIDC identity
+    provider) on the spot, or skip and register one later from the portal or
+    'auth:oidc-clients:save'.
     --blocks-api-url defaults to the OS API (os.seliseblocks.com) if omitted -
     pass the runtime Data/IAM/Localization gateway URL explicitly (typically
     https://api.seliseblocks.com) for the scaffolded app to work at runtime.

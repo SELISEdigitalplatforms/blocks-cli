@@ -1,28 +1,29 @@
-import { blocksRequest } from "../../lib/api.js";
+import { booleanFlag } from "../../lib/args.js";
 import { writeOutput } from "../../lib/output.js";
-import { requestContext } from "../../lib/request-context.js";
+import { findProjectByTenantId, getProjectAssets } from "../../lib/project-info.js";
 import { parseCommand, selectedProject } from "../../lib/workspace.js";
-
-type ProjectGroup = {
-  projects?: Array<{ tenantId?: string } & Record<string, unknown>>;
-} & Record<string, unknown>;
 
 export async function getProject(argv: string[]): Promise<void> {
   const { args, flags } = parseCommand(argv);
   const tenantId = args[0] || await selectedProject(flags);
-  const groups = await blocksRequest<ProjectGroup[]>("/os/v4/Project/Gets", {
-    accountAuth: true,
-    ...requestContext(flags),
-    query: { page: 0, pageSize: 100, tenantGroupId: "" }
-  });
+  const { group, project } = await findProjectByTenantId(tenantId, flags);
 
-  for (const group of groups) {
-    const project = (group.projects ?? []).find((item) => item.tenantId === tenantId);
-    if (project) {
-      writeOutput({ group, project }, flags);
-      return;
-    }
+  if (!booleanFlag(flags, "deployment") || !group.tenantGroupId) {
+    writeOutput({ group, project }, flags);
+    return;
   }
 
-  throw new Error(`Project '${tenantId}' was not found in Project/Gets.`);
+  const assets = await getProjectAssets(group.tenantGroupId, flags);
+  writeOutput(
+    {
+      deployment: {
+        environment: project.environment,
+        repos: assets.assets?.resources ?? [],
+        tenantGroupId: group.tenantGroupId
+      },
+      group,
+      project
+    },
+    flags
+  );
 }
