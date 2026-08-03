@@ -9,7 +9,7 @@ type RequestOptions = {
   impersonatedProjectAuth?: boolean;
   method?: string;
   projectTenantId?: string;
-  query?: Record<string, string | number | boolean | undefined>;
+  query?: Record<string, string | number | boolean | string[] | undefined>;
 };
 
 export async function blocksRequest<T>(path: string, options: RequestOptions = {}): Promise<T> {
@@ -19,7 +19,12 @@ export async function blocksRequest<T>(path: string, options: RequestOptions = {
   const url = buildUrl(baseUrl, path);
 
   for (const [key, value] of Object.entries(options.query ?? {})) {
-    if (value !== undefined) url.searchParams.set(key, String(value));
+    if (value === undefined) continue;
+    if (Array.isArray(value)) {
+      for (const item of value) url.searchParams.append(key, item);
+      continue;
+    }
+    url.searchParams.set(key, String(value));
   }
 
   const headers: Record<string, string> = {

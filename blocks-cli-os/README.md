@@ -62,6 +62,7 @@ node bin/run.js --version
 | `blocks-os localization:validate --module <name> --language <culture> [--file <path>] [--json]` | Validate a local i18n JSON dictionary. Supports nested JSON input and checks the flattened key/value set locally. |
 | `blocks-os localization:push --module <name> --language <culture> [--file <path>] [--route <route>] [--context <text>] [--dry-run] [--yes] [--json]` | Create or update Localization keys from local i18n JSON via `/localization/v4/Key/SaveKeys`. Creates the module first through `/localization/v4/Module/Save` when missing. |
 | `blocks-os localization:pull --module <name> --language <culture> [--out <path>] [--json]` | Download published cloud localization via `/localization/v4/Key/GetCloudUilmFile` and write a local JSON dictionary. |
+| `blocks-os localization:assistant:translation-suggestion`, `localization:config:*`, `localization:glossary:*`, `localization:key:*`, `localization:language:*`, `localization:module:*` | Full raw `/localization/v4/*` API surface (AI translation suggestions, tenant webhook config, glossary CRUD, key CRUD/search/timeline/translate/UILM import-export/rollback, language CRUD, module CRUD/glossary tagging) alongside the file-oriented validate/push/pull commands above. Project-scoped, impersonated project token only. Run `blocks-os --help` for the full command/flag list. |
 | `blocks-os release:deploy --repo-id <repoId> [--dry-run] [--yes] [--json]` | Trigger a manual Release build/deploy for a configured repository. Mutating; no artifact upload is performed by this CLI. |
 | `blocks-os release:status <buildId> [--json]` | Read Release build status by build id. Read-only. |
 | `blocks-os release:builds:list --repo-id <repoId> [--json]` | List Release build details for a repository. Read-only. |
@@ -137,6 +138,6 @@ Localization dictionaries default to `blocks/localization/<module>.<language>.js
 
 - `iam:me` reads the CLI operator's own account identity; every other `iam:*`, `mfa:*`, `auth:idp:*`/`auth:config:*`/`auth:client-credentials:*`/`auth:oidc-clients:*`, `mail:*`, `notification:*`, and `storage:config:*` command is project-scoped and requires a selected project (`blocks-os use <tenantId>`) plus an impersonated project token - none of them ever run against the account token.
 - Data covers schema/rules/reload/validate only.
-- Localization covers dictionary validate/pull/push through the Localization service.
+- Localization covers dictionary validate/pull/push plus the full raw `/localization/v4/*` API surface (assistant, config, glossary, key, language, module).
 - Release covers deploy trigger and build status/read commands only.
 - No direct artifact upload unless Blocks Release adds a confirmed artifact upload API.

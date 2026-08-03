@@ -252,6 +252,22 @@ blocks-os localization:pull --module common --language en --json
 
 Use Localization gateway v4 paths without `/api`: `/localization/v4/Module/Gets`, `/localization/v4/Module/Save`, `/localization/v4/Key/SaveKeys`, and `/localization/v4/Key/GetCloudUilmFile`.
 
+### Raw Localization API
+
+`validate`/`push`/`pull` above cover the common i18n file workflow. Every other `/localization/v4/*` endpoint is also exposed directly, project-scoped with an impersonated project token only (never the account token). Run `blocks-os --help` for the full flag reference on each; command families:
+
+- `localization:assistant:translation-suggestion` - AI translation suggestion for a single string (`--source-text`, `--destination-language`, optional glossary/context flags).
+- `localization:config:get-webhook`/`save-webhook` - tenant webhook config for localization change notifications.
+- `localization:glossary:save`/`list`/`get`/`suggested`/`delete` - glossary term CRUD and AI-suggested glossary lookup.
+- `localization:key:save`/`list`/`get-by-names`/`get`/`delete`/`delete-keys` - key CRUD and search beyond the bulk `push`/`pull` flow.
+- `localization:key:get-timeline`/`get-localization-timeline`/`get-timeline-by-operation-id`/`rollback` - key/tenant change history and rollback.
+- `localization:key:get-uilm-file`/`generate-uilm-file`/`uilm-import`/`uilm-export`/`get-uilm-exported-files`/`get-language-file-generation-history` - UILM language-file generation and import/export jobs.
+- `localization:key:translate-all`/`translate-key`/`translate-keys` - trigger AI machine translation for a module or specific keys.
+- `localization:language:save`/`list`/`list-for-tenant`/`delete`/`set-default` - tenant language catalog management.
+- `localization:module:save`/`list`/`list-for-tenant`/`tag-glossary` - module CRUD and glossary tagging.
+
+Same rules as everywhere else: `--dry-run` before any mutating command, then `--yes` only after explicit approval; rich payloads accept `--body '<json>'`/`--file <path.json>` on top of the documented convenience flags. `localization:config:save-webhook`'s `--secret` is redacted in `--dry-run` output only - treat the live response as a secret.
+
 ## Mail
 
 Project-scoped SMTP/inbound mail configuration, templates, and mailbox reads via `/os/v4/Mail/*`:
