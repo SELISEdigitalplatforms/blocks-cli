@@ -34,7 +34,7 @@ node bin/run.js --version
 
 | Command | Description |
 |---|---|
-| `blocks-os init` | Create local Blocks workspace files: `blocks.json`, data schema/rules folders, release deploy config, and `.env.example`. |
+| `blocks-os init` | Create local Blocks workspace files: `blocks.json`, data schema/rules folders, and `.env.example`. |
 | `blocks-os doctor [--json]` | Check Node.js, OIDC config, token cache, selected project, and config file locations. Does not mutate cloud resources. |
 | `blocks-os login` | Device-code login. Prints a verification URL and user code, opens the browser to the verification page when possible so you only need to click approve, then polls until the device is authorized; stores account tokens and auto-refreshes later. |
 | `blocks-os auth:status [--json]` | Show only whether account/project access and refresh tokens are missing, valid, expired, or available. Does not print account config values. |
@@ -59,13 +59,18 @@ node bin/run.js --version
 | `blocks-os data:rules:pull [--json]` | Download data-access policies into `blocks/data/rules.json`. Writes local files only. |
 | `blocks-os data:rules:deploy [--dry-run] [--yes] [--json]` | Apply schema security and data-access policies. Mutating; supports dry-run and confirmation. |
 | `blocks-os data:reload [--dry-run] [--yes] [--json]` | Reload Data schema configuration so staged schema/rule changes become live. Mutating; calls POST `/data/v4/schema-configurations/reload`. |
+| `blocks-os data:config:get/create/update` | Tenant data-source configuration via `/data/v4/configurations` - check `get` first, it defaults to Blocks-managed storage; `create`/`update` point the gateway at an external database. Impersonated project token only. |
+| `blocks-os data:schema:get/get-by-name/aggregation/change-logs/delete/fields/info:*` | Raw `/data/v4/schemas*` API beyond the file-oriented `list/pull/push` above: single-schema/by-name lookups, access-level aggregation, unadapted change logs, delete, and a metadata-first (`info:*`) plus field-only (`fields`) alternative to `push`. Run `blocks-os --help` for the full flag reference. |
+| `blocks-os data:rules:policy:get/delete` | Single data-access policy read/delete via `/data/v4/data-access/policy/*`, alongside the bulk file-oriented `rules:pull/deploy` above. |
+| `blocks-os data:validation:list/get/by-schema/by-schema-field/save/delete` | Field-level validation rules via `/data/v4/data-validations*`. No file-oriented workflow exists for this yet; `save` is an upsert (omit `--item-id` to create) and requires a `validations` array via `--body`/`--file`. |
+| `blocks-os data:files:*` | Full DMS/storage surface via `/data/v4/Files/*`: `get`/`get-many`/`info` (read), `presigned-upload-url` + `upload-to-url` (cloud storage, two steps) or `upload-to-local-storage` (one step, local storage), `update-additional-info`, `delete`, `dms-list`/`dms-upload` (folder browsing/file registration), `create-folder`/`delete-folder`. Here `--file <path>` is the local binary to upload/read, not a JSON payload file - see [AI_USAGE_GUIDE.md](AI_USAGE_GUIDE.md) for the distinction. |
 | `blocks-os localization:validate --module <name> --language <culture> [--file <path>] [--json]` | Validate a local i18n JSON dictionary. Supports nested JSON input and checks the flattened key/value set locally. |
 | `blocks-os localization:push --module <name> --language <culture> [--file <path>] [--route <route>] [--context <text>] [--dry-run] [--yes] [--json]` | Create or update Localization keys from local i18n JSON via `/localization/v4/Key/SaveKeys`. Creates the module first through `/localization/v4/Module/Save` when missing. |
 | `blocks-os localization:pull --module <name> --language <culture> [--out <path>] [--json]` | Download published cloud localization via `/localization/v4/Key/GetCloudUilmFile` and write a local JSON dictionary. |
 | `blocks-os localization:assistant:translation-suggestion`, `localization:config:*`, `localization:glossary:*`, `localization:key:*`, `localization:language:*`, `localization:module:*` | Full raw `/localization/v4/*` API surface (AI translation suggestions, tenant webhook config, glossary CRUD, key CRUD/search/timeline/translate/UILM import-export/rollback, language CRUD, module CRUD/glossary tagging) alongside the file-oriented validate/push/pull commands above. Project-scoped, impersonated project token only. Run `blocks-os --help` for the full command/flag list. |
-| `blocks-os release:deploy --repo-id <repoId> [--dry-run] [--yes] [--json]` | Trigger a manual Release build/deploy for a configured repository. Mutating; no artifact upload is performed by this CLI. |
+| `blocks-os release:deploy [--domain <customDomain>] [--dry-run] [--yes] [--json]` | Deploy the selected project's environment. No `--repo-id` needed - resolves the linked repo via `Project/GetAsset` and its connected branch via `Build/repo-details`, and aborts if that branch doesn't match the environment name. Pass `--domain` to also set the custom deployment domain first. Mutating; no artifact upload is performed by this CLI. |
 | `blocks-os release:status <buildId> [--json]` | Read Release build status by build id. Read-only. |
-| `blocks-os release:builds:list --repo-id <repoId> [--json]` | List Release build details for a repository. Read-only. |
+| `blocks-os release:builds:list --repo-id <repoId> [--json]` | List Release build details for a specific repository id. Read-only. |
 | `blocks-os release:builds:get <buildId> [--json]` | Alias for `release:status`. Read-only. |
 | `blocks-os new web <name> --x-blocks-key <tenantId> --app-domain <domain-or-url> [--client-id <oidcClientId>]` | Create a Vite React starter app that talks to Blocks exclusively through `@seliseblocks/client` (a single `createBlocksClient()` instance) using the SDK hosted IdP flow: `blocksClient.auth.idp.redirectToProvider()` on login click and `blocksClient.auth.idp.callback()` on `/login/callback`. Includes route guards, auto-refresh through `auth.oidc.refreshToken()`, live `auth`/`iam`/`data`/`localization` SDK examples, environment config, and safe `.gitignore` defaults. Register a **public** OIDC client with redirect URIs for both your local HTTPS dev origin and `--app-domain`, then pass its id as `--client-id` (or set `VITE_BLOCKS_OIDC_CLIENT_ID` in `.env` afterwards). |
 
@@ -125,8 +130,6 @@ blocks/
     schemas/
     rules.json
   localization/
-  release/
-    deploy.json
 .env.example
 ```
 
@@ -134,10 +137,12 @@ Localization dictionaries default to `blocks/localization/<module>.<language>.js
 
 `blocks-os use <tenantId>` updates the selected project in global CLI state and `blocks.json` when present.
 
+`blocks-os release:deploy` has no local config file - it needs a repo already linked to the project. Linking a repo requires GitHub OAuth, which only the Blocks portal can do; if none is linked, the command tells you so and stops.
+
 ## Boundaries
 
 - `iam:me` reads the CLI operator's own account identity; every other `iam:*`, `mfa:*`, `auth:idp:*`/`auth:config:*`/`auth:client-credentials:*`/`auth:oidc-clients:*`, `mail:*`, `notification:*`, and `storage:config:*` command is project-scoped and requires a selected project (`blocks-os use <tenantId>`) plus an impersonated project token - none of them ever run against the account token.
-- Data covers schema/rules/reload/validate only.
+- Data covers the tenant data-source configuration, schema/rules/reload/validate, field-level validation rules, and the DMS/storage (`data:files:*`) surface.
 - Localization covers dictionary validate/pull/push plus the full raw `/localization/v4/*` API surface (assistant, config, glossary, key, language, module).
 - Release covers deploy trigger and build status/read commands only.
 - No direct artifact upload unless Blocks Release adds a confirmed artifact upload API.

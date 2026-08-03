@@ -670,7 +670,7 @@ test("json mode emits structured auth errors", async () => {
 
   const error = JSON.parse(result.stderr);
   assert.equal(error.code, "not_logged_in");
-  assert.equal(error.nextStep, "blocks-os login");
+  assert.equal(error.nextStep, "blocks-os login, then blocks-os projects list, then blocks-os use <tenantId>");
 });
 
 test("auth:status tolerates stale Windows DPAPI values", { skip: process.platform !== "win32" }, async () => {

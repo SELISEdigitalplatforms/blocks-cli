@@ -157,6 +157,21 @@ Rules:
 
 ## Data
 
+Check the data-source configuration first. Most projects run on Blocks-managed storage by default, so this is usually the only `data:config:*` command you need:
+
+```bash
+blocks-os data:config:get --json
+```
+
+Only create/update a data source configuration after explicit user approval - it points the project's Data Gateway at a different (external) database, which is a deliberate, rare action:
+
+```bash
+blocks-os data:config:create --connection-string "<cs>" --database-name "<name>" --dry-run --json
+blocks-os data:config:create --connection-string "<cs>" --database-name "<name>" --yes --json
+blocks-os data:config:update --item-id <id> --connection-string "<cs>" --dry-run --json
+blocks-os data:config:update --item-id <id> --connection-string "<cs>" --yes --json
+```
+
 Validate local files:
 
 ```bash
@@ -200,6 +215,43 @@ Reload Data schema configuration only after approval:
 ```bash
 blocks-os data:reload --dry-run --json
 blocks-os data:reload --yes --json
+```
+
+### Raw Data API
+
+`validate`/`schema:list`/`schema:pull`/`schema:push`/`rules:pull`/`rules:deploy`/`reload` above cover the common file-oriented workflow. The rest of `/data/v4/*` is exposed directly, project-scoped with an impersonated project token only. Run `blocks-os --help` for the full flag reference on each; command families:
+
+- `data:schema:get`/`get-by-name`/`aggregation`/`change-logs`/`delete` - single-schema lookup by id or collection name, access-level aggregation summary, unadapted change logs (cleared by `data:reload`), and irreversible delete.
+- `data:schema:info:list`/`save`/`update` + `data:schema:fields` - a two-step alternative to `schema:push` (create/update schema metadata, then add/update field definitions separately). Prefer the file-oriented `schema:push` workflow for normal authoring; use these only for a targeted metadata or field-only change without touching the local schema JSON.
+- `data:rules:policy:get`/`delete` - read or delete one data-access policy without a full `rules:pull`/edit/`rules:deploy` round-trip.
+- `data:validation:list`/`get`/`by-schema`/`by-schema-field`/`save`/`delete` - field-level validation rules. No file-oriented workflow exists for these (no local JSON file to pull/push). `save` is an upsert (omit `--item-id` to create, pass it to update) and requires a `validations` array passed via `--body`/`--file` - there's no scalar flag for it, e.g. `--body '{"validations":[{"type":1,"value":"^[0-9]+$","isActive":true}]}'`.
+- `data:files:*` - DMS/storage: `get`/`get-many`/`info` (read), `presigned-upload-url` + `upload-to-url` (cloud storage, two calls) or `upload-to-local-storage` (one call, local storage), `update-additional-info`, `delete`, `dms-list`/`dms-upload` (folder browsing / registering an uploaded file into a folder), `create-folder`/`delete-folder`.
+
+Same rules as everywhere else: `--dry-run` before any mutating command, then `--yes` only after explicit approval.
+
+**`--file` means two different things depending on the command.** Everywhere else in this CLI (`--body '<json>'`/`--file <path.json>`), `--file` is a JSON payload file read by `jsonBodyFlag`. On the `data:files:*` upload commands (`upload-to-url`, `upload-to-local-storage`), `--file` is instead the local binary file to read and upload - there is no JSON payload involved. Don't conflate the two: passing a JSON path to `data:files:upload-to-local-storage --file` uploads the JSON text as the file's bytes, it does not set a request body.
+
+Cloud-storage upload example (two calls):
+
+```bash
+blocks-os data:files:presigned-upload-url --name invoice.pdf --access-modifier Public --json
+# take the returned uploadUrl and fileId, then:
+blocks-os data:files:upload-to-url --url "<uploadUrl>" --file ./invoice.pdf --content-type application/pdf --dry-run --json
+blocks-os data:files:upload-to-url --url "<uploadUrl>" --file ./invoice.pdf --content-type application/pdf --yes --json
+```
+
+Local-storage upload example (one call):
+
+```bash
+blocks-os data:files:upload-to-local-storage --file ./invoice.pdf --access-modifier Public --dry-run --json
+blocks-os data:files:upload-to-local-storage --file ./invoice.pdf --access-modifier Public --yes --json
+```
+
+Either upload path only stores the bytes - it does not make the file appear in a DMS folder. Register it afterward if the user needs that:
+
+```bash
+blocks-os data:files:dms-upload --file-storage-id <fileId> --artifact-name invoice.pdf --dry-run --json
+blocks-os data:files:dms-upload --file-storage-id <fileId> --artifact-name invoice.pdf --yes --json
 ```
 
 ## Localization
@@ -324,12 +376,15 @@ blocks-os storage:config:delete <name> --dry-run --json
 
 ## Release
 
-Trigger a deploy only after dry-run and approval:
+`release:deploy` needs no `--repo-id` - it resolves the repo linked to the selected project (`Project/GetAsset`) and that repo's connected branch (`Build/repo-details`) on its own, and refuses to deploy if the connected branch doesn't match the project's environment name. Trigger a deploy only after dry-run and approval:
 
 ```bash
-blocks-os release:deploy --repo-id <repoId> --dry-run --json
-blocks-os release:deploy --repo-id <repoId> --yes --json
+blocks-os release:deploy --dry-run --json
+blocks-os release:deploy --yes --json
+blocks-os release:deploy --domain <customDomain> --yes --json   # also sets the custom deployment domain first
 ```
+
+If no repo is linked yet, the command fails with `repo_not_linked` - that requires GitHub OAuth, so it can only be done from the Blocks portal; do not attempt to link a repo from the CLI.
 
 Read build status:
 
@@ -346,12 +401,16 @@ blocks-os release:builds:list --repo-id <repoId> --json
 
 ## Agent Failure Handling
 
-- `not_logged_in`: run `blocks-os login`.
+- `not_logged_in`: run `blocks-os login`, then `blocks-os projects list`, then `blocks-os use <tenantId>`.
 - `refresh_token_rejected`: run `blocks-os login`.
 - `refresh_network_error`: check the network and configured OIDC URL, then retry.
 - `auth_repair_required`: inspect `blocks-os auth:status --json`; if local storage is unreadable or stale, run `blocks-os auth:remove <account>`, then `blocks-os auth:status --json` and `blocks-os login`.
-- `project_not_selected`: run `blocks-os use <projectTenantId>`.
+- `project_not_selected`: run `blocks-os projects list`, then `blocks-os use <projectTenantId>`.
 - `api_auth_failed`: run `blocks-os auth:status --json`, then login again.
+- `repo_not_linked` (from `release:deploy`): no repo is linked to this project. This needs GitHub OAuth - tell the user to link it from the Blocks portal, do not retry from the CLI.
+- `repo_ambiguous` (from `release:deploy`): multiple repos are linked and none is named for the current environment. Tell the user to check the project's repo links in the portal.
+- `repo_not_found` (from `release:deploy`): the linked asset's repo id doesn't exist in blocks-release. Tell the user to check the project's repo link in the portal.
+- `branch_environment_mismatch` (from `release:deploy`): the connected repo's branch doesn't match this environment's name. The message states the branch found and the environment required - do not retry; the repo's connected branch must be fixed first.
 - HTML returned from an API command means the command endpoint path is wrong and must be fixed in the CLI.
 
 ## Local Development Checks

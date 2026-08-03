@@ -31,7 +31,8 @@ export async function blocksRequest<T>(path: string, options: RequestOptions = {
     Accept: "application/json"
   };
 
-  if (options.body !== undefined) headers["Content-Type"] = "application/json";
+  const isFormData = options.body instanceof FormData;
+  if (options.body !== undefined && !isFormData) headers["Content-Type"] = "application/json";
 
   if (options.accountAuth) {
     const account = await getAccountSession(options.accountName);
@@ -46,7 +47,7 @@ export async function blocksRequest<T>(path: string, options: RequestOptions = {
   }
 
   const response = await fetch(url, {
-    body: options.body === undefined ? undefined : JSON.stringify(options.body),
+    body: options.body === undefined ? undefined : isFormData ? (options.body as FormData) : JSON.stringify(options.body),
     headers,
     method: options.method ?? (options.body === undefined ? "GET" : "POST")
   }).catch((error: Error) => {

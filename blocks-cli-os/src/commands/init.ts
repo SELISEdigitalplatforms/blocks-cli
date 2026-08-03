@@ -5,8 +5,6 @@ import { defaults } from "../lib/config.js";
 export async function init(): Promise<void> {
   const env = defaults();
   await mkdir(join(process.cwd(), "blocks", "data", "schemas"), { recursive: true });
-  await mkdir(join(process.cwd(), "blocks", "localization"), { recursive: true });
-  await mkdir(join(process.cwd(), "blocks", "release"), { recursive: true });
 
   await writeIfMissing("blocks.json", `${JSON.stringify({
     project: {
@@ -17,22 +15,11 @@ export async function init(): Promise<void> {
     data: {
       schemas: "blocks/data/schemas",
       rules: "blocks/data/rules.json"
-    },
-    localization: {
-      dictionaries: "blocks/localization"
-    },
-    release: {
-      config: "blocks/release/deploy.json"
     }
   }, null, 2)}\n`);
 
   await writeIfMissing(join("blocks", "data", "rules.json"), `${JSON.stringify({
     policies: []
-  }, null, 2)}\n`);
-
-  await writeIfMissing(join("blocks", "release", "deploy.json"), `${JSON.stringify({
-    target: "",
-    strategy: "configured-pipeline"
   }, null, 2)}\n`);
 
   await writeIfMissing(".env.example", [
