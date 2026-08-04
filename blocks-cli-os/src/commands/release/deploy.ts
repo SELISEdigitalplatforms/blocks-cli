@@ -1,4 +1,4 @@
-import { booleanFlag, stringFlag } from "../../lib/args.js";
+import { booleanFlag, integerFlag, stringFlag } from "../../lib/args.js";
 import { blocksRequest } from "../../lib/api.js";
 import { confirmMutation } from "../../lib/confirm.js";
 import { CliActionableError } from "../../lib/errors.js";
@@ -6,6 +6,10 @@ import { writeOutput } from "../../lib/output.js";
 import { getProjectAssets, resolveSelectedProject } from "../../lib/project-info.js";
 import { requestContext } from "../../lib/request-context.js";
 import { parseCommand } from "../../lib/workspace.js";
+
+const DEFAULT_POLL_INTERVAL_SECONDS = 10;
+const DEFAULT_WAIT_TIMEOUT_SECONDS = 900;
+const TERMINAL_STATUS_PATTERN = /succeed|success|complet|fail|error|cancel|abort|done/i;
 
 type RepoDetailsResponse = {
   data?: {
@@ -64,13 +68,76 @@ export async function releaseDeploy(argv: string[]): Promise<void> {
     });
   }
 
-  const result = await blocksRequest<unknown>("/release/v4/api/Build/manual", {
+  const result = await blocksRequest<Record<string, unknown>>("/release/v4/api/Build/manual", {
     body: { repoId },
     impersonatedProjectAuth: true,
     projectTenantId: projectKey,
     ...requestContext(flags)
   });
-  writeOutput(result, flags);
+
+  if (!booleanFlag(flags, "wait")) {
+    writeOutput(result, flags);
+    return;
+  }
+
+  const buildId = firstString(result, ["buildId", "itemId", "id", "buildID"]);
+  if (!buildId) {
+    console.warn(`Warning: could not find a buildId in the deploy response to wait on. Response: ${JSON.stringify(result)}`);
+    writeOutput(result, flags);
+    return;
+  }
+
+  const finalStatus = await waitForBuild(buildId, flags);
+  writeOutput({ build: finalStatus, buildId, deploy: result }, flags);
+}
+
+async function waitForBuild(buildId: string, flags: Record<string, string | boolean>): Promise<unknown> {
+  const pollIntervalMs = integerFlag(flags, "poll-interval", DEFAULT_POLL_INTERVAL_SECONDS) * 1000;
+  const timeoutMs = integerFlag(flags, "timeout", DEFAULT_WAIT_TIMEOUT_SECONDS) * 1000;
+  const deadline = Date.now() + timeoutMs;
+
+  console.log(`Waiting for build '${buildId}' (polling every ${pollIntervalMs / 1000}s, timeout ${timeoutMs / 1000}s)...`);
+
+  while (true) {
+    const status = await blocksRequest<Record<string, unknown>>("/release/v4/api/Build", {
+      impersonatedProjectAuth: true,
+      query: { buildId },
+      ...requestContext(flags)
+    });
+
+    console.log(JSON.stringify(status, null, 2));
+    if (containsTerminalStatus(status)) return status;
+
+    if (Date.now() >= deadline) {
+      throw new CliActionableError(
+        `Timed out after ${timeoutMs / 1000}s waiting for build '${buildId}' to reach a terminal status.`,
+        "build_wait_timeout",
+        `Check manually with 'blocks-os release:status ${buildId}'.`
+      );
+    }
+
+    await delay(pollIntervalMs);
+  }
+}
+
+function containsTerminalStatus(value: unknown, depth = 0): boolean {
+  if (depth > 3 || value === null || value === undefined) return false;
+  if (typeof value === "string") return TERMINAL_STATUS_PATTERN.test(value);
+  if (Array.isArray(value)) return value.some((item) => containsTerminalStatus(item, depth + 1));
+  if (typeof value === "object") return Object.values(value).some((item) => containsTerminalStatus(item, depth + 1));
+  return false;
+}
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function firstString(record: Record<string, unknown>, keys: string[]): string | undefined {
+  for (const key of keys) {
+    const value = record[key];
+    if (typeof value === "string" && value) return value;
+  }
+  return undefined;
 }
 
 async function resolveRepoId(

@@ -45,7 +45,7 @@ Do not invent missing Blocks behavior, do not fall back to raw API examples, and
 
 | Layer | Use it for | Never use it for |
 |---|---|---|
-| `blocks-os` CLI | Control-plane/definition work: login/session, project list/create/select, schema pull/push, rules pull/deploy, data reload, localization pull/push, release deploy/status/list, scaffolding (`new web`), local workspace `init`/`doctor`. | Runtime record reads/writes from inside the running app - that's the SDK's job. Also never used from within generated app code. |
+| `blocks-os` CLI | Control-plane/definition work: login/session, project list/select (`projects:create` is currently disabled - projects must already exist), schema pull/push, rules pull/deploy, data reload (or `data:sync` to do all three at once), localization pull/push/translate, release deploy/status/list, scaffolding (`new web`), local workspace `init`/`doctor`. | Runtime record reads/writes from inside the running app - that's the SDK's job. Also never used from within generated app code. |
 | `@seliseblocks/client` SDK (already a dependency in the generated app's `package.json`) | Everything inside the running app at runtime: browser OIDC login/callback, current-user info, actual collection CRUD (`blocksClient.data.collection<Entity>("EntityName")`), GraphQL queries, file/DMS helpers, localization loading/consumption in the UI. | Anything that mutates project-level config - schema/rules definitions, localization key authoring, release deploys. The SDK has no admin surface for these by design; it will not do it even if asked. |
 | `blocks-skills/*/SKILL.md` | A deeper conversational walkthrough of one topic when this guide's step is too shallow. | Command ground truth - always verify command names/flags against `blocks-os --help` first (see staleness note above). |
 
@@ -154,11 +154,12 @@ Never assume a project already selected in a prior session is still the right on
 2. Cross-check `blocks-os doctor --json`'s "Project selected" check to see which x-blocks-key (if any) is currently selected.
 3. Show the user the full list of accessible project names/x-blocks-keys, clearly marking which one (if any) is currently selected, then ask:
 
-"Here are your accessible projects: `<list>`. Currently selected: `<x-blocks-key or 'none'>`. Continue with this one, switch to another, or create a new project?"
+"Here are your accessible projects: `<list>`. Currently selected: `<x-blocks-key or 'none'>`. Continue with this one, or switch to another?"
 
 - Continue current: keep the selected project and go to Step 6.
 - Switch: ask which x-blocks-key from the list just shown, then run `blocks-os use <x-blocks-key>` - this drops the old project's impersonation and re-impersonates fresh for the new x-blocks-key (see Token & session recovery).
-- Create new: run `blocks-os projects:create <name> --env dev --dry-run --json`, confirm the plan, then `--yes --json`, then `blocks-os use <x-blocks-key>`.
+
+`projects:create` is currently disabled in this build (commented out pending a product decision) - there is no CLI path to create a new project. If none of the listed projects fit, tell the user a new project must be created from the Blocks portal first; once they confirm it exists, re-run `projects:list` and continue from step 1 above.
 
 If `projects:list` fails with an auth error, apply the Token & session recovery order above, then retry before asking the user anything.
 
@@ -241,12 +242,11 @@ Then: `npm run dev` - open `https://<domain>:5173` (never `http` or `localhost`)
 Use the entities, fields, and types established in Step 0. If they are still incomplete, ask one question at a time until the schema is unambiguous. Create that schema under the generated app's Blocks data schema folder before validating.
 
 ```bash
-blocks-os data:validate --json
-blocks-os data:schema:push --dry-run --json   # confirm, then:
-blocks-os data:schema:push --yes --json
-blocks-os data:reload --dry-run --json        # confirm, then:
-blocks-os data:reload --yes --json
+blocks-os data:sync --dry-run --json   # confirm, then:
+blocks-os data:sync --yes --json
 ```
+
+`data:sync` composes validate -> `data:schema:push` -> `data:rules:deploy` -> `data:reload` behind one confirmation, and is the only way to guarantee the reload actually happens - nothing else calls it automatically, so a bare `schema:push` without a following `data:reload` can leave changes staged but not live. It prints one output block per step, not a single combined document.
 
 ## Step 11 - Build the CRUD screen
 
@@ -261,6 +261,8 @@ First run the available build, type-check, lint, and test commands from `package
 Only if requested:
 
 ```bash
-blocks-os release:deploy --repo-id <repoId> --dry-run --json   # confirm, then:
-blocks-os release:deploy --repo-id <repoId> --yes --json
+blocks-os release:deploy --dry-run --json   # confirm, then:
+blocks-os release:deploy --yes --json
 ```
+
+No `--repo-id` flag exists (or is needed) here - `release:deploy` resolves the repo linked to the selected project on its own, and aborts if the connected branch doesn't match the project's environment name. Add `--wait` to poll until the build finishes instead of returning immediately with just a build id.
