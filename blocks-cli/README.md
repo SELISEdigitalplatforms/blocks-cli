@@ -32,6 +32,21 @@ node bin/run.js --version
 
 ## Commands
 
+Namespaced commands accept either spaces or colons, e.g. `blocks data schema list` and
+`blocks data:schema:list` are equivalent.
+
+Global options available on every command:
+
+| Option | Description |
+|---|---|
+| `--version` | Print CLI version. |
+| `--json` | Print machine-readable JSON where supported. |
+| `--api-url <url>` | Override the Blocks API URL for this command. |
+| `--account <name>` | Use a named account profile; default is implicit. |
+| `--project <tenantId>` | Use a project tenant for project-scoped commands. |
+| `--dry-run` | Show planned mutation without calling the API. |
+| `--yes` | Skip mutation confirmation after explicit approval. |
+
 | Command | Description |
 |---|---|
 | `blocks init` | Create local Blocks workspace files: `blocks.json`, data schema/rules folders, and `.env.example`. |
@@ -45,6 +60,7 @@ node bin/run.js --version
 | `blocks projects get [tenantId] [--deployment] [--json]` | Read one project from `Project/Gets`. Uses selected project when `tenantId` is omitted. Pass `--deployment` to also include the environment, tenantGroupId, and linked repo assets that `release deploy` resolves internally. Read-only. |
 | `blocks projects create` | **Currently disabled** (commented out, not deleted) - the dispatch entry, import, and help text were removed pending a product decision. Do not tell users this command is available. |
 | `blocks use <tenantId>` | Save the selected project tenant globally and in `blocks.json` when present. Does not call cloud APIs. |
+| `blocks deselect` | Clear the selected project tenant (globally and in `blocks.json`) and drop its cached impersonation token. Use this to recover when an impersonated project token has expired or failed, then run `blocks use <tenantId>` again to reselect and re-impersonate. |
 | `blocks iam me [--json]` | Read the current user from IAM using the account token (CLI operator identity, not a project resource). |
 | `blocks iam users *`, `iam email available`, `iam roles *`, `iam permissions *`, `iam resources *`, `iam organizations *`, `iam signup-settings *` | Full IAM admin surface for the selected project (users, roles, permissions, resource metadata, organizations and their config, signup settings). Project-scoped: requires a selected project and always uses an impersonated project token, never the account token. Mutating commands support `--dry-run`/`--yes`; rich payloads accept `--body '<json>'`/`--file <path>` on top of common convenience flags. Run `blocks --help` for the full command/flag list. |
 | `blocks mfa config *`, `mfa totp *`, `mfa generate`, `mfa resend`, `mfa verify`, `mfa method set`, `mfa disable`, `mfa backup-codes *` | Project-scoped MFA admin and self-service surface (tenant MFA policy, TOTP enrollment, OTP challenge/verify, method switch, backup codes). Same project-selection and impersonation-only rules as IAM above. |
@@ -76,7 +92,7 @@ node bin/run.js --version
 | `blocks release status <buildId> [--json]` | Read Release build status by build id. Read-only. |
 | `blocks release builds list [repoId] [--repo-id <repoId>] [--json]` | List Release build details for a repository. When `repoId` is omitted, resolves it from the selected project's linked repo assets - auto-picked if there's exactly one, otherwise you're prompted to choose. Read-only. |
 | `blocks release builds get <buildId> [--json]` | Alias for `release status`. Read-only. |
-| `blocks new web <name> [--app-domain <domain>] [--client-id <oidcClientId>] [--x-blocks-key <tenantId>]` | Create a Vite React starter app that talks to Blocks exclusively through `@seliseblocks/client` (a single `createBlocksClient()` instance) using the SDK hosted IdP flow: `blocksClient.auth.idp.redirectToProvider()` on login click and `blocksClient.auth.idp.callback()` on `/login/callback`. Includes route guards, auto-refresh through `auth.oidc.refreshToken()`, live `auth`/`iam`/`data`/`localization` SDK examples, environment config, and safe `.gitignore` defaults. Uses the selected project (see `use`) unless `--x-blocks-key` overrides it. `--app-domain` and `--client-id` are resolved from the project record when omitted: the domain auto-picks if the project has exactly one, otherwise you're prompted to choose; the OIDC client is picked from the project's existing clients, or you can create a minimal one (display name + redirect URI) on the spot, or skip and register one later from the portal or `auth oidc-clients save`. |
+| `blocks new web <name> [--app-domain <domain>] [--client-id <oidcClientId>] [--x-blocks-key <tenantId>] [--blocks-api-url <url>] [--oidc-url <url>]` | Create a Vite React starter app that talks to Blocks exclusively through `@seliseblocks/client` (a single `createBlocksClient()` instance) using the SDK hosted IdP flow: `blocksClient.auth.idp.redirectToProvider()` on login click and `blocksClient.auth.idp.callback()` on `/login/callback`. Includes route guards, auto-refresh through `auth.oidc.refreshToken()`, live `auth`/`iam`/`data`/`localization` SDK examples, environment config, and safe `.gitignore` defaults. Uses the selected project (see `use`) unless `--x-blocks-key` overrides it. `--app-domain` and `--client-id` are resolved from the project record when omitted: the domain auto-picks if the project has exactly one, otherwise you're prompted to choose; the OIDC client is picked from the project's existing clients, or you can create a minimal one (display name + redirect URI) on the spot, or skip and register one later from the portal or `auth oidc-clients save`. `--blocks-api-url` defaults to the OS API if omitted - pass the runtime Data/IAM/Localization gateway URL explicitly (typically `https://api.seliseblocks.com`) for the scaffolded app to work at runtime. `--oidc-url` defaults to `https://iam.seliseblocks.com`. |
 | `blocks skill list [--json]` / `skill show <name> [--json]` / `skill add <name> [--dir <path>]` | Local-only, no cloud calls: list/print the bundled `blocks-skills/*/SKILL.md` agent context docs, or copy one into `<dir>/<name>/SKILL.md` (default `./blocks-skills`) for use in a project outside this monorepo. |
 | `blocks sdk client [--app-domain <domain>] [--client-id <oidcClientId>] [--x-blocks-key <tenantId>] [--blocks-api-url <url>] [--oidc-url <url>] [--json]` | Read-only: resolves this project's `@seliseblocks/client` config (same values `new web` scaffolds with) and prints a ready-to-paste `createBlocksClient(...)` snippet. Passing both `--app-domain` and `--client-id` skips the project lookup entirely (no login required). Writes nothing - use `new web` to scaffold a full app. |
 
@@ -135,11 +151,10 @@ blocks/
   data/
     schemas/
     rules.json
-  localization/
 .env.example
 ```
 
-Localization dictionaries default to `blocks/localization/<module>.<language>.json`, for example `blocks/localization/common.en.json`. AI agents can generate or update that file, run `blocks localization validate`, then push it to the Localization service with `blocks localization push --dry-run` followed by `--yes` after approval. Gateway v4 routes do not include an `/api` segment.
+Localization dictionaries are not created by `init` - the default path is `blocks/localization/<module>.<language>.json`, for example `blocks/localization/common.en.json`, and the `blocks/localization/` folder is created lazily the first time `blocks localization pull` writes to it. AI agents can create or update that file directly (before `push`, which only reads it), run `blocks localization validate`, then push it to the Localization service with `blocks localization push --dry-run` followed by `--yes` after approval. Gateway v4 routes do not include an `/api` segment.
 
 `blocks use <tenantId>` updates the selected project in global CLI state and `blocks.json` when present.
 

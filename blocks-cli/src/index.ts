@@ -1019,10 +1019,13 @@ Release:
 Scaffold:
   blocks new web <name> [--app-domain <domain>] [--client-id <oidcClientId>]
                     [--x-blocks-key <tenantId>] [--blocks-api-url <url>] [--oidc-url <url>]
-    Create a Vite React starter app with a real browser Authorization Code +
-    PKCE login flow against Blocks IAM (login page, /login/callback handler,
-    route guards), plus Data schema listing, Release build lookup, environment
-    config, and safe .gitignore defaults.
+    Create a Vite React starter app that talks to Blocks exclusively through
+    @seliseblocks/client (a single createBlocksClient() instance) using the SDK
+    hosted IdP flow: blocksClient.auth.idp.redirectToProvider() on login click
+    and blocksClient.auth.idp.callback() on /login/callback. Includes route
+    guards, auto-refresh through auth.oidc.refreshToken(), live
+    auth/iam/data/localization SDK examples, environment config, and safe
+    .gitignore defaults.
     Uses the selected project (see 'use') unless --x-blocks-key overrides it.
     --app-domain and --client-id are resolved from the project when omitted:
     if the project has one domain it's used automatically, otherwise you're

@@ -9,6 +9,7 @@ Source refs:
 - IAM: `src/iam/iam-client.ts`
 - Data: `src/data/data-client.ts`
 - Localization: `src/localization/localization-client.ts`
+- MFA: `src/mfa/mfa-client.ts`
 - HTTP/errors: `src/http/http-client.ts`, `src/http/errors.ts`
 
 ## Non-Negotiable Rules
@@ -56,7 +57,7 @@ OIDC/hosted IAM flow:
 Embedded/app-owned flow:
 
 - Login: `blocks.auth.login(...)`
-- Social: `blocks.auth.socialInitiate(...)`, `blocks.auth.socialCallback(...)`
+- Social: `blocks.auth.socialInitiate(clientId, redirectUri)` (two positional strings), `blocks.auth.socialCallback(request)` (object)
 - Refresh: `blocks.auth.refresh({ refreshToken })`
 - Routes: `/iam/v4/auth/login`, `/iam/v4/auth/social/*`, `/iam/v4/auth/refresh`
 
@@ -69,6 +70,8 @@ Shared auth methods for both flows:
 - `changePassword(...)`
 - `activate(...)`, `resendActivation(...)`, `validateActivation(...)`
 - `identityProviders.*`, `config.*`, `userCodes.*`, `clientCredentials.*` when app has permission
+- `accessToken()` - resolves the caller-owned bearer token configured on `createBlocksClient`.
+- `isAuthenticated()` - checks the session against IAM via `GET /iam/v4/auth/me`, returns a boolean from the raw response status. Prefer this over `userInfo()` for a true/false check, since a hosted-IdP session may live in a cookie with no local `accessToken` to inspect.
 
 ## Service Map
 
@@ -80,7 +83,15 @@ IAM:
 - `blocks.iam.permissions.*`
 - `blocks.iam.resources.*`
 - `blocks.iam.organizations.*`
-- `blocks.iam.signup.*`
+- `blocks.iam.signupSettings.get()` / `.save(...)`
+
+MFA:
+
+- `blocks.mfa.config()` / `.saveConfig(...)` - tenant MFA policy
+- `blocks.mfa.totp.setup()` / `.verifySetup({ code })` - TOTP enrollment
+- `blocks.mfa.generate(...)` / `.resend(...)` / `.verify(...)` - OTP challenge flow
+- `blocks.mfa.setMethod({ mfaType })`, `.disable()`
+- `blocks.mfa.backupCodes.list()` / `.generate()` / `.use({ code, userId })`
 
 Data:
 
@@ -109,6 +120,10 @@ HTTP fallback:
 
 - Use `blocks.http.request("/service/v4/...")` only when no typed method exists.
 - Use `blocks.http.external(url, ...)` only for external URLs such as pre-signed uploads.
+
+Errors:
+
+- Every non-2xx response from `http.request`/`http.external` throws `BlocksApiError` (`status`, `statusText`, `body`). Catch it with `instanceof BlocksApiError` rather than assuming a generic `Error` shape.
 
 ## Minimal Examples
 
