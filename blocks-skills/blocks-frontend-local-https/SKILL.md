@@ -1,6 +1,6 @@
 ---
 name: blocks-frontend-local-https
-description: "Run a blocks new web scaffolded app locally over HTTPS on its real Blocks project domain so hosted IAM login actually works — the scaffold already ships this automated: a generated .env with VITE_BLOCKS_APP_DOMAIN/VITE_BLOCKS_DEV_HOST, a `npm run cert` script backed by the `selfsigned` npm package (no OpenSSL needed, plain PowerShell is fine), and a vite.config.ts that serves HTTPS whenever a cert exists. This skill documents running THAT flow correctly and troubleshooting it, rather than building cert/hosts setup from scratch: npm install, npm run cert, add `127.0.0.1 <VITE_BLOCKS_DEV_HOST>` to the hosts file, npm run dev, then open `https://<VITE_BLOCKS_DEV_HOST>:5173` — never plain http, never localhost. Use whenever a user asks to run a scaffolded Blocks app locally over HTTPS, hits 'login not working locally' / 'SSO cookie not set' / 'session lost on localhost' / a Vite 'Blocked request. This host is not allowed' error, needs to trust the self-signed dev cert, or asks why their local login redirects back but doesn't stay signed in."
+description: "Run a scaffolded (`blocks new web`) Blocks app locally over HTTPS on its real project domain — required for hosted IAM login, since plain HTTP or localhost never gets the session cookie. The scaffold already automates cert generation (npm run cert, no OpenSSL needed) and HTTPS serving via vite.config.ts. Covers running that flow, trusting the cert, the hosts-file entry, and troubleshooting. Use when running a scaffolded app over HTTPS, hitting 'SSO cookie not set' / Vite 'Blocked request' errors, trusting the dev cert, or asking why local login redirects back but doesn't stay signed in."
 ---
 
 # Blocks Frontend — Local HTTPS for a Scaffolded App
@@ -67,6 +67,15 @@ Restart the browser after trusting so it picks up the new trust store entry. `.c
 ## Still need a public OIDC client
 
 Local HTTPS alone doesn't make login succeed if no OIDC client is registered yet, or if its `redirect_uris` don't include this exact dev origin. That registration is portal-only (see blocks-onboarding's Gotchas) — out of scope here, but it's the next thing to check if HTTPS is right and login still fails. The redirect URI must match byte-for-byte, including `:5173`.
+
+## Gotchas
+
+**Custom app domain: the API base URL must share its registrable domain, or the cookie never lands.** `blocks new web --app-domain` isn't limited to `*.seliseblocks.com` — it also supports custom domains (e.g. `abc.slsblx.com`, `xyz.blx10.com`). On a custom domain, the hosted-login session cookie is only stored by the browser if `VITE_BLOCKS_API_URL` shares the app's registrable domain. Concretely:
+
+- `abc.slsblx.com` → `VITE_BLOCKS_API_URL` must be `https://blocksapi.slsblx.com`
+- `xyz.blx10.com` → `VITE_BLOCKS_API_URL` must be `https://blocksapi.blx10.com`
+
+If `VITE_BLOCKS_API_URL` is left at the default `https://api.seliseblocks.com` while the app itself runs on a custom domain, the browser treats the API as cross-site relative to the app and never stores the cookie — login still redirects back and *looks* successful, but cookie-based calls (`/iam/me`, organization switching, logout) silently fail. Check `VITE_BLOCKS_API_URL` in `.env` first whenever the app domain is not `*.seliseblocks.com` and auth-dependent calls are failing despite HTTPS and the cert being set up correctly.
 
 ## Troubleshooting
 

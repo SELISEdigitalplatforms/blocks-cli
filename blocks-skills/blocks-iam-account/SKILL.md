@@ -1,19 +1,20 @@
 ---
 name: blocks-iam-account
-description: "Signed-in (or partially-signed-in) user's own SELISE Blocks IAM account actions through @seliseblocks/client — never raw fetch/curl. Covers auth.activate (finish account setup from an emailed activation code/link), auth.resendActivation (send a new activation code), auth.validateActivation (check activation state before the final activate call), auth.changePassword (authenticated change-password), auth.recover (start forgot-password, public/no-auth), auth.resetPassword (complete forgot-password with the emailed token, public/no-auth), auth.logout and auth.logoutAll (end the current session or sign out everywhere), iam.me (fetch the current user's own IAM record — roles, permissions, active org — for app profile bootstrapping), iam.updateMe (update the CURRENT user's own profile; the backend resolves the user id from the token), and iam.users.emailAvailable/iam.users.exists (duplicate-email checks for signup/invite forms). Use whenever the user wants to: build an activation/set-password page, resend an activation email, add a forgot-password or reset-password flow, let a logged-in user change their own password, add a logout or sign-out-everywhere button, bootstrap a profile/account page after login, let a user edit their own name/profile fields, or validate an email before signup submit. This is the self-service half of IAM — the signed-in user acting on their OWN account, not admin CRUD on other users (that's blocks-iam-users / blocks-iam-access-control) and not the hosted-login redirect/callback flow itself (that's blocks-iam-sso-oidc-implementation)."
+description: "Signed-in (or partially-signed-in) user's own SELISE Blocks IAM account actions via @seliseblocks/client — never raw fetch/curl. Covers activation, forgot/reset/change password, logout(-all), profile bootstrap (iam.me/updateMe), self-service MFA, signup, and login-options discovery. Use for activation/password pages, logout buttons, profile bootstrap, signup forms, or letting a user manage their own MFA. The self-service half of IAM — not admin CRUD on other users (blocks-iam-users/blocks-iam-access-control), not hosted-login redirect (blocks-iam-sso-oidc-implementation)."
 ---
 
 # Blocks IAM — Account Self-Service
 
-Account-lifecycle and account-security actions the signed-in (or not-yet-fully-signed-in) user takes on **their own** account, all through the single `@seliseblocks/client` instance the scaffold gives you — `blocks new web` wires up `createBlocksClient({ apiUrl, xBlocksKey, oidc, accessToken })` once; every call below hangs off that instance's `.auth` or `.iam` namespace. **Never** hand-roll `fetch`/`curl` against `api.seliseblocks.com` for these.
+Account-lifecycle and account-security actions the signed-in (or not-yet-fully-signed-in) user takes on **their own** account, all through the single `@seliseblocks/client` instance the scaffold gives you — `blocks new web` wires up `createBlocksClient({ apiUrl, xBlocksKey, oidc, accessToken })` once; every call below hangs off that instance's `.auth`, `.iam`, or `.mfa` namespace. **Never** hand-roll `fetch`/`curl` against `api.seliseblocks.com` for these.
 
-Source of truth: `auth-client.ts` and `iam-client.ts` in `@seliseblocks/client`. Every method has a What/Why/How docstring in source — this skill surfaces them, it doesn't add new ones.
+Source of truth: `auth-client.ts`, `iam-client.ts`, and `mfa-client.ts` in `@seliseblocks/client`. Every method has a What/Why/How docstring in source — this skill surfaces them, it doesn't add new ones.
 
 ## Scope: this vs. the other IAM skills
 
-- **This skill** — the current user acting on themselves: activate their own invite, reset their own forgotten password, change their own password, log themselves out, read/edit their own profile.
+- **This skill** — the current user acting on themselves: activate their own invite, reset their own forgotten password, change their own password, log themselves out, read/edit their own profile, sign up, discover login options, enroll/manage their own MFA.
 - **blocks-iam-users / blocks-iam-access-control** — an admin managing *other* users (create, deactivate, grant/revoke access). Different actor, different skill. Don't duplicate that here.
 - **blocks-iam-sso-oidc-implementation** — the hosted-login redirect/callback flow (`auth.idp.initiate`/`redirectToProvider`/`callback`, `oidc.refreshToken`). This skill only covers direct account-lifecycle calls (activate, recover, reset, change-password, logout) that a user takes outside that redirect dance — don't reimplement hosted login here.
+- **blocks-iam-mfa** (not yet written) — the full self-service MFA walkthrough (enrollment UX, challenge flows, backup codes). This skill only notes that `mfa.*` exists and is in scope; go there for depth.
 
 ## The SDK never owns your session
 
@@ -87,9 +88,42 @@ async function signOut() {
 
 ```ts
 const me = await blocksClient.iam.me();
-// me.roles / me.permissions -> gate nav items, feature flags, etc.
+// me.data?.roles / me.data?.permissions -> gate nav items, feature flags, etc.
+// (iam.me() wraps the user record in a { data } envelope, not the fields directly)
 
 await blocksClient.iam.updateMe({ firstName, lastName });
+```
+
+## Self-service MFA
+
+Enrolling, challenging, or turning off MFA for the **signed-in user's own** account, via `blocksClient.mfa.*` (see `mfa-client.ts`'s own docstrings — they call this out as self-service, distinct from `mfa.saveConfig`, which is a tenant/admin policy action, not covered here):
+
+- **`mfa.totp.setup()`** — `POST /iam/v4/mfa/totp/setup`. Starts authenticator-app enrollment; render IAM's returned secret/QR in your UI.
+- **`mfa.totp.verifySetup({ code })`** — `POST /iam/v4/mfa/totp/verify-setup`. Confirms enrollment with the 6-digit code from the authenticator app.
+- **`mfa.generate({ mfaType, sendPhoneNumberAsEmailDomain? })`** — `POST /iam/v4/mfa/generate`. Sends an email/SMS OTP challenge; returns an `mfaId` for `resend`/`verify`.
+- **`mfa.resend({ mfaId, sendPhoneNumberAsEmailDomain? })`** — `POST /iam/v4/mfa/resend`. Re-sends a pending OTP.
+- **`mfa.verify({ mfaId, verificationCode, authType, isFromTokenCall? })`** — `POST /iam/v4/mfa/verify`. Confirms an OTP or step-up challenge; set `isFromTokenCall` when verifying as part of a login/token exchange.
+- **`mfa.setMethod({ mfaType })`** — `PUT /iam/v4/mfa/method`. Switches which enrolled method is active.
+- **`mfa.disable()`** — `POST /iam/v4/mfa/disable`. Self-service opt-out, where the tenant's policy allows it.
+- **`mfa.backupCodes.list()`** / **`.generate()`** / **`.use({ code, userId })`** — `GET|POST /iam/v4/mfa/backup-codes[/generate|/use]`. View remaining recovery codes, mint a fresh set (treat the response as sensitive, show once), or consume one when the primary method is unavailable.
+
+```ts
+await blocksClient.mfa.totp.setup();
+await blocksClient.mfa.totp.verifySetup({ code });
+```
+
+The same self-service surface is also reachable from a terminal via `blocks mfa totp setup/verify-setup/enable`, `blocks mfa generate/resend/verify`, `blocks mfa method set`, `blocks mfa disable`, and `blocks mfa backup-codes list/generate/use` (project-scoped, impersonated-user token). **See also:** `blocks-iam-mfa` for the full enrollment/challenge walkthrough — this section only flags that self-service MFA exists and is in this skill's scope.
+
+## Signup and login discovery
+
+- **`auth.signup(request)`** — `POST /iam/v4/auth/signup`, no auth. Registers a new account; IAM owns account-creation rules — send its expected payload and render its response/errors directly rather than pre-validating fields yourself.
+- **`auth.loginOptions()`** — `GET /iam/v4/auth/login-options`, no auth. Discovers which login methods the tenant supports; call before rendering the login screen so you only show controls IAM actually accepts.
+
+```ts
+const options = await blocksClient.auth.loginOptions();
+// options -> render enabled login methods (password, social, etc.)
+
+await blocksClient.auth.signup({ email, password, firstName, lastName });
 ```
 
 ## Signup/invite dedup checks
@@ -110,7 +144,7 @@ if (availability.isAvailable === false || availability.IsAvailable === false) {
 
 - **Don't invent payload fields.** Several of these methods (`activate`, `resendActivation`, `validateActivation`, `changePassword`, `recover`, `resetPassword`, `logoutAll`, `updateMe`) take an untyped `Record<string, unknown>` in the SDK — the shape is IAM's contract, not something the client library enforces. Use the well-known fields shown above; confirm anything beyond that against the tenant's actual IAM behavior instead of guessing new field names.
 - **`activate`/`validateActivation`/`recover`/`resetPassword` are public (no bearer token)** — the emailed code/token *is* the credential. `changePassword` and `updateMe` require an access token to be configured on the client (via `accessToken` on `createBlocksClient`). `logout`/`logoutAll`/`resendActivation` will attach a bearer token if one is configured, but don't require it.
-- **`iam.me()` is not `auth.userInfo()` or `auth.isAuthenticated()`.** `auth.userInfo()`/`isAuthenticated()` (OIDC-style claims, session-cookie aware) belong to the SSO/OIDC login-flow territory. `iam.me()` is the full IAM user record — roles, permissions, org context — and is what this skill uses for profile bootstrapping.
+- **`iam.me()` is not `auth.userInfo()` or `auth.isAuthenticated()`.** `auth.userInfo()`/`isAuthenticated()` (OIDC-style claims, session-cookie aware) belong to the SSO/OIDC login-flow territory. `iam.me()` is the full IAM user record — roles, permissions, org context — wrapped in a `{ data }` envelope (`BlocksMeResponse = BlocksQueryResponse<BlocksUser>`), so read `me.data?.roles` etc., not `me.roles` directly.
 - **Always clear local app state after logout, even on failure.** The SDK doesn't clear anything for you; a network error from `logout`/`logoutAll` shouldn't leave the UI showing a signed-in user.
 - **`updateMe` never takes a user id.** If you find yourself passing an id, you want the admin `iam.users.update(id, request)` call instead — wrong skill for that.
 - **Confirm-password fields are UI-only.** IAM's `activate`/`resetPassword`/`changePassword` contracts want the new password once; matching against a second "confirm" field is validated client-side and never sent.
@@ -128,3 +162,8 @@ if (availability.isAvailable === false || availability.IsAvailable === false) {
 - "Fetch the current user's roles and permissions after login."
 - "Let a user edit their own name on their profile page."
 - "Check if an email is already taken before letting someone submit the signup form."
+- "Register a new account from the signup page."
+- "Show which login methods are enabled before rendering the login screen."
+- "Let a signed-in user enroll in authenticator-app MFA."
+- "Add a 'turn off MFA' option to account security settings."
+- "Let a user view or regenerate their MFA backup codes."

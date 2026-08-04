@@ -1,6 +1,6 @@
 ---
 name: blocks-localization-implementation
-description: "Consume SELISE Blocks localization at runtime in a scaffolded frontend, entirely through the `@seliseblocks/client` SDK's `localization` namespace — never raw fetch/curl against `/localization/v4/*`. Use whenever a user wants to make a Blocks web app multilingual on the client: list supported languages for a picker (`languages()`/`languagesForCurrentTenant()`), discover translation modules (`modules()`/`modulesForCurrentTenant()`), load one or many dictionaries at startup (`translations()`, `cloudTranslations()`, `load()`, `loadCloud()`), look up specific key metadata (`keysByNames()`), render labels with the built-in `t()` lookup, or wire a language switcher that reloads dictionaries and re-renders. This is the frontend consumption side only — authoring/pushing the actual translation content and modules is owned by the sibling skill blocks-localization-configuration; don't duplicate its CLI commands here."
+description: "Consume SELISE Blocks localization at runtime in a scaffolded frontend, entirely through the `@seliseblocks/client` SDK's `localization` namespace — never raw fetch/curl. Use for making a Blocks web app multilingual on the client: language/module discovery, loading dictionaries, the built-in `t()` lookup, and a language switcher that reloads and re-renders. Frontend consumption only — authoring/pushing translation content is the sibling skill blocks-localization-configuration."
 ---
 
 # Blocks Localization — Implementation (frontend)

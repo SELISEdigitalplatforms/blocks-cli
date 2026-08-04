@@ -1,13 +1,13 @@
 ---
 name: blocks-localization-configuration
-description: "Configure app translations (i18n) for a SELISE Blocks project through the blocks CLI — never raw fetch/curl against api.seliseblocks.com. Covers authoring local i18n JSON dictionaries under blocks/localization/<module>.<language>.json, validating them locally (blocks localization validate), pushing keys to the Localization service (blocks localization push, which also creates the translation module the first time it's used), and pulling published cloud translations back down (blocks localization pull). Use whenever the user wants to add or edit translations/labels for static UI text, set up a new translation module, translate a screen into another language, or sync local i18n files with the Blocks Localization service — 'add German translations for my login screen', 'push my localization changes', 'pull the latest translations', 'create a common module for shared strings'. Also clarifies what this skill does NOT cover: creating a brand-new language/culture for the tenant has no CLI command and no writable SDK method — it's a genuine capability gap today (portal-only if the OS portal exposes it), and a standalone 'create module' command doesn't exist either — a module is only ever created as a side effect of the first localization push into it. Do not invent commands for either."
+description: "Configure app translations (i18n) for a SELISE Blocks project through the `blocks` CLI — never raw fetch/curl. Covers authoring local i18n JSON dictionaries, validate/push/pull with the Localization service, managing languages and modules directly, glossary terms, AI translation suggestions, and the composed translate-and-export flow. Use for 'add translations for my login screen', 'push/pull localization changes', 'create a module', 'add a new language'."
 ---
 
 # Blocks Localization — Configuration
 
 Translations (i18n) for a Blocks project's static UI text — labels, titles, button copy — are authored locally as JSON and synced to the Localization service entirely through the `blocks` CLI. There is no supported reason to hand-roll `fetch`/`curl` calls against `api.seliseblocks.com/localization/v4` anymore, and there's no SDK-based authoring path either — `@seliseblocks/client`'s localization surface (`languages()`, `modules()`, `languagesForCurrentTenant()`, `translations()`, `cloudTranslations()`, `keysByNames()`) is entirely **read-only**, meant for apps to *consume* translations at runtime, not to author them. Authoring is CLI-only.
 
-**Prerequisite:** `blocks init` has been run (creates `blocks/localization/`) and a project is selected (`blocks use <tenantId>`). If either is missing, or auth state is unknown, run the **[blocks-onboarding](../blocks-onboarding/SKILL.md)** skill first — it covers `auth status` probing, login, and project selection in detail; this skill assumes that's already done.
+**Prerequisite:** `blocks init` has been run and a project is selected (`blocks use <tenantId>`). Note `blocks init` does **not** create a `blocks/localization/` folder — it only scaffolds `blocks/data/schemas/`, `blocks/data/rules.json`, and `.env.example` (see `blocks-cli/src/commands/init.ts`). The `blocks/localization/` directory and its dictionary files come into existence lazily, the first time `blocks localization pull` writes one out (or the first time you author one by hand). If either the project selection is missing, or auth state is unknown, run the **[blocks-onboarding](../blocks-onboarding/SKILL.md)** skill first — it covers `auth status` probing, login, and project selection in detail; this skill assumes that's already done.
 
 ## The three commands
 
@@ -83,32 +83,67 @@ blocks localization pull --module login --language de-DE --out blocks/localizati
 
 Use this to pull down what's actually published before editing further — same reasoning as pulling data schemas before editing them: don't blindly overwrite translations someone else edited in the portal or in a prior session.
 
-## What this skill does NOT cover (and why)
+## Managing languages directly
 
-Two things the old, pre-CLI version of this skill used to handle no longer have any supported path — do not paper over the gap by inventing a command or improvising a raw API call:
+Pushing translations into an existing language and *configuring the tenant's set of languages* are different operations — the latter has its own standalone commands, independent of `push`/`pull`:
 
-- **Creating a new language/culture for the tenant.** Neither the CLI nor the SDK exposes a write path for this. `blocks` has no `localization languages*` command at all, and `@seliseblocks/client`'s `localization.languages()` and `localization.languagesForCurrentTenant()` are both **read-only** (`GET /Language/Gets` and `GET /Language/GetLanguagesForCurrentTenant`) — listing only, no create/save/set-default equivalent anywhere in current tooling. If a user asks to "add German as a supported language" (as opposed to pushing German *translations* into an already-configured language), be explicit: this is a genuine capability gap in the current CLI/SDK, not something to fake with a workaround. Check whether the OS portal (`https://os.seliseblocks.com`) has a Localization/Languages section that supports it; if so, point the user there. Do not attempt this via a raw API call to `/localization/v4/Language/Save` — that bypasses the CLI-first rule and isn't validated tooling.
-- **Creating a translation module on its own**, independent of pushing keys into it. There is no `localization modules create` or similar. A module only ever comes into existence as the implicit first step of `localization push` (via `/Module/Save`, when `/Module/Gets` doesn't already list it). If a user wants to "set up a new module" with no keys yet, the honest answer is: push at least one key into it — that's what creates it.
-- **Listing existing languages or modules.** Unlike `data schema list`, there is no `localization languages list` or `localization modules list` command. To find out what's already configured, ask the user, check the OS portal, or infer from a `localization pull` (an empty result means no keys were found for that exact module+language pair, not proof the module/language doesn't exist).
+| Command | What it does |
+|---|---|
+| `blocks localization language save --language-name <n> --language-code <c> [--is-default] [--item-id <id>] [--dry-run] [--yes] [--json]` | Creates or updates a language via `POST /localization/v4/Language/Save`. Omit `--item-id` to create a new one. Mutating, full dry-run/confirm gate. |
+| `blocks localization language delete <languageName> [--dry-run] [--yes] [--json]` | Deletes a language via `DELETE /localization/v4/Language/Delete`. Mutating. |
+| `blocks localization language set-default <languageName> [--dry-run] [--yes] [--json]` | Marks a language as the tenant default via `POST /localization/v4/Language/SetDefault`. Mutating. |
+| `blocks localization language list [--json]` | Lists all languages via `GET /localization/v4/Language/Gets`. Read-only. |
+| `blocks localization language list-for-tenant [--json]` | Lists languages configured for the current tenant via `GET /localization/v4/Language/GetLanguagesForCurrentTenant`. Read-only. |
 
-Don't guess at endpoint paths or reconstruct the old skill's HTTP calls (`/Language/*`, `/Module/Gets`+manual save, `/Key/GenerateUilmFile`) for any of this — that old skill (`blocks-skills/skills/blocks-localization-configuration/`) is retained purely as historical reference and its REST patterns, including the separate "generate runtime files" step, are not how this tooling works today.
+So "add German as a supported language for the tenant" is a real, supported request: `blocks localization language save --language-name German --language-code de-DE --dry-run`, get approval, then re-run with `--yes`. This is distinct from `localization push --language de-DE`, which stamps translations onto keys and doesn't touch the tenant's language configuration at all.
+
+## Managing modules directly
+
+A module is still created implicitly by the first `localization push` into it (via `/Module/Save`), but it can also be created or updated on its own, with no keys, via a standalone command:
+
+| Command | What it does |
+|---|---|
+| `blocks localization module save --module-name <n> [--item-id <id>] [--dry-run] [--yes] [--json]` | Creates or updates a module via `POST /localization/v4/Module/Save`. Omit `--item-id` to create a new one. Mutating. |
+| `blocks localization module list [--json]` | Lists all modules via `GET /localization/v4/Module/Gets`. Read-only. |
+| `blocks localization module list-for-tenant [--json]` | Lists modules configured for the current tenant via `GET /localization/v4/Module/GetModulesForCurrentTenant`. Read-only. |
+
+So "create a `billing` module with no keys yet" is directly supported: `blocks localization module save --module-name billing --dry-run` → approve → `--yes`. `localization push`'s implicit module creation is just a convenience on top of the same `/Module/Save` endpoint, not the only path to it.
+
+## Other localization commands
+
+A few more commands round out the surface beyond push/pull/validate/language/module — useful, but secondary to the core authoring workflow above:
+
+| Command | What it does |
+|---|---|
+| `blocks localization key translate-and-export --module-id <id> [--wait] [--dry-run] [--yes] [--json]` | Composed flow: `translate-all` (machine-translates every untranslated key in the module) → if `--wait`, polls `GetTimelineByOperationId` until the operation settles → `generate-uilm-file` → `uilm-export`. Without `--wait` the three steps just fire back-to-back. Mutating. |
+| `blocks localization glossary save --name <n> [--item-id <id>] [--language <c>] [--type <t>] [--context <text>] [--additional-note <text>] [--is-global] [--module-ids a,b] [--dry-run] [--yes] [--json]` | Creates or updates a glossary term via `POST /localization/v4/Glossary/Save`. Mutating. |
+| `blocks localization glossary list [--search <text>] [--module-id <id>] [--is-global] [--page-number <n>] [--page-size <n>] [--json]` | Lists glossary terms via `GET /localization/v4/Glossary/Gets`. Read-only. |
+| `blocks localization glossary get <itemId> [--json]` | Fetches one glossary term via `GET /localization/v4/Glossary/Get`. Read-only. |
+| `blocks localization glossary suggested <itemId> [--max-results <n>] [--json]` | Suggests glossary terms relevant to an item via `GET /localization/v4/Glossary/GetSuggestedGlossaries`. Read-only. |
+| `blocks localization glossary delete <itemId> [--dry-run] [--yes] [--json]` | Deletes a glossary term via `DELETE /localization/v4/Glossary/Delete`. Mutating. |
+| `blocks localization assistant translation-suggestion --source-text <text> [--current-language <c>] [--destination-language <name>] [--destination-language-code <c>] [--module-id <id>] [--glossary-ids a,b] [--element-type <t>] [--element-application-context <text>] [--element-detail-context <text>] [--max-character-length <n>] [--temperature <n>] [--json]` | Gets an AI translation suggestion for a single string via `POST /localization/v4/Assistant/GetTranslationSuggestion`. Read-only (no confirm gate). |
+| `blocks localization config get-webhook [--json]` | Gets the tenant's localization webhook config via `GET /localization/v4/Config/GetWebHookForCurrentTenant`. Read-only. |
+| `blocks localization config save-webhook --url <url> --content-type <type> --secret <s> --header-key <k> [--is-disabled] [--item-id <id>] [--dry-run] [--yes] [--json]` | Saves the tenant's localization webhook config via `POST /localization/v4/Config/SaveWebHook`. Mutating; the secret is redacted in `--dry-run` output. |
 
 ## Gotchas
 
 - **`--dry-run` before `--yes`** on `localization push` — always. Same pattern as every other mutating `blocks` command.
-- **`--language` is not validated against configured cultures.** `localization push` stamps whatever string you pass as `--language` directly into each key's `culture` field — it does not check that culture against the tenant's actual configured languages (it can't; there's no write path to languages, and push doesn't even read them). Get the culture code wrong (`de` instead of `de-DE`, or a culture the tenant never configured) and the key saves without error but may never surface at runtime, because runtime lookups match by the tenant's real configured `languageCode`. Confirm the exact culture code with the user (or the OS portal) before pushing, especially for less common languages like Bengali (`bn-BD` vs `bn`).
-- **Module auto-create is silent and permanent.** The first push against a new `--module` name creates it via `/Module/Save` with no separate confirmation prompt beyond the push's own `--dry-run`/`--yes` gate — `--dry-run` output will tell you a module lookup happened, but won't distinguish "will create" from "already exists" as clearly as it could, so read the dry-run JSON's module info carefully, or ask the user to confirm the module name is intentional (typos become new, mostly-empty modules).
+- **`--language` on `push` is not validated against configured cultures.** `localization push` stamps whatever string you pass as `--language` directly into each key's `culture` field — it does not check that culture against the tenant's actual configured languages, and doesn't call `language list`/`list-for-tenant` to look. Get the culture code wrong (`de` instead of `de-DE`, or a culture the tenant never configured via `language save`) and the key saves without error but may never surface at runtime, because runtime lookups match by the tenant's real configured `languageCode`. Confirm the exact culture code with the user (or run `localization language list-for-tenant`) before pushing, especially for less common languages like Bengali (`bn-BD` vs `bn`).
+- **Module auto-create is silent and permanent.** The first push against a new `--module` name creates it via `/Module/Save` with no separate confirmation prompt beyond the push's own `--dry-run`/`--yes` gate — `--dry-run` output will tell you a module lookup happened, but won't distinguish "will create" from "already exists" as clearly as it could, so read the dry-run JSON's module info carefully, or ask the user to confirm the module name is intentional (typos become new, mostly-empty modules). Prefer `localization module save` first if the user wants the module created deliberately, without an accompanying key push.
 - **`localization validate` is local-only** — it confirms the JSON is well-formed and keys/values pass the naming rules; it does not confirm the push will succeed against the server (module resolution, auth, project selection). Still run `--dry-run` on the actual push.
 - **One culture per file/push.** Don't try to cram multiple languages into one dictionary file — the format is flat key → string value, not key → {culture: value}. Multiple languages means multiple files and multiple push invocations (see above).
-- **No standalone "generate" or "publish" step.** `shouldPublish: true` is baked into every key `localization push` sends — once the push succeeds, the translations are live. Don't go looking for a `localization generate` command; it doesn't exist and isn't needed.
-- **Don't invent language-creation or module-creation commands.** They don't exist in the CLI or SDK today — say so plainly, check the portal, don't fake it with unrelated calls.
+- **No standalone "generate" or "publish" step for `push`.** `shouldPublish: true` is baked into every key `localization push` sends — once the push succeeds, the translations are live. That's separate from `key generate-uilm-file`/`key uilm-export` (and the composed `key translate-and-export`), which build downloadable runtime language files rather than affect `push`'s own publish behavior.
+- **`language delete` and `set-default` are permanent, mutating calls** — always dry-run first, and confirm with the user before deleting a language or changing the tenant default, since either can affect what's visible at runtime for existing translations.
 
 ## Example trigger prompts
 
 - "Add German translations for my login screen." → push `login.de-DE.json` after validate + dry-run + approval.
 - "Add German and Bengali translations for my login screen." → two dictionary files, two validate/push pairs (`de-DE`, `bn-BD`), same module.
-- "Set up a `common` module for shared strings like Save/Cancel/Delete." → write `common.<language>.json` with those keys, validate, push (this is what creates the `common` module).
+- "Set up a `common` module for shared strings like Save/Cancel/Delete." → write `common.<language>.json` with those keys, validate, push (this is what creates the `common` module) — or use `localization module save --module-name common` directly if no keys exist yet.
 - "Pull the latest translations for the dashboard module before I edit them." → `localization pull --module dashboard --language en`.
 - "Validate my localization file before pushing." → `localization validate` only, no network call.
-- "Can we add Bengali as a new supported language for the tenant?" → explain this is a capability gap: no CLI command, no writable SDK method; check the OS portal, don't improvise a `/Language/Save` call.
-- "Create a new translation module called `billing` with no keys yet." → explain a module can't be created standalone; it's created implicitly by the first `localization push` into it — offer to push a starter key instead.
+- "Can we add Bengali as a new supported language for the tenant?" → `localization language save --language-name Bengali --language-code bn-BD --dry-run`, confirm, then `--yes`.
+- "Create a new translation module called `billing` with no keys yet." → `localization module save --module-name billing --dry-run` → confirm → `--yes`.
+- "Machine-translate the whole `login` module and give me the export." → `localization key translate-and-export --module-id <id> --wait --dry-run` → confirm → `--yes`.
+- "Suggest a translation for this button label." → `localization assistant translation-suggestion --source-text "Save changes" --destination-language-code de-DE`.
+- "What's our webhook config for localization events?" → `localization config get-webhook`.
