@@ -21,6 +21,17 @@ blocks --help
 
 For local package development only, contributors may run `node bin/run.js ...` from the source repository. AI agents consuming the npm package should use `blocks ...`.
 
+## Global Options
+
+Namespaced commands accept either spaces or colons, e.g. `blocks data schema list` and
+`blocks data:schema:list` are equivalent. Global options available on every command:
+
+- `--json` - print machine-readable JSON where supported.
+- `--api-url <url>` - override the Blocks API URL for this command.
+- `--account <name>` - use a named account profile; default is implicit.
+- `--project <tenantId>` - use a project tenant for project-scoped commands.
+- `--dry-run` / `--yes` - see Operating Rules below.
+
 ## Operating Rules
 
 - Use `blocks ...` for all supported Blocks OS, IAM, Data, Release, and scaffold operations.
@@ -83,6 +94,14 @@ Read the selected project:
 blocks projects get --json
 ```
 
+If an impersonated project token has expired or failed and re-running the command doesn't
+recover, clear the selection and reselect to force re-impersonation:
+
+```bash
+blocks deselect
+blocks use <projectTenantId>
+```
+
 ## Scaffold a Web App
 
 Generate a React/Vite Blocks app. All of `--x-blocks-key`, `--app-domain`, and `--client-id` are optional now - they're resolved from the selected project when omitted:
@@ -106,6 +125,11 @@ Then run with explicit flags so no prompt is reached:
 ```bash
 blocks new web <appName> --x-blocks-key <projectTenantId> --app-domain <appDomainOrUrl> --client-id <publicOidcClientId>
 ```
+
+`new web` also accepts `--blocks-api-url <url>` and `--oidc-url <url>`, same as `sdk client`
+below. `--blocks-api-url` defaults to the OS control-plane API if omitted - pass the runtime
+Data/IAM/Localization gateway URL explicitly (typically `https://api.seliseblocks.com`) for the
+scaffolded app to work at runtime. `--oidc-url` defaults to `https://iam.seliseblocks.com`.
 
 Validate the scaffold:
 
@@ -447,7 +471,7 @@ blocks release builds list --repo-id <repoId> --json
 - `refresh_network_error`: check the network and configured OIDC URL, then retry.
 - `auth_repair_required`: inspect `blocks auth status --json`; if local storage is unreadable or stale, run `blocks auth remove <account>`, then `blocks auth status --json` and `blocks login`.
 - `project_not_selected`: run `blocks projects list`, then `blocks use <projectTenantId>`.
-- `api_auth_failed`: run `blocks auth status --json`, then login again.
+- `api_auth_failed`: run `blocks auth status --json`, then login again. If the failure is specifically a stale/expired impersonated project token rather than the account token, `blocks deselect` followed by `blocks use <tenantId>` re-impersonates without a full re-login.
 - `repo_not_linked` (from `release deploy`): no repo is linked to this project. This needs GitHub OAuth - tell the user to link it from the Blocks portal, do not retry from the CLI.
 - `repo_ambiguous` (from `release deploy`): multiple repos are linked and none is named for the current environment. Tell the user to check the project's repo links in the portal.
 - `repo_not_found` (from `release deploy`): the linked asset's repo id doesn't exist in blocks-release. Tell the user to check the project's repo link in the portal.

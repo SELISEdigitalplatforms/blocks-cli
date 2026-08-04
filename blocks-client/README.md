@@ -56,7 +56,7 @@ const refreshed = await blocks.auth.oidc.refreshToken({
 });
 ```
 
-Embedded/app-owned login UI uses AuthController methods directly on `auth`: `auth.login()`, `auth.socialInitiate()`, `auth.socialCallback()`, and `auth.refresh()`.
+Embedded/app-owned login UI uses AuthController methods directly on `auth`: `auth.login()`, `auth.socialInitiate(clientId, redirectUri)` (two positional strings, not an object), `auth.socialCallback(request)`, and `auth.refresh()`.
 
 ```ts
 const login = await blocks.auth.login({
@@ -72,6 +72,16 @@ const refreshed = await blocks.auth.refresh({
 Other auth APIs, such as user info, organization switch, logout, signup, recovery, activation, auth config, user codes, client credentials, and identity providers, can be used by either flow when the app has the required token/permission.
 
 `auth.oidc.clientCredentials()` is for trusted non-browser runtimes only because it requires a client secret.
+
+`auth.accessToken()` resolves the caller-owned bearer token configured on `createBlocksClient` (string or callback). `auth.isAuthenticated()` checks the current session against IAM through `GET /iam/v4/auth/me` and returns a boolean based on the raw response status - use it instead of `userInfo()` when you need a true/false signal, since IAM's hosted IdP flow may set the session as a cookie with no local `accessToken` to inspect.
+
+```ts
+const config = await blocks.mfa.config();
+await blocks.mfa.totp.setup();
+await blocks.mfa.totp.verifySetup({ code: "123456" });
+await blocks.mfa.setMethod({ mfaType: 1 });
+const backupCodes = await blocks.mfa.backupCodes.generate();
+```
 
 ## Common Runtime Calls
 
@@ -132,11 +142,22 @@ const selectedKeys = await blocks.localization.keysByNames({
 - `blocks.auth`: AuthController login, social login, refresh, org switch, logout, signup, recovery, activation, auth config, user codes, client credentials, identity providers.
 - `blocks.auth.idp`: hosted IdP initiate, browser redirect, callback, UI config.
 - `blocks.auth.oidc`: refresh-token and client-credentials token endpoint helpers.
-- `blocks.iam`: current user, users, roles, permissions, resources, organizations, signup settings.
+- `blocks.iam`: current user, users, roles, permissions, resources, organizations, signup settings (`blocks.iam.signupSettings`).
 - `blocks.data`: schema reads, validation reads, GraphQL gateway execution, file/storage helpers, DMS file/folder helpers, runtime collection CRUD.
 - `blocks.localization`: tenant language/module discovery, UILM dictionary loading, selected key lookup, simple `t()` lookup.
+- `blocks.mfa`: tenant MFA policy read/save, TOTP enrollment, OTP generate/resend/verify, method switch, disable, and backup codes.
 
-Professional class names are exported for advanced typing and adapters: `BlocksAuthenticationClient`, `BlocksIAMClient`, `BlocksDataClient`, and `BlocksLocalizationClient`.
+Professional class names are exported for advanced typing and adapters: `BlocksAuthenticationClient`, `BlocksIAMClient`, `BlocksDataClient`, `BlocksLocalizationClient`, and `BlocksMfaClient`. `BlocksApiError` is exported for typed error handling - every non-2xx response from `http.request`/`http.external` throws it, exposing `status`, `statusText`, and the parsed `body`:
+
+```ts
+try {
+  await blocks.iam.me();
+} catch (error) {
+  if (error instanceof BlocksApiError) {
+    console.error(error.status, error.body);
+  }
+}
+```
 
 ## Boundaries
 
