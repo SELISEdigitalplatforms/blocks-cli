@@ -31,5 +31,5 @@ export async function deselectProject(argv: string[]): Promise<void> {
   }
 
   console.log(`Deselected project tenant ${tenantId}.`);
-  console.log("Run 'blocks-os use <tenantId>' to select a project again.");
+  console.log("Run 'blocks use <tenantId>' to select a project again.");
 }

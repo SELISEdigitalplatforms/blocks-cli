@@ -41,7 +41,7 @@ export async function selectedProject(flags: Record<string, string | boolean>): 
   const global = await readConfig();
   if (global.selectedProject?.tenantId) return global.selectedProject.tenantId;
 
-  throw new Error("No project selected. Run 'blocks-os use <tenantId>' or pass --project <tenantId>.");
+  throw new Error("No project selected. Run 'blocks use <tenantId>' or pass --project <tenantId>.");
 }
 
 export async function saveSelectedProject(tenantId: string): Promise<void> {

@@ -6,7 +6,7 @@ import { promisify } from "node:util";
 import { configDir } from "./config.js";
 
 const execFileAsync = promisify(execFile);
-const SERVICE = "seliseblocks-cli-os";
+const SERVICE = "seliseblocks-cli";
 
 export type SecretBackend = "windows-dpapi" | "macos-keychain" | "linux-secret-service" | "file";
 
@@ -170,7 +170,7 @@ function normalizeSecretStore(store?: Partial<BlocksSecretStore>): BlocksSecretS
 }
 
 async function resolveBackend(): Promise<SecretBackend> {
-  if (process.env.BLOCKS_OS_SECRET_STORE === "file") return "file";
+  if (process.env.BLOCKS_SECRET_STORE === "file") return "file";
   if (platform() === "win32") return "windows-dpapi";
   if (platform() === "darwin") return "macos-keychain";
   if (platform() === "linux" && await commandAvailable("secret-tool")) return "linux-secret-service";
@@ -191,9 +191,9 @@ async function protectWindowsSecret(secret: string): Promise<string> {
     "-NoProfile",
     "-NonInteractive",
     "-Command",
-    "$secure = ConvertTo-SecureString $env:BLOCKS_OS_SECRET_INPUT -AsPlainText -Force; $secure | ConvertFrom-SecureString"
+    "$secure = ConvertTo-SecureString $env:BLOCKS_SECRET_INPUT -AsPlainText -Force; $secure | ConvertFrom-SecureString"
   ], {
-    env: { ...process.env, BLOCKS_OS_SECRET_INPUT: secret }
+    env: { ...process.env, BLOCKS_SECRET_INPUT: secret }
   });
   return stdout.trim();
 }
@@ -204,9 +204,9 @@ async function unprotectWindowsSecret(secret: string): Promise<string | undefine
       "-NoProfile",
       "-NonInteractive",
       "-Command",
-      "$secure = ConvertTo-SecureString $env:BLOCKS_OS_SECRET_INPUT; $bstr = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($secure); try { [Runtime.InteropServices.Marshal]::PtrToStringBSTR($bstr) } finally { if ($bstr -ne [IntPtr]::Zero) { [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($bstr) } }"
+      "$secure = ConvertTo-SecureString $env:BLOCKS_SECRET_INPUT; $bstr = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($secure); try { [Runtime.InteropServices.Marshal]::PtrToStringBSTR($bstr) } finally { if ($bstr -ne [IntPtr]::Zero) { [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($bstr) } }"
     ], {
-      env: { ...process.env, BLOCKS_OS_SECRET_INPUT: secret }
+      env: { ...process.env, BLOCKS_SECRET_INPUT: secret }
     });
     return stdout.trim() || undefined;
   } catch {
@@ -233,7 +233,7 @@ async function removeMacSecret(account: string): Promise<void> {
 }
 
 async function setLinuxSecret(account: string, secret: string): Promise<void> {
-  await spawnWithInput("secret-tool", ["store", "--label", `Blocks OS CLI ${account}`, "service", SERVICE, "account", account], secret);
+  await spawnWithInput("secret-tool", ["store", "--label", `Blocks CLI ${account}`, "service", SERVICE, "account", account], secret);
 }
 
 async function getLinuxSecret(account: string): Promise<string | undefined> {

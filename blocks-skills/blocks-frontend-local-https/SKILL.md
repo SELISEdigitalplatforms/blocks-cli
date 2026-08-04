@@ -1,11 +1,11 @@
 ---
 name: blocks-frontend-local-https
-description: "Run a blocks-os new web scaffolded app locally over HTTPS on its real Blocks project domain so hosted IAM login actually works — the scaffold already ships this automated: a generated .env with VITE_BLOCKS_APP_DOMAIN/VITE_BLOCKS_DEV_HOST, a `npm run cert` script backed by the `selfsigned` npm package (no OpenSSL needed, plain PowerShell is fine), and a vite.config.ts that serves HTTPS whenever a cert exists. This skill documents running THAT flow correctly and troubleshooting it, rather than building cert/hosts setup from scratch: npm install, npm run cert, add `127.0.0.1 <VITE_BLOCKS_DEV_HOST>` to the hosts file, npm run dev, then open `https://<VITE_BLOCKS_DEV_HOST>:5173` — never plain http, never localhost. Use whenever a user asks to run a scaffolded Blocks app locally over HTTPS, hits 'login not working locally' / 'SSO cookie not set' / 'session lost on localhost' / a Vite 'Blocked request. This host is not allowed' error, needs to trust the self-signed dev cert, or asks why their local login redirects back but doesn't stay signed in."
+description: "Run a blocks new web scaffolded app locally over HTTPS on its real Blocks project domain so hosted IAM login actually works — the scaffold already ships this automated: a generated .env with VITE_BLOCKS_APP_DOMAIN/VITE_BLOCKS_DEV_HOST, a `npm run cert` script backed by the `selfsigned` npm package (no OpenSSL needed, plain PowerShell is fine), and a vite.config.ts that serves HTTPS whenever a cert exists. This skill documents running THAT flow correctly and troubleshooting it, rather than building cert/hosts setup from scratch: npm install, npm run cert, add `127.0.0.1 <VITE_BLOCKS_DEV_HOST>` to the hosts file, npm run dev, then open `https://<VITE_BLOCKS_DEV_HOST>:5173` — never plain http, never localhost. Use whenever a user asks to run a scaffolded Blocks app locally over HTTPS, hits 'login not working locally' / 'SSO cookie not set' / 'session lost on localhost' / a Vite 'Blocked request. This host is not allowed' error, needs to trust the self-signed dev cert, or asks why their local login redirects back but doesn't stay signed in."
 ---
 
 # Blocks Frontend — Local HTTPS for a Scaffolded App
 
-This is the local dev loop for an app already created with `blocks-os new web` (see [blocks-onboarding](../blocks-onboarding/SKILL.md) Step 4 for the scaffold command itself — this skill doesn't repeat it). The scaffold **already generates its own cert tooling**; nothing here is built from scratch, and nothing uses raw `openssl`/`curl`/`fetch`.
+This is the local dev loop for an app already created with `blocks new web` (see [blocks-onboarding](../blocks-onboarding/SKILL.md) Step 4 for the scaffold command itself — this skill doesn't repeat it). The scaffold **already generates its own cert tooling**; nothing here is built from scratch, and nothing uses raw `openssl`/`curl`/`fetch`.
 
 ## Why localhost doesn't work
 
@@ -13,7 +13,7 @@ Browser login goes through the hosted Blocks IAM IdP flow (`blocksClient.auth.id
 
 ## Where the domain comes from
 
-`--app-domain` on `blocks-os new web` is the app's real Blocks origin, e.g. `https://dbpdba.seliseblocks.com`. The generated `.env` keeps two derived values:
+`--app-domain` on `blocks new web` is the app's real Blocks origin, e.g. `https://dbpdba.seliseblocks.com`. The generated `.env` keeps two derived values:
 
 - `VITE_BLOCKS_APP_DOMAIN` — the full value as passed, with scheme (`https://dbpdba.seliseblocks.com`).
 - `VITE_BLOCKS_DEV_HOST` — the same host with no scheme (`dbpdba.seliseblocks.com`), computed by the scaffold generator (`hostFromAppDomain` in `fs.ts`) and used everywhere locally: hosts file, cert `commonName`/SAN, and `vite.config.ts`'s `server.host`/`allowedHosts`.

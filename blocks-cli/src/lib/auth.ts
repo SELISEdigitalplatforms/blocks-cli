@@ -132,7 +132,7 @@ export async function pollDeviceToken(profile: AccountProfile, device: DeviceAut
       throw new CliActionableError(
         "Device authorization was denied.",
         "device_login_denied",
-        "blocks-os login"
+        "blocks login"
       );
     }
 
@@ -140,7 +140,7 @@ export async function pollDeviceToken(profile: AccountProfile, device: DeviceAut
       throw new CliActionableError(
         "Device login expired before approval.",
         "device_login_expired",
-        "blocks-os login"
+        "blocks login"
       );
     }
 
@@ -148,7 +148,7 @@ export async function pollDeviceToken(profile: AccountProfile, device: DeviceAut
       throw new CliActionableError(
         response.error_description ?? response.error,
         "device_login_failed",
-        "blocks-os login"
+        "blocks login"
       );
     }
 
@@ -158,7 +158,7 @@ export async function pollDeviceToken(profile: AccountProfile, device: DeviceAut
   throw new CliActionableError(
     "Device login expired before approval.",
     "device_login_expired",
-    "blocks-os login"
+    "blocks login"
   );
 }
 
@@ -169,7 +169,7 @@ function throwIfTooManyTransientErrors(count: number, cause: unknown): void {
   throw new CliActionableError(
     `Could not reach the identity provider while waiting for device approval (${detail}).`,
     "device_login_network_error",
-    "Check your network connection and run 'blocks-os login' again."
+    "Check your network connection and run 'blocks login' again."
   );
 }
 
@@ -180,7 +180,7 @@ export async function getAccountSession(accountOverride?: string): Promise<Accou
   const token = store.accounts[name]?.account;
 
   if (!token?.accessToken || !token.accountTenant) {
-    throw new Error(`Account '${name}' is not logged in. Run 'blocks-os login' first.`);
+    throw new Error(`Account '${name}' is not logged in. Run 'blocks login' first.`);
   }
 
   if (!isExpiring(token.expiresAt)) {
@@ -193,7 +193,7 @@ export async function getAccountSession(accountOverride?: string): Promise<Accou
   }
 
   if (!token.refreshToken) {
-    throw new Error(`Account '${name}' token expired and no refresh token is available. Run 'blocks-os login' again.`);
+    throw new Error(`Account '${name}' token expired and no refresh token is available. Run 'blocks login' again.`);
   }
 
   const refreshed = await refreshToken(profile.oidcUrl, profile.clientId, token.refreshToken, await getClientSecret(name), profile.rootTenantId ?? token.accountTenant);
@@ -229,7 +229,7 @@ export async function getImpersonatedProjectSession(accountOverride?: string, te
   const { name, profile } = getAccountProfile(config, accountOverride);
   const tenantId = tenantOverride ?? config.selectedProject?.tenantId;
   if (!tenantId) {
-    throw new Error("No project selected. Run 'blocks-os use <tenantId>' first.");
+    throw new Error("No project selected. Run 'blocks use <tenantId>' first.");
   }
 
   const projectToken = store.accounts[name]?.projects?.[tenantId];
@@ -258,7 +258,7 @@ export async function getImpersonatedProjectSession(accountOverride?: string, te
   store = await readTokenStore();
   const rootRefresh = store.accounts[name]?.account?.refreshToken;
   if (!rootRefresh) {
-    throw new Error(`Project impersonation needs a fresh account refresh token. Run 'blocks-os login' again.`);
+    throw new Error(`Project impersonation needs a fresh account refresh token. Run 'blocks login' again.`);
   }
 
   const data = await impersonateProject({
@@ -331,7 +331,7 @@ async function refreshToken(oidcUrl: string, clientId: string, refreshToken: str
       throw new CliActionableError(
         `Refresh token was rejected by the identity provider (${error.message}).`,
         "refresh_token_rejected",
-        "blocks-os login"
+        "blocks login"
       );
     }
 

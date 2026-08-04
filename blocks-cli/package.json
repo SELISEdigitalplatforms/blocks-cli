@@ -1,11 +1,11 @@
 {
   "name": "@seliseblocks/cli-os",
   "version": "0.1.4",
-  "description": "CLI for SELISE Blocks OS project setup and configuration.",
+  "description": "CLI for SELISE Blocks project setup and configuration.",
   "license": "MIT",
   "type": "module",
   "bin": {
-    "blocks-os": "bin/run.js"
+    "blocks": "bin/run.js"
   },
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",

@@ -47,10 +47,10 @@ export async function findProjectByTenantId(
 }
 
 // Resolves the CLI's currently selected project (blocks.json, --project flag,
-// or 'blocks-os use') and looks it up via Project/Gets. Throws the same
+// or 'blocks use') and looks it up via Project/Gets. Throws the same
 // actionable "No project selected" error as selectedProject() when nothing
 // is selected -- callers should not catch that error, letting it surface to
-// the user with the "run blocks-os use <tenantId>" next step intact.
+// the user with the "run blocks use <tenantId>" next step intact.
 export async function resolveSelectedProject(
   flags: Record<string, string | boolean>
 ): Promise<{ group: ProjectGroupRecord; project: ProjectRecord; tenantId: string }> {

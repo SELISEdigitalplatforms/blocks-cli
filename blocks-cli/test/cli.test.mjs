@@ -99,12 +99,12 @@ test("project token refresh preserves the previous refresh token when the respon
 
 test("account session refresh surfaces a clear next step when the identity provider rejects the refresh token", async () => {
   const { configDir } = await makeWorkspace();
-  const originalConfigDir = process.env.BLOCKS_OS_CONFIG_DIR;
-  const originalSecretStore = process.env.BLOCKS_OS_SECRET_STORE;
+  const originalConfigDir = process.env.BLOCKS_CONFIG_DIR;
+  const originalSecretStore = process.env.BLOCKS_SECRET_STORE;
   const originalFetch = globalThis.fetch;
 
-  process.env.BLOCKS_OS_CONFIG_DIR = configDir;
-  process.env.BLOCKS_OS_SECRET_STORE = "file";
+  process.env.BLOCKS_CONFIG_DIR = configDir;
+  process.env.BLOCKS_SECRET_STORE = "file";
   // The OIDC server rejects an expired/revoked refresh token -- no
   // error_description, just the bare OAuth error code, to prove the
   // resulting CLI error doesn't depend on any particular wording.
@@ -146,15 +146,15 @@ test("account session refresh surfaces a clear next step when the identity provi
     await assert.rejects(() => getAccountSession("default"), (error) => {
       assert.ok(error instanceof CliActionableError);
       assert.equal(error.code, "refresh_token_rejected");
-      assert.equal(error.nextStep, "blocks-os login");
+      assert.equal(error.nextStep, "blocks login");
       return true;
     });
   } finally {
     globalThis.fetch = originalFetch;
-    if (originalConfigDir === undefined) delete process.env.BLOCKS_OS_CONFIG_DIR;
-    else process.env.BLOCKS_OS_CONFIG_DIR = originalConfigDir;
-    if (originalSecretStore === undefined) delete process.env.BLOCKS_OS_SECRET_STORE;
-    else process.env.BLOCKS_OS_SECRET_STORE = originalSecretStore;
+    if (originalConfigDir === undefined) delete process.env.BLOCKS_CONFIG_DIR;
+    else process.env.BLOCKS_CONFIG_DIR = originalConfigDir;
+    if (originalSecretStore === undefined) delete process.env.BLOCKS_SECRET_STORE;
+    else process.env.BLOCKS_SECRET_STORE = originalSecretStore;
   }
 });
 
@@ -267,7 +267,7 @@ test("device token polling reports expiration once the deadline passes", async (
 
 test("scaffolded web app depends on @seliseblocks/client and has no custom Blocks fetch wrapper", async () => {
   const { cwd, configDir } = await makeWorkspace();
-  const env = testEnv(configDir, { BLOCKS_OS_SECRET_STORE: "file" });
+  const env = testEnv(configDir, { BLOCKS_SECRET_STORE: "file" });
 
   const result = run([
     "new", "web", "demo-app",
@@ -328,7 +328,7 @@ test("fresh workspace dry-run commands do not require data files", async () => {
     selectedProject: { tenantId: "project-tenant" }
   });
 
-  const env = testEnv(configDir, { BLOCKS_OS_SECRET_STORE: "file" });
+  const env = testEnv(configDir, { BLOCKS_SECRET_STORE: "file" });
 
   const schema = run(["data:schema:push", "--dry-run", "--json"], { cwd, env });
   assert.equal(schema.status, 0, schema.stderr);
@@ -349,7 +349,7 @@ test("localization validate accepts nested i18n JSON and reports flattened key c
 
   const result = run(["localization:validate", "--module", "common", "--language", "en", "--json"], {
     cwd,
-    env: testEnv(configDir, { BLOCKS_OS_SECRET_STORE: "file" })
+    env: testEnv(configDir, { BLOCKS_SECRET_STORE: "file" })
   });
 
   assert.equal(result.status, 0, result.stderr);
@@ -421,7 +421,7 @@ test("localization push uses v4 gateway paths without api segment", async () => 
       "--api-url", server.url,
       "--yes",
       "--json"
-    ], { cwd, env: testEnv(configDir, { BLOCKS_OS_SECRET_STORE: "file" }) });
+    ], { cwd, env: testEnv(configDir, { BLOCKS_SECRET_STORE: "file" }) });
 
     assert.equal(result.status, 0, JSON.stringify({
       error: result.error?.message,
@@ -444,7 +444,7 @@ test("prints package version", async () => {
   const pkg = JSON.parse(await readFile(join(repoRoot, "package.json"), "utf8"));
   const { cwd, configDir } = await makeWorkspace();
 
-  const result = run(["--version"], { cwd, env: testEnv(configDir, { BLOCKS_OS_SECRET_STORE: "file" }) });
+  const result = run(["--version"], { cwd, env: testEnv(configDir, { BLOCKS_SECRET_STORE: "file" }) });
   assert.equal(result.status, 0, result.stderr);
   assert.equal(result.stdout.trim(), pkg.version);
 });
@@ -454,7 +454,7 @@ test("fresh auth status hides packaged account defaults", async () => {
 
   const result = run(["auth:status", "--json"], {
     cwd,
-    env: testEnv(configDir, { BLOCKS_OS_SECRET_STORE: "file" })
+    env: testEnv(configDir, { BLOCKS_SECRET_STORE: "file" })
   });
 
   assert.equal(result.status, 0, result.stderr);
@@ -473,7 +473,7 @@ test("empty config auth status hides packaged account defaults", async () => {
 
   const result = run(["auth:status", "--json"], {
     cwd,
-    env: testEnv(configDir, { BLOCKS_OS_SECRET_STORE: "file" })
+    env: testEnv(configDir, { BLOCKS_SECRET_STORE: "file" })
   });
 
   assert.equal(result.status, 0, result.stderr);
@@ -506,7 +506,7 @@ test("auth status uses active account when account flag is omitted", async () =>
 
   const result = run(["auth:status", "--json"], {
     cwd,
-    env: testEnv(configDir, { BLOCKS_OS_SECRET_STORE: "file" })
+    env: testEnv(configDir, { BLOCKS_SECRET_STORE: "file" })
   });
 
   assert.equal(result.status, 0, result.stderr);
@@ -539,7 +539,7 @@ test("stored default account values are not exposed by auth status", async () =>
 
   const result = run(["auth:status", "--json"], {
     cwd,
-    env: testEnv(configDir, { BLOCKS_OS_SECRET_STORE: "file" })
+    env: testEnv(configDir, { BLOCKS_SECRET_STORE: "file" })
   });
 
   assert.equal(result.status, 0, result.stderr);
@@ -599,7 +599,7 @@ test("auth status reports only token existence and validity", async () => {
 
   const result = run(["auth:status", "--json"], {
     cwd,
-    env: testEnv(configDir, { BLOCKS_OS_SECRET_STORE: "file" })
+    env: testEnv(configDir, { BLOCKS_SECRET_STORE: "file" })
   });
 
   assert.equal(result.status, 0, result.stderr);
@@ -616,7 +616,7 @@ test("init uses centralized default API URL", async () => {
 
   const result = run(["init"], {
     cwd,
-    env: testEnv(configDir, { BLOCKS_OS_SECRET_STORE: "file" })
+    env: testEnv(configDir, { BLOCKS_SECRET_STORE: "file" })
   });
 
   assert.equal(result.status, 0, result.stderr);
@@ -635,7 +635,7 @@ test("new web uses centralized default URLs when no API/OIDC overrides are passe
     "--app-domain", "https://dev-app.example.test"
   ], {
     cwd,
-    env: testEnv(configDir, { BLOCKS_OS_SECRET_STORE: "file" })
+    env: testEnv(configDir, { BLOCKS_SECRET_STORE: "file" })
   });
 
   assert.equal(result.status, 0, result.stderr);
@@ -664,14 +664,14 @@ test("json mode emits structured auth errors", async () => {
 
   const result = run(["projects:list", "--json"], {
     cwd,
-    env: testEnv(configDir, { BLOCKS_OS_SECRET_STORE: "file" })
+    env: testEnv(configDir, { BLOCKS_SECRET_STORE: "file" })
   });
   assert.equal(result.status, 1);
   assert.equal(result.stdout, "");
 
   const error = JSON.parse(result.stderr);
   assert.equal(error.code, "not_logged_in");
-  assert.equal(error.nextStep, "blocks-os login, then blocks-os projects list, then blocks-os use <tenantId>");
+  assert.equal(error.nextStep, "blocks login, then blocks projects list, then blocks use <tenantId>");
 });
 
 test("auth:status tolerates stale Windows DPAPI values", { skip: process.platform !== "win32" }, async () => {
@@ -712,7 +712,7 @@ test("auth:status tolerates stale Windows DPAPI values", { skip: process.platfor
 test("linux ignores empty XDG_CONFIG_HOME and uses home config fallback", { skip: process.platform !== "linux" }, async () => {
   const { cwd, configDir } = await makeWorkspace();
   const homeDir = join(configDir, "home");
-  const fallbackConfigDir = join(homeDir, ".config", "seliseblocks", "cli-os");
+  const fallbackConfigDir = join(homeDir, ".config", "seliseblocks", "cli");
   await mkdir(fallbackConfigDir, { recursive: true });
   await writeConfig(fallbackConfigDir, {
     activeAccount: "default",
@@ -732,16 +732,16 @@ test("linux ignores empty XDG_CONFIG_HOME and uses home config fallback", { skip
 
   const env = {
     ...process.env,
-    BLOCKS_OS_SECRET_STORE: "file",
+    BLOCKS_SECRET_STORE: "file",
     HOME: homeDir,
     XDG_CONFIG_HOME: ""
   };
-  delete env.BLOCKS_OS_CONFIG_DIR;
+  delete env.BLOCKS_CONFIG_DIR;
 
   const status = run(["doctor", "--json"], { cwd, env });
   assert.equal(status.status, 0, status.stderr);
   const data = JSON.parse(status.stdout);
-  assert.ok(data.checks.some((check) => check.detail.includes(join(homeDir, ".config", "seliseblocks", "cli-os", "tokens.json"))));
+  assert.ok(data.checks.some((check) => check.detail.includes(join(homeDir, ".config", "seliseblocks", "cli", "tokens.json"))));
 });
 
 test("parseFrontmatter extracts name and description from SKILL.md frontmatter", () => {
@@ -788,7 +788,7 @@ test("readSkill returns full content for a known skill and throws a helpful erro
 
 test("skill:list and skill:add expose bundled blocks-skills content", async () => {
   const { cwd, configDir } = await makeWorkspace();
-  const env = testEnv(configDir, { BLOCKS_OS_SECRET_STORE: "file" });
+  const env = testEnv(configDir, { BLOCKS_SECRET_STORE: "file" });
 
   const list = run(["skill:list", "--json"], { cwd, env });
   assert.equal(list.status, 0, list.stderr);
@@ -806,7 +806,7 @@ test("skill:list and skill:add expose bundled blocks-skills content", async () =
 
 test("sdk:client prints the resolved config and snippet without writing any files, when app-domain and client-id are both explicit", async () => {
   const { cwd, configDir } = await makeWorkspace();
-  const env = testEnv(configDir, { BLOCKS_OS_SECRET_STORE: "file" });
+  const env = testEnv(configDir, { BLOCKS_SECRET_STORE: "file" });
   const flags = [
     "--x-blocks-key", "sdk-test-tenant",
     "--app-domain", "https://sdk-test.example.test",
@@ -836,7 +836,7 @@ test("sdk:client prints the resolved config and snippet without writing any file
 });
 
 async function makeWorkspace() {
-  const base = await mkdtemp(join(tmpdir(), "blocks-cli-os-test-"));
+  const base = await mkdtemp(join(tmpdir(), "blocks-cli-test-"));
   const cwd = join(base, "workspace");
   const configDir = join(base, "config");
   await mkdir(cwd, { recursive: true });
@@ -861,16 +861,16 @@ async function collectFiles(dir) {
 
 async function withDevicePollingEnv(fn) {
   const { configDir } = await makeWorkspace();
-  const originalConfigDir = process.env.BLOCKS_OS_CONFIG_DIR;
+  const originalConfigDir = process.env.BLOCKS_CONFIG_DIR;
   const originalFetch = globalThis.fetch;
-  process.env.BLOCKS_OS_CONFIG_DIR = configDir;
+  process.env.BLOCKS_CONFIG_DIR = configDir;
 
   try {
     await fn();
   } finally {
     globalThis.fetch = originalFetch;
-    if (originalConfigDir === undefined) delete process.env.BLOCKS_OS_CONFIG_DIR;
-    else process.env.BLOCKS_OS_CONFIG_DIR = originalConfigDir;
+    if (originalConfigDir === undefined) delete process.env.BLOCKS_CONFIG_DIR;
+    else process.env.BLOCKS_CONFIG_DIR = originalConfigDir;
   }
 }
 
@@ -944,11 +944,11 @@ function runAsync(args, { cwd, env }) {
 function testEnv(configDir, extra = {}) {
   const env = {
     ...process.env,
-    BLOCKS_OS_CONFIG_DIR: configDir,
+    BLOCKS_CONFIG_DIR: configDir,
     ...extra
   };
 
-  if (!("BLOCKS_OS_SECRET_STORE" in extra)) delete env.BLOCKS_OS_SECRET_STORE;
+  if (!("BLOCKS_SECRET_STORE" in extra)) delete env.BLOCKS_SECRET_STORE;
   return env;
 }
 

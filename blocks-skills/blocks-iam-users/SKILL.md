@@ -1,13 +1,13 @@
 ---
 name: blocks-iam-users
-description: "Manage OTHER users' IAM records inside a SELISE Blocks app, through the `iam.users.*` methods on the app's single `@seliseblocks/client` instance (`blocksClient.iam.users`) — never raw fetch/curl. Covers safe reads (`get`, `list`, `emailAvailable`, `exists`) and admin-mutation actions (`create`, `update`, `deactivate`, `activate`, `updateAccess`, `revokeAccess`) that a signed-in admin drives through their own app UI. Use whenever the user wants to invite/create a user, edit another user's profile, deactivate or reactivate a user, list/search/look up users, check if an email is taken, or grant/revoke a user's roles or org access — 'invite a user', 'deactivate this account', 'list all users', 'give this user the admin role', 'check if this email is already registered'. Does NOT cover the CURRENT signed-in user's own self-service profile/activation/password (that's blocks-iam-account), defining roles/permissions themselves (blocks-iam-access-control), or any `blocks-os` CLI command — the CLI only exposes read-only `iam me`, nothing else under IAM."
+description: "Manage OTHER users' IAM records inside a SELISE Blocks app, through the `iam.users.*` methods on the app's single `@seliseblocks/client` instance (`blocksClient.iam.users`) — never raw fetch/curl. Covers safe reads (`get`, `list`, `emailAvailable`, `exists`) and admin-mutation actions (`create`, `update`, `deactivate`, `activate`, `updateAccess`, `revokeAccess`) that a signed-in admin drives through their own app UI. Use whenever the user wants to invite/create a user, edit another user's profile, deactivate or reactivate a user, list/search/look up users, check if an email is taken, or grant/revoke a user's roles or org access — 'invite a user', 'deactivate this account', 'list all users', 'give this user the admin role', 'check if this email is already registered'. Does NOT cover the CURRENT signed-in user's own self-service profile/activation/password (that's blocks-iam-account), defining roles/permissions themselves (blocks-iam-access-control), or any `blocks` CLI command — the CLI only exposes read-only `iam me`, nothing else under IAM."
 ---
 
 # Blocks IAM — Managing Other Users
 
 This skill is about an **admin managing other people's IAM accounts** from inside a Blocks app — inviting them, editing their profile, changing their access, deactivating them. It is not about the signed-in user managing their own account (that's **[blocks-iam-account](../blocks-iam-account/SKILL.md)**) and not about defining the roles/permissions being assigned (that's **blocks-iam-access-control**).
 
-Everything here goes through the SDK: `blocksClient.iam.users.*` on the app's single `@seliseblocks/client` instance (created once, typically at `src/lib/blocks/client.ts` by `blocks-os new web`). **Never raw `fetch`/`curl` against `api.seliseblocks.com`.**
+Everything here goes through the SDK: `blocksClient.iam.users.*` on the app's single `@seliseblocks/client` instance (created once, typically at `src/lib/blocks/client.ts` by `blocks new web`). **Never raw `fetch`/`curl` against `api.seliseblocks.com`.**
 
 ```ts
 import { blocksClient } from "../../lib/blocks/client";
@@ -17,7 +17,7 @@ const { data } = await blocksClient.iam.users.get(userId);
 
 ## Platform boundary: this is app-UI territory, not CLI or autonomous-agent territory
 
-`blocks-os` (the CLI) deliberately exposes only `iam me` — read the current logged-in user, nothing else. Full user administration (create, update, deactivate, access changes) is **not** a CLI capability. That's a settled platform decision: admin-sensitive IAM surface is kept out of the CLI/agent-automation layer on purpose.
+`blocks` (the CLI) deliberately exposes only `iam me` — read the current logged-in user, nothing else. Full user administration (create, update, deactivate, access changes) is **not** a CLI capability. That's a settled platform decision: admin-sensitive IAM surface is kept out of the CLI/agent-automation layer on purpose.
 
 The `iam.users.*` SDK methods below exist to build that admin capability **as a feature inside a signed-in admin's own app** — the admin is looking at a screen, clicking "Deactivate" on a specific user row, and their own IAM permissions gate whether the call succeeds. That is legitimate.
 
@@ -79,7 +79,7 @@ await blocksClient.iam.users.updateAccess({ userId: "usr_8a2f", roles: ["editor"
 - **Roles are referenced by slug**, as defined in blocks-iam-access-control — not by their internal item ids.
 - **`organizationId`** matters in multi-org projects — pass it to `get` when you need a user's record in a specific org context.
 - **Every request/response type in the SDK is a loosely-typed `Record<string, unknown>`** (`BlocksUser`, `BlocksBaseResponse`, etc. only guarantee a few common fields) — treat fields defensively and confirm shape against a live response for the project rather than assuming a fixed schema.
-- **Don't reach for the CLI here** — `blocks-os` has no user-admin commands beyond `iam me`; this is exclusively app/SDK territory.
+- **Don't reach for the CLI here** — `blocks` has no user-admin commands beyond `iam me`; this is exclusively app/SDK territory.
 - **Don't duplicate blocks-iam-account** — if the ask is "let me update my own profile" or "let me reset my password," that's the current user acting on themselves, not this skill.
 
 ## Example triggers

@@ -16,7 +16,7 @@ export async function authRefresh(argv: string[]): Promise<void> {
   if (!project) return;
 
   if (!config.selectedProject?.tenantId) {
-    throw new Error("No project selected. Run `blocks-os use <tenantId>` first.");
+    throw new Error("No project selected. Run `blocks use <tenantId>` first.");
   }
 
   const projectToken = store.accounts[account.account]?.projects?.[config.selectedProject.tenantId];

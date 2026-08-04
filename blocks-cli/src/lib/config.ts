@@ -57,18 +57,18 @@ export function defaults(): { apiUrl: string; osClientId: string; oidcUrl: strin
 }
 
 export function configDir(): string {
-  const override = nonEmptyEnv("BLOCKS_OS_CONFIG_DIR");
+  const override = nonEmptyEnv("BLOCKS_CONFIG_DIR");
   if (override) return override;
 
   if (platform() === "win32") {
-    return join(nonEmptyEnv("APPDATA") ?? join(homedir(), "AppData", "Roaming"), "seliseblocks", "cli-os");
+    return join(nonEmptyEnv("APPDATA") ?? join(homedir(), "AppData", "Roaming"), "seliseblocks", "cli");
   }
 
   if (platform() === "darwin") {
-    return join(homedir(), "Library", "Application Support", "seliseblocks", "cli-os");
+    return join(homedir(), "Library", "Application Support", "seliseblocks", "cli");
   }
 
-  return join(nonEmptyEnv("XDG_CONFIG_HOME") ?? join(homedir(), ".config"), "seliseblocks", "cli-os");
+  return join(nonEmptyEnv("XDG_CONFIG_HOME") ?? join(homedir(), ".config"), "seliseblocks", "cli");
 }
 
 export function configPath(): string {

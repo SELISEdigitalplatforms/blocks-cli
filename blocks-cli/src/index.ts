@@ -435,41 +435,41 @@ function toCliError(error: unknown): { code: string; message: string; nextStep?:
 
   const message = error instanceof Error ? error.message : String(error);
 
-  if (message.includes("is not logged in") || message.includes("Run 'blocks-os login' first")) {
+  if (message.includes("is not logged in") || message.includes("Run 'blocks login' first")) {
     return {
       code: "not_logged_in",
       message,
-      nextStep: "blocks-os login, then blocks-os projects list, then blocks-os use <tenantId>"
+      nextStep: "blocks login, then blocks projects list, then blocks use <tenantId>"
     };
   }
 
   if (message.includes("token expired") || message.includes("refresh token") || message.includes("cannot decrypt")) {
-    return { code: "auth_repair_required", message, nextStep: "blocks-os login" };
+    return { code: "auth_repair_required", message, nextStep: "blocks login" };
   }
 
   if (message.includes("No project selected")) {
     return {
       code: "project_not_selected",
       message,
-      nextStep: "blocks-os projects list, then blocks-os use <tenantId>"
+      nextStep: "blocks projects list, then blocks use <tenantId>"
     };
   }
 
   if (message.startsWith("Blocks API 401") || message.startsWith("Blocks API 403")) {
-    return { code: "api_auth_failed", message, nextStep: "blocks-os auth status && blocks-os login" };
+    return { code: "api_auth_failed", message, nextStep: "blocks auth status && blocks login" };
   }
 
   return { code: "command_failed", message };
 }
 
 function printHelp(): void {
-  console.log(`Blocks OS CLI
+  console.log(`Blocks CLI
 
 Usage:
-  blocks-os <command> [options]
+  blocks <command> [options]
 
-  Namespaced commands use spaces, e.g. 'blocks-os data schema list'.
-  ':' also works if you prefer it: 'blocks-os data:schema:list'.
+  Namespaced commands use spaces, e.g. 'blocks data schema list'.
+  ':' also works if you prefer it: 'blocks data:schema:list'.
 
 Global options:
   --version                 Print CLI version.
@@ -481,254 +481,254 @@ Global options:
   --yes                     Skip mutation confirmation after explicit approval.
 
 Setup and health:
-  blocks-os init
+  blocks init
     Create local Blocks workspace files: blocks.json, data schema/rules folders,
     and .env.example.
 
-  blocks-os doctor [--json]
+  blocks doctor [--json]
     Check local Node.js, OIDC config, token cache, selected project, and config
     file locations. Does not mutate cloud resources.
 
 Auth:
-  blocks-os login
+  blocks login
     Device-code login. Prints a verification URL and user code, opens the
     browser to the verification page when possible so you only need to click
     approve, then polls until the device is authorized; stores account access
     and refresh tokens and auto-refreshes later.
 
-  blocks-os auth status [--json]
+  blocks auth status [--json]
     Show only whether account/project access and refresh tokens are missing,
     valid, expired, or available. Does not print account config values.
 
-  blocks-os auth refresh [--project] [--json]
+  blocks auth refresh [--project] [--json]
     Force account token refresh, or project token refresh with --project.
 
-  blocks-os auth remove <account>
+  blocks auth remove <account>
     Clear cached tokens and stored local credentials for that account. The
     packaged default OS account is restored from package defaults.
 
-  blocks-os logout
+  blocks logout
     Revoke the current refresh token when possible and remove local session data.
 
 Projects:
-  blocks-os projects list [--json]
+  blocks projects list [--json]
     List accessible Blocks projects via /os/v4/Project/Gets using the account
     token. Read-only.
 
-  blocks-os projects get [tenantId] [--deployment] [--json]
+  blocks projects get [tenantId] [--deployment] [--json]
     Read one project from Project/Gets. Uses selected project when tenantId is
     omitted. Pass --deployment to also include the environment, tenantGroupId,
     and linked repo assets (from Project/GetAsset) that 'release deploy' uses
     to resolve its target. Read-only.
 
-  blocks-os use <project-tenant-id>
+  blocks use <project-tenant-id>
     Save the selected project tenant globally and in blocks.json when present.
     Does not call cloud APIs.
 
-  blocks-os deselect
+  blocks deselect
     Clear the selected project tenant (globally and in blocks.json) and drop
     its cached impersonation token. Use this to recover when an impersonated
-    project token has expired or failed, then run 'blocks-os use <tenantId>'
+    project token has expired or failed, then run 'blocks use <tenantId>'
     again to reselect and re-impersonate.
 
 IAM:
-  blocks-os iam me [--json]
+  blocks iam me [--json]
     Read the current user from IAM using the account token (bootstrapping/CLI
     operator identity, not a project resource). Every other iam * command below
     is project-scoped: it requires a selected project and calls IAM using an
     impersonated project token only, never the account token.
 
   Users (/iam/v4/iam/users*):
-    blocks-os iam users list [--page 1] [--page-size 20] [--email <e>] [--name <n>]
+    blocks iam users list [--page 1] [--page-size 20] [--email <e>] [--name <n>]
                               [--organization-id <id>] [--sort-by <field>] [--sort-desc]
                               [--filter '<json>'] [--json]
       Query users. --filter merges a raw JSON filter object over the convenience flags.
-    blocks-os iam users get <id> [--organization-id <id>] [--json]
-    blocks-os iam users create --email <e>|--user-name <n> [--first-name] [--last-name]
+    blocks iam users get <id> [--organization-id <id>] [--json]
+    blocks iam users create --email <e>|--user-name <n> [--first-name] [--last-name]
                                 [--password] [--phone-number] [--organization-id]
                                 [--roles a,b] [--permissions a,b] [--body '<json>'|--file <path>]
                                 [--dry-run] [--yes] [--json]
-    blocks-os iam users update <id> [--first-name] [--last-name] [--phone-number]
+    blocks iam users update <id> [--first-name] [--last-name] [--phone-number]
                                 [--organization-id] [--roles a,b] [--permissions a,b]
                                 [--body '<json>'|--file <path>] [--dry-run] [--yes] [--json]
-    blocks-os iam users activate <userId> [--reason <text>] [--dry-run] [--yes] [--json]
-    blocks-os iam users deactivate <userId> [--dry-run] [--yes] [--json]
-    blocks-os iam users access grant <userId> [--roles a,b] [--permissions a,b]
+    blocks iam users activate <userId> [--reason <text>] [--dry-run] [--yes] [--json]
+    blocks iam users deactivate <userId> [--dry-run] [--yes] [--json]
+    blocks iam users access grant <userId> [--roles a,b] [--permissions a,b]
                                 [--organization-id] [--dry-run] [--yes] [--json]
-    blocks-os iam users access revoke <userId> [--organization-id] [--dry-run] [--yes] [--json]
-    blocks-os iam users exists <email> [--json]
-    blocks-os iam email available <email> [--json]
+    blocks iam users access revoke <userId> [--organization-id] [--dry-run] [--yes] [--json]
+    blocks iam users exists <email> [--json]
+    blocks iam email available <email> [--json]
 
   Roles (/iam/v4/iam/roles*):
-    blocks-os iam roles list [--page] [--page-size] [--search] [--slugs a,b]
+    blocks iam roles list [--page] [--page-size] [--search] [--slugs a,b]
                               [--organization-id] [--filter '<json>'] [--json]
-    blocks-os iam roles get <id> [--json]
-    blocks-os iam roles create --name <n> [--slug] [--description] [--parent-role-slug]
+    blocks iam roles get <id> [--json]
+    blocks iam roles create --name <n> [--slug] [--description] [--parent-role-slug]
                               [--can-create-own] [--body '<json>'|--file <path>]
                               [--dry-run] [--yes] [--json]
-    blocks-os iam roles update <itemId> [--name] [--description] [--parent-role-slug]
+    blocks iam roles update <itemId> [--name] [--description] [--parent-role-slug]
                               [--propagate-to-other-org] [--can-create-own]
                               [--body '<json>'|--file <path>] [--dry-run] [--yes] [--json]
-    blocks-os iam roles assign-permissions <slug> [--add-permissions a,b]
+    blocks iam roles assign-permissions <slug> [--add-permissions a,b]
                               [--remove-permissions a,b] [--organization-id]
                               [--dry-run] [--yes] [--json]
-    blocks-os iam roles assignable [--json]
+    blocks iam roles assignable [--json]
 
   Permissions (/iam/v4/iam/permissions*):
-    blocks-os iam permissions list [--page] [--page-size] [--search] [--type <0-3>]
+    blocks iam permissions list [--page] [--page-size] [--search] [--type <0-3>]
                               [--severity <0-4>] [--resource-group] [--tags a,b]
                               [--resources a,b] [--is-built-in] [--is-archived]
                               [--roles a,b] [--organization-id] [--filter '<json>'] [--json]
-    blocks-os iam permissions get <id> [--json]
-    blocks-os iam permissions create --name <n> [--type] [--description] [--resource]
+    blocks iam permissions get <id> [--json]
+    blocks iam permissions create --name <n> [--type] [--description] [--resource]
                               [--resource-group] [--tags a,b] [--severity] [--is-built-in]
                               [--dependent-permissions a,b] [--body '<json>'|--file <path>]
                               [--dry-run] [--yes] [--json]
-    blocks-os iam permissions update <id> [same flags as create, plus --is-archived]
+    blocks iam permissions update <id> [same flags as create, plus --is-archived]
                               [--dry-run] [--yes] [--json]
-    blocks-os iam permissions by-severity [--json]
+    blocks iam permissions by-severity [--json]
 
   Resources (/iam/v4/iam/resource*):
-    blocks-os iam resources groups [--json]
-    blocks-os iam resources features [--search <text>] [--is-built-in] [--json]
+    blocks iam resources groups [--json]
+    blocks iam resources features [--search <text>] [--is-built-in] [--json]
 
   Organizations (/iam/v4/iam/organizations*):
-    blocks-os iam organizations list [--page] [--page-size] [--search] [--ids a,b]
+    blocks iam organizations list [--page] [--page-size] [--search] [--ids a,b]
                               [--is-disabled] [--parent-organization-id] [--json]
-    blocks-os iam organizations get <id> [--json]
-    blocks-os iam organizations create --name <n> [--description] [--email] [--phone-number]
+    blocks iam organizations get <id> [--json]
+    blocks iam organizations create --name <n> [--description] [--email] [--phone-number]
                               [--website-url] [--default-roles a,b] [--default-permissions a,b]
                               [--body '<json>'|--file <path>] [--dry-run] [--yes] [--json]
-    blocks-os iam organizations update <id> [--name] [--description] [--email]
+    blocks iam organizations update <id> [--name] [--description] [--email]
                               [--phone-number] [--website-url] [--industry] [--time-zone]
                               [--currency] [--locale] [--is-enabled]
                               [--body '<json>'|--file <path>] [--dry-run] [--yes] [--json]
-    blocks-os iam organizations my [--json]
-    blocks-os iam organizations config get [--json]
-    blocks-os iam organizations config save [--allow-org-creation-from-cloud]
+    blocks iam organizations my [--json]
+    blocks iam organizations config get [--json]
+    blocks iam organizations config save [--allow-org-creation-from-cloud]
                               [--allow-org-creation-from-construct] [--allow-org-creation-from-signup]
                               [--allow-org-creation-from-portal] [--multi-org-enabled]
                               [--consent-for-multi-org-enable] [--body '<json>'|--file <path>]
                               [--dry-run] [--yes] [--json]
 
   Signup settings (/iam/v4/iam/signup-settings):
-    blocks-os iam signup-settings get [--json]
-    blocks-os iam signup-settings save [--email-password-signup] [--sso-signup]
+    blocks iam signup-settings get [--json]
+    blocks iam signup-settings save [--email-password-signup] [--sso-signup]
                               [--default-roles a,b] [--default-permissions a,b]
                               [--body '<json>'|--file <path>] [--dry-run] [--yes] [--json]
 
 MFA (/iam/v4/mfa*, project-scoped: requires a selected project, impersonated project token only):
-  blocks-os mfa config get [--json]
+  blocks mfa config get [--json]
     Read the tenant's MFA policy.
-  blocks-os mfa config save [--enable] [--require-for-all-users] [--allow-user-opt-out]
+  blocks mfa config save [--enable] [--require-for-all-users] [--allow-user-opt-out]
                               [--allow-backup-codes] [--backup-codes-count <n>]
                               [--user-mfa-type 0,1] [--required-roles a,b] [--exempt-roles a,b]
                               [--body '<json>'|--file <path>] [--dry-run] [--yes] [--json]
     Save the tenant's MFA policy.
-  blocks-os mfa totp setup [--json]
+  blocks mfa totp setup [--json]
     Start TOTP enrollment for the impersonated user.
-  blocks-os mfa totp verify-setup <code> [--json]
+  blocks mfa totp verify-setup <code> [--json]
     Confirm TOTP enrollment.
-  blocks-os mfa totp enable --mfa-type <n> [--code <c>] [--dry-run] [--yes] [--json]
+  blocks mfa totp enable --mfa-type <n> [--code <c>] [--dry-run] [--yes] [--json]
     Composed enrollment: totp setup -> (scan the printed QR/secret, enter the code --
     interactively prompted if --code is omitted) -> totp verify-setup -> method set
     --mfa-type <n> -> backup-codes generate. One sitting, one confirmation.
     --mfa-type is required and not defaulted: the numeric value meaning "TOTP" is
     tenant-defined and undocumented here (same value plain mfa method set expects) --
     look it up rather than guessing.
-  blocks-os mfa generate --mfa-type <n> [--send-phone-number-as-email-domain <domain>] [--json]
+  blocks mfa generate --mfa-type <n> [--send-phone-number-as-email-domain <domain>] [--json]
     Send an OTP challenge; returns an mfaId to pass to resend/verify.
-  blocks-os mfa resend <mfaId> [--send-phone-number-as-email-domain <domain>] [--json]
-  blocks-os mfa verify <mfaId> <code> --auth-type <n> [--from-token-call] [--json]
-  blocks-os mfa method set --mfa-type <n> [--json]
+  blocks mfa resend <mfaId> [--send-phone-number-as-email-domain <domain>] [--json]
+  blocks mfa verify <mfaId> <code> --auth-type <n> [--from-token-call] [--json]
+  blocks mfa method set --mfa-type <n> [--json]
     Switch the impersonated user's active MFA method.
-  blocks-os mfa disable [--dry-run] [--yes] [--json]
-  blocks-os mfa backup-codes list [--json]
-  blocks-os mfa backup-codes generate [--dry-run] [--yes] [--json]
-  blocks-os mfa backup-codes use <userId> <code> [--json]
+  blocks mfa disable [--dry-run] [--yes] [--json]
+  blocks mfa backup-codes list [--json]
+  blocks mfa backup-codes generate [--dry-run] [--yes] [--json]
+  blocks mfa backup-codes use <userId> <code> [--json]
 
 Mail (/os/v4/Mail/* — project-scoped: requires a selected project, impersonated project token only):
-  blocks-os mail config list [--json]
+  blocks mail config list [--json]
     List SMTP/inbound mail configurations for the selected project.
-  blocks-os mail config get <name> [--json]
-  blocks-os mail config save [--configuration-id <id>] [--name <n>] [--host <h>] [--port <n>]
+  blocks mail config get <name> [--json]
+  blocks mail config save [--configuration-id <id>] [--name <n>] [--host <h>] [--port <n>]
                               [--enable-ssl] [--sender-name] [--sender-address] [--sender-username]
                               [--account-password] [--inbound] [--provider <0|1>]
                               [--body '<json>'|--file <path>] [--dry-run] [--yes] [--json]
     Upsert: omit --configuration-id to create; pass it to update.
-  blocks-os mail config delete <configurationId> [--dry-run] [--yes] [--json]
-  blocks-os mail config duplicate <configurationId> [--dry-run] [--yes] [--json]
-  blocks-os mail template list [--page-number] [--page-size] [--search] [--sort-by] [--sort-desc]
+  blocks mail config delete <configurationId> [--dry-run] [--yes] [--json]
+  blocks mail config duplicate <configurationId> [--dry-run] [--yes] [--json]
+  blocks mail template list [--page-number] [--page-size] [--search] [--sort-by] [--sort-desc]
                               [--configuration-id] [--language] [--json]
-  blocks-os mail template get <itemId> [--json]
-  blocks-os mail template save [--item-id <id>] [--configuration-id] [--name] [--language]
+  blocks mail template get <itemId> [--json]
+  blocks mail template save [--item-id <id>] [--configuration-id] [--name] [--language]
                               [--subject] [--template-body] [--json-content] [--image-id]
                               [--image-url] [--body '<json>'|--file <path>] [--dry-run] [--yes] [--json]
     Upsert: omit --item-id to create; pass it to update.
-  blocks-os mail template delete <itemId> [--dry-run] [--yes] [--json]
-  blocks-os mail template clone <itemId> [--configuration-id] [--language] [--name] [--subject]
+  blocks mail template delete <itemId> [--dry-run] [--yes] [--json]
+  blocks mail template clone <itemId> [--configuration-id] [--language] [--name] [--subject]
                               [--dry-run] [--yes] [--json]
-  blocks-os mail mailbox list [--page-number] [--page-size] [--status] [--search]
+  blocks mail mailbox list [--page-number] [--page-size] [--status] [--search]
                               [--start-date] [--end-date] [--inbound] [--json]
-  blocks-os mail mailbox get <messageId> [--json]
+  blocks mail mailbox get <messageId> [--json]
 
 Notification (/os/v4/Notification/* — project-scoped: requires a selected project, impersonated project token only):
-  blocks-os notification list [--page] [--page-size] [--sort-by] [--sort-desc] [--filter] [--json]
-  blocks-os notification get <itemId> [--json]
-  blocks-os notification save [--name <n>] [--channel <0|1>] [--type <0-3>] [--enable-persistence]
+  blocks notification list [--page] [--page-size] [--sort-by] [--sort-desc] [--filter] [--json]
+  blocks notification get <itemId> [--json]
+  blocks notification save [--name <n>] [--channel <0|1>] [--type <0-3>] [--enable-persistence]
                               [--notify-method] [--update] [--body '<json>'|--file <path>]
                               [--dry-run] [--yes] [--json]
     Pass --update when saving over an existing notification configuration.
-  blocks-os notification delete <itemId> [--dry-run] [--yes] [--json]
+  blocks notification delete <itemId> [--dry-run] [--yes] [--json]
 
 Storage (/os/v4/Storage/* — project-scoped: requires a selected project, impersonated project token only):
-  blocks-os storage config list [--json]
-  blocks-os storage config get <name> [--json]
-  blocks-os storage config save [--item-id <id>] [--name <n>] [--strategy] [--connection-string]
+  blocks storage config list [--json]
+  blocks storage config get <name> [--json]
+  blocks storage config save [--item-id <id>] [--name <n>] [--strategy] [--connection-string]
                               [--secret-key] [--access-key] [--region-endpoint] [--host] [--port]
                               [--username] [--password] [--remote-base-path] [--update]
                               [--body '<json>'|--file <path>] [--dry-run] [--yes] [--json]
     Upsert: omit --item-id to create; pass --update to update.
-  blocks-os storage config delete <name> [--dry-run] [--yes] [--json]
+  blocks storage config delete <name> [--dry-run] [--yes] [--json]
 
 Auth Admin (/iam/v4/auth/identity-providers*, /config, /client-credentials, /oidc-clients —
             project-scoped: requires a selected project, impersonated project token only):
-  blocks-os auth idp list [--json]
-  blocks-os auth idp get <id> [--json]
-  blocks-os auth idp create --provider <p> --provider-type <t> --protocol <proto>
+  blocks auth idp list [--json]
+  blocks auth idp get <id> [--json]
+  blocks auth idp create --provider <p> --provider-type <t> --protocol <proto>
                               --client-id <id> [--client-secret] [--display-name] [--issuer]
                               [--scope] [--redirect-uris a,b] [--active]
                               [--body '<json>'|--file <path>] [--dry-run] [--yes] [--json]
     Rich provider configs (JWKS, private keys, initial roles, etc.) go in --body/--file;
     the flags above cover the common OAuth/OIDC fields.
-  blocks-os auth idp update <id> [same flags as create, all optional] [--dry-run] [--yes] [--json]
+  blocks auth idp update <id> [same flags as create, all optional] [--dry-run] [--yes] [--json]
     provider/providerType/protocol/clientId are immutable: omit them, or echo the
     existing values exactly if you also pass --body/--file.
-  blocks-os auth idp delete <id> [--dry-run] [--yes] [--json]
+  blocks auth idp delete <id> [--dry-run] [--yes] [--json]
     Irreversible; also deletes the related OIDC client registration.
-  blocks-os auth idp status <id> --active|--active=false [--dry-run] [--yes] [--json]
+  blocks auth idp status <id> --active|--active=false [--dry-run] [--yes] [--json]
     Enable/disable a provider without deleting its configuration.
-  blocks-os auth config get [--json]
-  blocks-os auth config save [--refresh-token-minutes] [--absolute-refresh-token-minutes]
+  blocks auth config get [--json]
+  blocks auth config save [--refresh-token-minutes] [--absolute-refresh-token-minutes]
                               [--access-token-minutes] [--remember-me-refresh-token-minutes]
                               [--wrong-attempts-to-lock] [--account-lock-duration-minutes]
                               [--oidc-enabled] [--logout-on-password-change]
                               [--password-strength-regex] [--body '<json>'|--file <path>]
                               [--dry-run] [--yes] [--json]
-  blocks-os auth client-credentials list [--json]
+  blocks auth client-credentials list [--json]
     clientSecret is included in list responses; treat CLI output as sensitive.
-  blocks-os auth client-credentials save --name <n> [--item-id <id>] [--roles a,b]
+  blocks auth client-credentials save --name <n> [--item-id <id>] [--roles a,b]
                               [--permissions a,b] [--access-token-valid-minutes] [--active]
                               [--body '<json>'|--file <path>] [--dry-run] [--yes] [--json]
     Omit --item-id to create; pass it to update. The response's clientSecret is
     shown once and is not retrievable again afterward.
-  blocks-os auth client-credentials delete <id> [--dry-run] [--yes] [--json]
+  blocks auth client-credentials delete <id> [--dry-run] [--yes] [--json]
 
-  blocks-os auth oidc-clients list [--json]
+  blocks auth oidc-clients list [--json]
     List registered OAuth 2.0 / OIDC client applications for the tenant. client_secret
     is excluded from list/get responses.
-  blocks-os auth oidc-clients get <clientId> [--json]
-  blocks-os auth oidc-clients save [--item-id <id>] [--client-display-name] [--client-type]
+  blocks auth oidc-clients get <clientId> [--json]
+  blocks auth oidc-clients save [--item-id <id>] [--client-display-name] [--client-type]
                               [--redirect-uris a,b] [--post-logout-redirect-uris a,b]
                               [--scope] [--allowed-scopes a,b] [--allowed-response-types a,b]
                               [--require-pkce] [--require-consent] [--require-mfa]
@@ -740,41 +740,41 @@ Auth Admin (/iam/v4/auth/identity-providers*, /config, /client-credentials, /oid
                               [--body '<json>'|--file <path>] [--dry-run] [--yes] [--json]
     Upsert: omit --item-id to register a new client, pass it to update an existing one.
     The response's client_secret is shown once and is not retrievable again afterward.
-  blocks-os auth oidc-clients delete <clientId> [--dry-run] [--yes] [--json]
+  blocks auth oidc-clients delete <clientId> [--dry-run] [--yes] [--json]
     Irreversible; revokes all tokens issued to the client.
-  blocks-os auth oidc-clients rotate-secret <clientId> [--dry-run] [--yes] [--json]
+  blocks auth oidc-clients rotate-secret <clientId> [--dry-run] [--yes] [--json]
     Generates a new client_secret, shown once; the old secret stops working immediately.
 
 Data:
-  blocks-os data validate [--json]
+  blocks data validate [--json]
     Validate local blocks/data/schemas/*.json and blocks/data/rules.json before
     pushing. Local-only.
 
-  blocks-os data schema list [--json]
+  blocks data schema list [--json]
     List project schemas via /data/v4/schemas using an impersonated project
     token. Read-only.
 
-  blocks-os data schema pull [--json]
+  blocks data schema pull [--json]
     Download project schemas into blocks/data/schemas/*.json. Writes local files
     only.
 
-  blocks-os data schema push [--dry-run] [--yes] [--json]
+  blocks data schema push [--dry-run] [--yes] [--json]
     Create or update project schemas via /data/v4/schemas/define. Mutating;
     uses POST for create and PUT for update.
 
-  blocks-os data rules pull [--json]
+  blocks data rules pull [--json]
     Download data-access policies into blocks/data/rules.json. Writes local
     files only.
 
-  blocks-os data rules deploy [--dry-run] [--yes] [--json]
+  blocks data rules deploy [--dry-run] [--yes] [--json]
     Apply schema security and data-access policies. Mutating; supports dry-run
     and confirmation.
 
-  blocks-os data reload [--dry-run] [--yes] [--json]
+  blocks data reload [--dry-run] [--yes] [--json]
     Reload Data schema configuration so staged schema/rule changes become live.
     Mutating; calls POST /data/v4/schema-configurations/reload.
 
-  blocks-os data sync [--dry-run] [--yes] [--json]
+  blocks data sync [--dry-run] [--yes] [--json]
     Composed flow: validate local schemas/rules, then data schema push ->
     data rules deploy -> data reload, so pushed changes actually go live in one
     step. Validation runs first and hard-fails before anything is sent if it
@@ -784,64 +784,64 @@ Data:
   Data source configuration (/data/v4/configurations) - check this first; by default a
   project's Data Gateway runs on Blocks-managed storage and data config get is all you need.
   Only create/update a configuration if you're pointing the gateway at your own database.
-    blocks-os data config get [--json]
-    blocks-os data config create --connection-string <cs> [--database-name <name>]
+    blocks data config get [--json]
+    blocks data config create --connection-string <cs> [--database-name <name>]
                               [--body '<json>'|--file <path>] [--dry-run] [--yes] [--json]
-    blocks-os data config update --item-id <id> [--connection-string] [--database-name]
+    blocks data config update --item-id <id> [--connection-string] [--database-name]
                               [--collection-name-editable] [--collection-name-pattern]
                               [--body '<json>'|--file <path>] [--dry-run] [--yes] [--json]
 
   Raw Schema API (/data/v4/schemas* - beyond the file-oriented list/pull/push above):
-    blocks-os data schema get <id> [--json]
-    blocks-os data schema get-by-name <schemaName> [--json]
+    blocks data schema get <id> [--json]
+    blocks data schema get-by-name <schemaName> [--json]
       Full field-level detail by collection name (info-by-name).
-    blocks-os data schema aggregation [--keyword] [--schema-name] [--collection-name]
+    blocks data schema aggregation [--keyword] [--schema-name] [--collection-name]
                               [--schema-type <1|2>] [--page] [--page-size] [--sort-by]
                               [--sort-desc] [--json]
       Schemas plus an access-level summary (Public/User/Custom x Read/Write/Edit/Delete).
-    blocks-os data schema change-logs [--json]
+    blocks data schema change-logs [--json]
       Unadapted schema change logs; data reload clears these.
-    blocks-os data schema delete <id> [--dry-run] [--yes] [--json]
+    blocks data schema delete <id> [--dry-run] [--yes] [--json]
       Irreversible.
-    blocks-os data schema info list [--json]
+    blocks data schema info list [--json]
       Entity-type schema collections with basic info.
-    blocks-os data schema info save --schema-name <n> [--collection-name] [--schema-type <1|2>]
+    blocks data schema info save --schema-name <n> [--collection-name] [--schema-type <1|2>]
                               [--body '<json>'|--file <path>] [--dry-run] [--yes] [--json]
       Create schema metadata only (no fields yet) - pair with data schema fields.
-    blocks-os data schema info update --item-id <id> [--schema-name] [--collection-name]
+    blocks data schema info update --item-id <id> [--schema-name] [--collection-name]
                               [--schema-type <1|2>] [--body '<json>'|--file <path>]
                               [--dry-run] [--yes] [--json]
-    blocks-os data schema fields --schema-id <schemaDefinitionItemId> [--deletable-fields a,b]
+    blocks data schema fields --schema-id <schemaDefinitionItemId> [--deletable-fields a,b]
                               [--body '<json>'|--file <path>] [--dry-run] [--yes] [--json]
       Add/update field definitions; the 'fields' array (name/type/isArray/isPIIData/
       isUniqueData/description) goes in --body/--file, e.g.
       --body '{"fields":[{"name":"email","type":"string"}]}'.
 
   Data-access policies, single-item ops (beyond the file-oriented rules pull/deploy above):
-    blocks-os data rules policy get <schemaName> [--json]
-    blocks-os data rules policy delete <itemId> [--dry-run] [--yes] [--json]
+    blocks data rules policy get <schemaName> [--json]
+    blocks data rules policy delete <itemId> [--dry-run] [--yes] [--json]
 
   Data validation (/data/v4/data-validations* - field-level validation rules; no file-oriented
                     workflow exists for this yet, use these directly):
-    blocks-os data validation list [--schema-id] [--field-name] [--keyword] [--page]
+    blocks data validation list [--schema-id] [--field-name] [--keyword] [--page]
                               [--page-size] [--sort-by] [--sort-desc] [--json]
-    blocks-os data validation get <validationId> [--json]
-    blocks-os data validation by-schema <schemaId> [--json]
-    blocks-os data validation by-schema-field <schemaId> <fieldName> [--json]
-    blocks-os data validation save --schema-id <id> --field-name <name> [--item-id]
+    blocks data validation get <validationId> [--json]
+    blocks data validation by-schema <schemaId> [--json]
+    blocks data validation by-schema-field <schemaId> <fieldName> [--json]
+    blocks data validation save --schema-id <id> --field-name <name> [--item-id]
                               --body '<json>' (must include a "validations" array, e.g.
                               '{"validations":[{"type":1,"value":"^[0-9]+$","isActive":true}]}')
                               [--dry-run] [--yes] [--json]
       Upsert: omit --item-id to create, pass it to update.
-    blocks-os data validation delete <validationId> [--dry-run] [--yes] [--json]
+    blocks data validation delete <validationId> [--dry-run] [--yes] [--json]
 
   Files / DMS (/data/v4/Files/* - storage and document management; no SDK required, but see
                 the blocks-data-storage skill if writing this into app code instead of scripting it):
-    blocks-os data files get <fileId> [--version] [--configuration-name] [--json]
-    blocks-os data files get-many <fileId...>|--file-ids a,b [--configuration-name] [--json]
-    blocks-os data files info [--name] [--tenant-id] [--page] [--page-size] [--sort-by]
+    blocks data files get <fileId> [--version] [--configuration-name] [--json]
+    blocks data files get-many <fileId...>|--file-ids a,b [--configuration-name] [--json]
+    blocks data files info [--name] [--tenant-id] [--page] [--page-size] [--sort-by]
                               [--sort-desc] [--json]
-    blocks-os data files upload --file <localPath> [--name] [--parent-id] [--tags]
+    blocks data files upload --file <localPath> [--name] [--parent-id] [--tags]
                               [--access-modifier Public|Private] [--content-type]
                               [--configuration-name] [--module-name <1-11>] [--local-storage]
                               [--dry-run] [--yes] [--json]
@@ -849,48 +849,48 @@ Data:
       returned uploadUrl/fileId automatically (content-type is inferred from the file
       extension if omitted). Pass --local-storage to use the one-call
       upload-to-local-storage path instead, for local-storage-backed projects.
-    blocks-os data files presigned-upload-url --name <fileName> [--parent-directory-id]
+    blocks data files presigned-upload-url --name <fileName> [--parent-directory-id]
                               [--access-modifier Public|Private] [--configuration-name]
                               [--module-name <1-11>] [--meta-data] [--tags]
                               [--body '<json>'|--file <path>] [--json]
       Cloud-storage upload, step 1 of 2. Returns an uploadUrl and fileId; PUT the bytes next
       with data files upload-to-url.
-    blocks-os data files upload-to-url --url <presignedUrl> --file <localPath>
+    blocks data files upload-to-url --url <presignedUrl> --file <localPath>
                               --content-type <type> [--blob-type BlockBlob] [--no-blob-type-header]
                               [--dry-run] [--yes] [--json]
       Step 2. Provider-direct PUT - no Blocks auth headers by design.
-    blocks-os data files upload-to-local-storage --file <localPath> [--name] [--item-id]
+    blocks data files upload-to-local-storage --file <localPath> [--name] [--item-id]
                               [--parent-directory-id] [--tags] [--access-modifier Public|Private]
                               [--configuration-name] [--meta-data] [--additional-properties '<json>']
                               [--dry-run] [--yes] [--json]
       One-call alternative to the two commands above, for local-storage-backed projects.
-    blocks-os data files update-additional-info <itemId> --additional-properties '<json>'
+    blocks data files update-additional-info <itemId> --additional-properties '<json>'
                               [--dry-run] [--yes] [--json]
-    blocks-os data files delete <fileId> [--configuration-name] [--event-queue-name]
+    blocks data files delete <fileId> [--configuration-name] [--event-queue-name]
                               [--dry-run] [--yes] [--json]
-    blocks-os data files dms-list [--parent-id] [--search] [--configuration-name] [--take]
+    blocks data files dms-list [--parent-id] [--search] [--configuration-name] [--take]
                               [--skip] [--json]
       Combined folder+file listing for a DMS parent ("" = root).
-    blocks-os data files dms-upload --file-storage-id <id> --artifact-name <name>
+    blocks data files dms-upload --file-storage-id <id> --artifact-name <name>
                               [--parent-id] [--tags a,b] [--body '<json>'|--file <path>]
                               [--dry-run] [--yes] [--json]
       Registers an uploaded file (fileId from presigned-upload-url/upload-to-local-storage)
       so it appears in a DMS folder. Upload alone does not make a file visible in a folder.
-    blocks-os data files create-folder <name> [--parent-id] [--description] [--tags a,b]
+    blocks data files create-folder <name> [--parent-id] [--description] [--tags a,b]
                               [--configuration-name] [--dry-run] [--yes] [--json]
-    blocks-os data files delete-folder <folderId> [--configuration-name]
+    blocks data files delete-folder <folderId> [--configuration-name]
                               [--dry-run] [--yes] [--json]
 
 Localization:
-  blocks-os localization validate --module <name> --language <culture> [--file <path>] [--json]
+  blocks localization validate --module <name> --language <culture> [--file <path>] [--json]
     Validate a local i18n JSON dictionary. Supports nested JSON input and
     validates the flattened key/value set locally.
 
-  blocks-os localization push --module <name> --language <culture> [--file <path>] [--route <route>] [--context <text>] [--dry-run] [--yes] [--json]
+  blocks localization push --module <name> --language <culture> [--file <path>] [--route <route>] [--context <text>] [--dry-run] [--yes] [--json]
     Create or update Localization keys from a local i18n JSON dictionary via
     /localization/v4/Key/SaveKeys. Creates the module first when it is missing.
 
-  blocks-os localization pull --module <name> --language <culture> [--out <path>] [--json]
+  blocks localization pull --module <name> --language <culture> [--out <path>] [--json]
     Download published cloud localization via
     /localization/v4/Key/GetCloudUilmFile and write a local JSON dictionary.
 
@@ -898,61 +898,61 @@ Localization:
             project token only). These call the Localization service endpoints directly,
             in addition to the file-oriented validate/push/pull commands above.
 
-    blocks-os localization assistant translation-suggestion --source-text <text>
+    blocks localization assistant translation-suggestion --source-text <text>
                               --destination-language <culture> [--current-language]
                               [--element-type] [--element-application-context]
                               [--element-detail-context] [--temperature] [--max-character-length]
                               [--glossary-ids a,b] [--module-id] [--destination-language-code]
                               [--body '<json>'|--file <path>] [--json]
 
-    blocks-os localization config get-webhook [--json]
-    blocks-os localization config save-webhook --url <url> --content-type <type>
+    blocks localization config get-webhook [--json]
+    blocks localization config save-webhook --url <url> --content-type <type>
                               --secret <s> --header-key <k> [--item-id <id>] [--is-disabled]
                               [--body '<json>'|--file <path>] [--dry-run] [--yes] [--json]
 
-    blocks-os localization glossary save --name <n> [--item-id] [--language] [--type]
+    blocks localization glossary save --name <n> [--item-id] [--language] [--type]
                               [--context] [--additional-note] [--is-global] [--module-ids a,b]
                               [--body '<json>'|--file <path>] [--dry-run] [--yes] [--json]
-    blocks-os localization glossary list [--search] [--page-number] [--page-size]
+    blocks localization glossary list [--search] [--page-number] [--page-size]
                               [--is-global] [--module-id] [--json]
-    blocks-os localization glossary get <itemId> [--json]
-    blocks-os localization glossary suggested <itemId> [--max-results <n>] [--json]
-    blocks-os localization glossary delete <itemId> [--dry-run] [--yes] [--json]
+    blocks localization glossary get <itemId> [--json]
+    blocks localization glossary suggested <itemId> [--max-results <n>] [--json]
+    blocks localization glossary delete <itemId> [--dry-run] [--yes] [--json]
 
-    blocks-os localization key save --key-name <n> --module-id <id> [--item-id] [--value]
+    blocks localization key save --key-name <n> --module-id <id> [--item-id] [--value]
                               [--culture] [--routes a,b] [--glossary-ids a,b] [--context]
                               [--is-new-key] [--is-partially-translated] [--should-publish]
                               [--body '<json>'|--file <path>] [--dry-run] [--yes] [--json]
-    blocks-os localization key list [--key-search-text] [--search-key] [--module-ids a,b]
+    blocks localization key list [--key-search-text] [--search-key] [--module-ids a,b]
                               [--page-number] [--page-size] [--sort-by] [--sort-desc]
                               [--is-partially-translated] [--missing-languages a,b]
                               [--create-date-start] [--create-date-end]
                               [--last-update-date-start] [--last-update-date-end]
                               [--glossary-id] [--body '<json>'|--file <path>] [--json]
-    blocks-os localization key get-by-names <keyName...>|--key-names a,b [--module-id] [--json]
-    blocks-os localization key get <itemId> [--json]
-    blocks-os localization key delete <itemId> [--dry-run] [--yes] [--json]
-    blocks-os localization key delete-keys <itemId...>|--item-ids a,b [--dry-run] [--yes] [--json]
-    blocks-os localization key get-timeline [--entity-id] [--user-id] [--page-number]
+    blocks localization key get-by-names <keyName...>|--key-names a,b [--module-id] [--json]
+    blocks localization key get <itemId> [--json]
+    blocks localization key delete <itemId> [--dry-run] [--yes] [--json]
+    blocks localization key delete-keys <itemId...>|--item-ids a,b [--dry-run] [--yes] [--json]
+    blocks localization key get-timeline [--entity-id] [--user-id] [--page-number]
                               [--page-size] [--sort-by] [--sort-desc] [--create-date-start]
                               [--create-date-end] [--json]
-    blocks-os localization key get-localization-timeline [--user-id] [--log-from]
+    blocks localization key get-localization-timeline [--user-id] [--log-from]
                               [--log-from-values a,b] [--exclude-log-from-values a,b]
                               [--page-number] [--page-size] [--sort-by] [--sort-desc]
                               [--create-date-start] [--create-date-end] [--json]
-    blocks-os localization key get-timeline-by-operation-id <operationId> [--page-number]
+    blocks localization key get-timeline-by-operation-id <operationId> [--page-number]
                               [--page-size] [--json]
-    blocks-os localization key get-uilm-file --module <name> --language <culture> [--json]
-    blocks-os localization key generate-uilm-file --module-id <id> [--guid]
+    blocks localization key get-uilm-file --module <name> --language <culture> [--json]
+    blocks localization key generate-uilm-file --module-id <id> [--guid]
                               [--dry-run] [--yes] [--json]
-    blocks-os localization key translate-all --module-id <id> [--default-language]
+    blocks localization key translate-all --module-id <id> [--default-language]
                               [--message-co-relation-id] [--dry-run] [--yes] [--json]
-    blocks-os localization key translate-key <keyId> --default-language <culture>
+    blocks localization key translate-key <keyId> --default-language <culture>
                               [--message-co-relation-id] [--dry-run] [--yes] [--json]
-    blocks-os localization key translate-keys <keyId...>|--key-ids a,b --default-language <culture>
+    blocks localization key translate-keys <keyId...>|--key-ids a,b --default-language <culture>
                               [--message-co-relation-id] [--project-key]
                               [--dry-run] [--yes] [--json]
-    blocks-os localization key translate-and-export --module-id <id> [--default-language]
+    blocks localization key translate-and-export --module-id <id> [--default-language]
                               [--wait] [--poll-interval <seconds>] [--timeout <seconds>]
                               [--guid] [--output-type <0-5>] [--app-ids a,b] [--languages a,b]
                               [--reference-file-id] [--caller-tenant-id] [--start-date]
@@ -964,34 +964,34 @@ Localization:
       "done" field to check -- it stops once the timeline entry count settles across 2
       polls, or times out with a clear next-step message. Prints one output block per
       step, not a single combined document.
-    blocks-os localization key uilm-import <fileId> [--message-co-relation-id]
+    blocks localization key uilm-import <fileId> [--message-co-relation-id]
                               [--dry-run] [--yes] [--json]
-    blocks-os localization key uilm-export [--output-type <0-5>] [--app-ids a,b] [--languages a,b]
+    blocks localization key uilm-export [--output-type <0-5>] [--app-ids a,b] [--languages a,b]
                               [--reference-file-id] [--caller-tenant-id] [--start-date]
                               [--end-date] [--message-co-relation-id] [--dry-run] [--yes] [--json]
-    blocks-os localization key get-uilm-exported-files [--search] [--page-number] [--page-size]
+    blocks localization key get-uilm-exported-files [--search] [--page-number] [--page-size]
                               [--create-date-start] [--create-date-end] [--json]
-    blocks-os localization key get-language-file-generation-history [--page-number]
+    blocks localization key get-language-file-generation-history [--page-number]
                               [--page-size] [--json]
-    blocks-os localization key rollback <itemId> [--dry-run] [--yes] [--json]
+    blocks localization key rollback <itemId> [--dry-run] [--yes] [--json]
 
-    blocks-os localization language save --language-name <n> --language-code <c> [--item-id]
+    blocks localization language save --language-name <n> --language-code <c> [--item-id]
                               [--is-default] [--body '<json>'|--file <path>]
                               [--dry-run] [--yes] [--json]
-    blocks-os localization language list [--json]
-    blocks-os localization language list-for-tenant [--json]
-    blocks-os localization language delete <languageName> [--dry-run] [--yes] [--json]
-    blocks-os localization language set-default <languageName> [--dry-run] [--yes] [--json]
+    blocks localization language list [--json]
+    blocks localization language list-for-tenant [--json]
+    blocks localization language delete <languageName> [--dry-run] [--yes] [--json]
+    blocks localization language set-default <languageName> [--dry-run] [--yes] [--json]
 
-    blocks-os localization module save --module-name <n> [--item-id]
+    blocks localization module save --module-name <n> [--item-id]
                               [--body '<json>'|--file <path>] [--dry-run] [--yes] [--json]
-    blocks-os localization module list [--json]
-    blocks-os localization module list-for-tenant [--json]
-    blocks-os localization module tag-glossary <moduleId> --glossary-ids a,b
+    blocks localization module list [--json]
+    blocks localization module list-for-tenant [--json]
+    blocks localization module tag-glossary <moduleId> --glossary-ids a,b
                               [--dry-run] [--yes] [--json]
 
 Release:
-  blocks-os release deploy [--domain <customDomain>] [--wait] [--poll-interval <seconds>]
+  blocks release deploy [--domain <customDomain>] [--wait] [--poll-interval <seconds>]
                     [--timeout <seconds>] [--dry-run] [--yes] [--json]
     Deploy the selected project's environment. Resolves everything from state
     you already have: the repo linked to this project (Project/GetAsset) and
@@ -1003,21 +1003,21 @@ Release:
     immediately with just a build id.
     Mutating; no artifact upload is performed by this CLI.
 
-  blocks-os release status <buildId> [--json]
+  blocks release status <buildId> [--json]
     Read Release build status by build id using an impersonated project
     token. Read-only.
 
-  blocks-os release builds list [repoId] [--repo-id <repoId>] [--json]
+  blocks release builds list [repoId] [--repo-id <repoId>] [--json]
     List Release build details for a repository using an impersonated project
     token. When repoId is omitted, resolves it from the selected project's
     linked repo assets (Project/GetAsset, account token) -- auto-picked if
     there's exactly one, otherwise you're prompted to choose. Read-only.
 
-  blocks-os release builds get <buildId> [--json]
+  blocks release builds get <buildId> [--json]
     Alias for release status. Read-only.
 
 Scaffold:
-  blocks-os new web <name> [--app-domain <domain>] [--client-id <oidcClientId>]
+  blocks new web <name> [--app-domain <domain>] [--client-id <oidcClientId>]
                     [--x-blocks-key <tenantId>] [--blocks-api-url <url>] [--oidc-url <url>]
     Create a Vite React starter app with a real browser Authorization Code +
     PKCE login flow against Blocks IAM (login page, /login/callback handler,
@@ -1037,19 +1037,19 @@ Scaffold:
     --oidc-url defaults to https://iam.seliseblocks.com.
 
 Skills:
-  blocks-os skill list [--json]
+  blocks skill list [--json]
     List bundled blocks-skills/*/SKILL.md agent context docs (name +
     description). Local-only, no cloud calls.
-  blocks-os skill show <name> [--json]
+  blocks skill show <name> [--json]
     Print one skill's full SKILL.md content.
-  blocks-os skill add <name> [--dir <path>]
+  blocks skill add <name> [--dir <path>]
     Copy a bundled skill's SKILL.md into <path>/<name>/SKILL.md in the
     current directory (default --dir is 'blocks-skills'), for use in a
     project outside this monorepo. Overwrites silently, same as
     'data schema pull'.
 
 SDK:
-  blocks-os sdk client [--app-domain <domain>] [--client-id <oidcClientId>]
+  blocks sdk client [--app-domain <domain>] [--client-id <oidcClientId>]
                     [--x-blocks-key <tenantId>] [--blocks-api-url <url>] [--oidc-url <url>] [--json]
     Read-only: "I want to use the Blocks SDK -- show me the client." Resolves this
     project's @seliseblocks/client config (same values 'new web' scaffolds with,
