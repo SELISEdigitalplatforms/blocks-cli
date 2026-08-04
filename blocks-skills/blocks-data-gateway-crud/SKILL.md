@@ -192,6 +192,15 @@ Use `data.schemas.*` when building dynamic UI:
 - `data.schemas.aggregation(options)` for summary views;
 - `data.schemas.getById(id)` when you already have the schema id.
 
+Use `data.validations.*` to read field-level validation rules at runtime (e.g. to drive client-side form validation from the same rules the backend enforces):
+
+- `data.validations.list(options)` for all rules, with optional schema/field/paging filters;
+- `data.validations.bySchemaId(schemaId)` for every rule on one schema;
+- `data.validations.bySchemaAndField({ schemaId, fieldName })` for one field's rule;
+- `data.validations.getById(id)` when you already have the validation id.
+
+Validation rules are authored and saved separately via `blocks data validation save` (see [blocks-data-gateway-configuration](../blocks-data-gateway-configuration/SKILL.md)); this SDK namespace only reads them.
+
 ## Gotchas
 
 - Pass schema name, not collection name: `Product`, not `Products`.

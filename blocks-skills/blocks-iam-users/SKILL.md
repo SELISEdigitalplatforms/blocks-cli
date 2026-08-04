@@ -1,6 +1,6 @@
 ---
 name: blocks-iam-users
-description: "Manage OTHER users' IAM records inside a SELISE Blocks app, through the `iam.users.*` methods on the app's single `@seliseblocks/client` instance (`blocksClient.iam.users`) — never raw fetch/curl. Covers safe reads (`get`, `list`, `emailAvailable`, `exists`) and admin-mutation actions (`create`, `update`, `deactivate`, `activate`, `updateAccess`, `revokeAccess`) that a signed-in admin drives through their own app UI. Use whenever the user wants to invite/create a user, edit another user's profile, deactivate or reactivate a user, list/search/look up users, check if an email is taken, or grant/revoke a user's roles or org access — 'invite a user', 'deactivate this account', 'list all users', 'give this user the admin role', 'check if this email is already registered'. Does NOT cover the CURRENT signed-in user's own self-service profile/activation/password (that's blocks-iam-account), defining roles/permissions themselves (blocks-iam-access-control), or any `blocks` CLI command — the CLI only exposes read-only `iam me`, nothing else under IAM."
+description: "Manage OTHER users' IAM records via `blocksClient.iam.users.*` (never raw fetch/curl), or the equivalent project-scoped `blocks iam users *` / `blocks iam email available` CLI. Covers reads (`get`, `list`, `emailAvailable`, `exists`) and admin mutations (`create`, `update`, `activate`, `deactivate`, `updateAccess`, `revokeAccess`) — CLI mutations require `--dry-run`/`--yes`. Use to invite, edit, deactivate/reactivate, list/search users, or grant/revoke roles/org access. Not for the current user's own profile (blocks-iam-account) or role/permission definitions (blocks-iam-access-control)."
 ---
 
 # Blocks IAM — Managing Other Users
@@ -15,13 +15,14 @@ import { blocksClient } from "../../lib/blocks/client";
 const { data } = await blocksClient.iam.users.get(userId);
 ```
 
-## Platform boundary: this is app-UI territory, not CLI or autonomous-agent territory
+## Two surfaces, same operations: SDK (in-app) and CLI (`blocks iam users *`)
 
-`blocks` (the CLI) deliberately exposes only `iam me` — read the current logged-in user, nothing else. Full user administration (create, update, deactivate, access changes) is **not** a CLI capability. That's a settled platform decision: admin-sensitive IAM surface is kept out of the CLI/agent-automation layer on purpose.
+There are two legitimate ways to drive full user administration (create, update, deactivate, activate, access grant/revoke) — both are covered by this skill:
 
-The `iam.users.*` SDK methods below exist to build that admin capability **as a feature inside a signed-in admin's own app** — the admin is looking at a screen, clicking "Deactivate" on a specific user row, and their own IAM permissions gate whether the call succeeds. That is legitimate.
+- **SDK — `blocksClient.iam.users.*`** — build the capability **as a feature inside a signed-in admin's own app**: the admin is looking at a screen, clicking "Deactivate" on a specific user row, and their own IAM permissions gate whether the call succeeds.
+- **CLI — `blocks iam users *` / `blocks iam email available`** — the same operations, invoked directly from a terminal or an agent's shell tool. These are fully wired, project-scoped commands (see "CLI surface" below), not a read-only stub — `iam me` is a separate, account-scoped command for the CLI operator's own identity and is not the only IAM command the CLI has.
 
-What is **not** legitimate: an agent deciding on its own, without the human in front of the app explicitly directing that specific action in the moment, to call `create`/`update`/`deactivate`/`activate`/`updateAccess`/`revokeAccess`. Treat every mutating call the same way the CLI treats `--dry-run` before `--yes` — state the exact change in plain language and get the user's explicit go-ahead first, every time, even if they asked for something adjacent a moment ago.
+What is **not** legitimate on either surface: an agent deciding on its own, without the human explicitly directing that specific action in the moment, to call `create`/`update`/`deactivate`/`activate`/`updateAccess`/`revokeAccess` (SDK) or `users create`/`update`/`activate`/`deactivate`/`access grant`/`access revoke` (CLI). State the exact change in plain language and get the user's explicit go-ahead first, every time, even if they asked for something adjacent a moment ago. The CLI enforces this mechanically — every mutating command requires `--dry-run` (preview only, no call) or `--yes`/an interactive "yes" before it executes (see `confirmMutation` in `blocks-cli/src/lib/confirm.ts`) — but that built-in gate doesn't replace stating the change and getting a real go-ahead when an agent is the one typing the command.
 
 ## Safe surface — reads and checks, no confirmation needed
 
@@ -73,13 +74,48 @@ await blocksClient.iam.users.create({
 await blocksClient.iam.users.updateAccess({ userId: "usr_8a2f", roles: ["editor"] });
 ```
 
+## CLI surface — `blocks iam users *`, `blocks iam email available`
+
+These are real, fully-wired commands (`blocks-cli/src/commands/iam/users/*.ts`, `blocks-cli/src/commands/iam/email/available.ts`, registered in `blocks-cli/src/index.ts`) — not a stub and not limited to `iam me`. `iam me` is a separate, account-scoped command (current CLI operator's own identity via the account token); every command below is **project-scoped**: it requires a project already selected (`blocks use <project-tenant-id>`) and calls IAM with an impersonated project token, same as the rest of the project-scoped CLI surface.
+
+Reads — no confirmation needed:
+
+| Command | What it does |
+|---|---|
+| `blocks iam users list [--page 1] [--page-size 20] [--email <e>] [--name <n>] [--organization-id <id>] [--sort-by <field>] [--sort-desc] [--filter '<json>'] [--json]` | Paged/filtered user query (`POST /iam/v4/iam/users`). `--filter` merges a raw JSON object over the convenience flags. |
+| `blocks iam users get <id> [--organization-id <id>] [--json]` | One user record, optionally scoped to an org. |
+| `blocks iam users exists <email> [--json]` | Existence check by email (`GET /iam/v4/iam/users/exists`). |
+| `blocks iam email available <email> [--json]` | Duplicate-email check (`GET /iam/v4/iam/email/available`). |
+
+Mutations — every one supports `--dry-run` (print the request body and exit, no call) and requires either `--yes` or a typed `yes` at an interactive prompt before it executes:
+
+| Command | What it does |
+|---|---|
+| `blocks iam users create --email <e>\|--user-name <n> [--first-name] [--last-name] [--password] [--phone-number] [--organization-id] [--roles a,b] [--permissions a,b] [--body '<json>'\|--file <path>] [--dry-run] [--yes] [--json]` | Invites/provisions a user. |
+| `blocks iam users update <id> [--first-name] [--last-name] [--phone-number] [--organization-id] [--roles a,b] [--permissions a,b] [--body '<json>'\|--file <path>] [--dry-run] [--yes] [--json]` | Edits an IAM profile's fields. |
+| `blocks iam users activate <userId> [--reason <text>] [--dry-run] [--yes] [--json]` | Restores access for a previously deactivated account. |
+| `blocks iam users deactivate <userId> [--dry-run] [--yes] [--json]` | Removes access without deleting the record. |
+| `blocks iam users access grant <userId> [--roles a,b] [--permissions a,b] [--organization-id] [--dry-run] [--yes] [--json]` | Grants roles/permissions/org access (requires at least one of `--roles`/`--permissions`). |
+| `blocks iam users access revoke <userId> [--organization-id] [--dry-run] [--yes] [--json]` | Revokes org access for a user. |
+
+Command segments joined by a space also accept a colon (`iam:users:access:grant` etc.) — both forms resolve to the same handler; `blocks iam users --help`-style docs in the CLI's own `--help` output use the space form shown above.
+
+Example — deactivating a user from the CLI, dry-run first:
+
+```sh
+blocks iam users deactivate usr_8a2f --dry-run   # preview the request body, no call made
+blocks iam users deactivate usr_8a2f --yes       # after the user explicitly confirms
+```
+
+Apply the same confirm-before-mutating discipline here as with the SDK: state which user and which effect, wait for an explicit yes, don't chain a mutating command straight off a `list`/`get` just because the user asked to "find" something.
+
 ## Gotchas
 
 - **`list` is a POST**, not a GET — don't assume query-string filtering.
 - **Roles are referenced by slug**, as defined in blocks-iam-access-control — not by their internal item ids.
 - **`organizationId`** matters in multi-org projects — pass it to `get` when you need a user's record in a specific org context.
 - **Every request/response type in the SDK is a loosely-typed `Record<string, unknown>`** (`BlocksUser`, `BlocksBaseResponse`, etc. only guarantee a few common fields) — treat fields defensively and confirm shape against a live response for the project rather than assuming a fixed schema.
-- **Don't reach for the CLI here** — `blocks` has no user-admin commands beyond `iam me`; this is exclusively app/SDK territory.
+- **The CLI is project-scoped, not account-scoped** — `blocks iam users *`/`blocks iam email available` need a selected project (`blocks use <project-tenant-id>`) and use an impersonated project token; `iam me` is the one exception that runs on the account token instead.
 - **Don't duplicate blocks-iam-account** — if the ask is "let me update my own profile" or "let me reset my password," that's the current user acting on themselves, not this skill.
 
 ## Example triggers
@@ -92,3 +128,4 @@ await blocksClient.iam.users.updateAccess({ userId: "usr_8a2f", roles: ["editor"
 - "Revoke this user's access to the finance org"
 - "Update this user's phone number"
 - "Reactivate this account"
+- "From the terminal, deactivate user usr_8a2f in the current project" → use `blocks iam users deactivate usr_8a2f`, `--dry-run` first, then `--yes` after explicit confirmation

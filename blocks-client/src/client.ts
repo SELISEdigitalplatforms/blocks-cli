@@ -3,7 +3,9 @@ import { BlocksDataClient } from "./data/data-client.js";
 import { BlocksHttpClient } from "./http/http-client.js";
 import { BlocksIAMClient } from "./iam/iam-client.js";
 import { BlocksLocalizationClient } from "./localization/localization-client.js";
+import { BlocksMailClient } from "./mail/mail-client.js";
 import { BlocksMfaClient } from "./mfa/mfa-client.js";
+import { BlocksNotifierClient } from "./notifier/notifier-client.js";
 
 export type BlocksOidcConfig = {
   /**
@@ -67,7 +69,9 @@ export type BlocksClient = {
   http: BlocksHttpClient;
   iam: BlocksIAMClient;
   localization: BlocksLocalizationClient;
+  mail: BlocksMailClient;
   mfa: BlocksMfaClient;
+  notifier: BlocksNotifierClient;
 };
 
 export type RequiredConfig = {
@@ -95,7 +99,9 @@ export function createBlocksClient(config: BlocksClientConfig): BlocksClient {
     http,
     iam: new BlocksIAMClient(http),
     localization: new BlocksLocalizationClient(http),
-    mfa: new BlocksMfaClient(http)
+    mail: new BlocksMailClient(http),
+    mfa: new BlocksMfaClient(http),
+    notifier: new BlocksNotifierClient(http)
   };
 }
 

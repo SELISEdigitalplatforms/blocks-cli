@@ -5,7 +5,9 @@ export type { BlocksClient, BlocksClientConfig, BlocksOidcConfig } from "./clien
 export { BlocksApiError } from "./http/errors.js";
 export { BlocksIAMClient } from "./iam/iam-client.js";
 export { BlocksLocalizationClient } from "./localization/localization-client.js";
+export { BlocksMailClient } from "./mail/mail-client.js";
 export { BlocksMfaClient } from "./mfa/mfa-client.js";
+export { BlocksNotifierClient } from "./notifier/notifier-client.js";
 export type {
   BlocksAuthPassThroughResponse,
   BlocksAuthResponse,
@@ -88,3 +90,18 @@ export type {
   BlocksMfaVerifyRequest,
   BlocksMfaVerifyTotpSetupRequest
 } from "./mfa/types.js";
+export type {
+  BlocksMailPassThroughResponse,
+  BlocksSendMailRequest,
+  BlocksSendMailToAnyRequest
+} from "./mail/types.js";
+export type {
+  BlocksGetNotificationsOptions,
+  BlocksGetNotificationsResponse,
+  BlocksGetUnreadNotificationsBySubscriptionFilterRequest,
+  BlocksMarkNotificationAsReadRequest,
+  BlocksNotifierPassThroughResponse,
+  BlocksNotifierSubscriptionFilter,
+  BlocksNotifyRequest,
+  BlocksOfflineNotification
+} from "./notifier/types.js";

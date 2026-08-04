@@ -408,6 +408,19 @@ blocks mail mailbox get <messageId> --json
 
 Treat `--account-password` as a secret; the CLI redacts it in `--dry-run` output but the live response is still yours to protect.
 
+Sending mail is a separate surface, `/logic/v4/Mail/Send` and `/logic/v4/Mail/SendToAny` (not `/os/v4`):
+
+```bash
+blocks mail send --to a@example.com,b@example.com --purpose welcome --language en \
+  --subject-data-context '{"firstName":"Ada"}' --dry-run --json
+blocks mail send --to a@example.com --purpose welcome --language en --yes --json
+
+blocks mail sendtoany --to a@example.com --purpose welcome --language en \
+  --is-test-mail --dry-run --json
+```
+
+`--project-key` defaults to the selected project's tenant id; pass it explicitly only to target a different one. `--attachments`/`--subject-data-context`/`--body-data-context` take raw JSON.
+
 ## Notification
 
 Project-scoped notification channel configuration via `/os/v4/Notification/*`:
@@ -421,6 +434,43 @@ blocks notification delete <itemId> --dry-run --json
 ```
 
 `--channel` and `--type` are raw numeric enum values from the Blocks OS API (`NotifierTypes`, `NotificationReceiverTypes`) — the API does not publish names for them.
+
+## Notifier
+
+Real-time/offline notification sends and inbox reads via `/logic/v4/Notifier/*` — distinct from
+`notification` above, which manages channel *configuration*, not sending:
+
+```bash
+blocks notifier notify --user-ids u1,u2 --response-key status --response-value ok --dry-run --json
+blocks notifier notify --roles admin --denormalized-payload '{"orderId":"123"}' \
+  --save-denormalized-payload-as-object --yes --json
+blocks notifier notify --subscription-filters '[{"context":"orders","actionName":"created","value":"*"}]' --yes --json
+
+blocks notifier list --unread-only --page 1 --page-size 20 --json
+blocks notifier unread --user-id <id> --context orders --action-name created --json
+blocks notifier mark-read <notificationId> --dry-run --json
+blocks notifier mark-all-read --dry-run --json
+```
+
+Target `notify` with at least one of `--user-ids`/`--roles`/`--subscription-filters`. `notifier unread`
+sends its filter as query parameters even though swagger documents that endpoint as GET with a JSON
+body, which the Fetch spec forbids — the CLI and SDK both flatten it into the query string instead.
+
+## Secrets
+
+Generic tenant secret storage via `/os/v4/Secrets/*` (e.g. captcha provider config):
+
+```bash
+blocks secrets get captcha --json
+blocks secrets save --secret-key captcha \
+  --key-value-pairs '{"isEnable":"true","provider":"recaptcha","captchaKey":"...","captchaSecret":"..."}' \
+  --dry-run --json
+blocks secrets save --secret-key captcha --item-id <itemId> --key-value-pairs '{...}' --yes --json
+```
+
+`--key-value-pairs` is a flat JSON object of provider-specific fields — its shape depends entirely on
+`--secret-key` (there's no fixed schema across secrets). `save` is an upsert: omit `--item-id` to
+create, pass it to update. Fields that look like secrets/keys are redacted in `--dry-run` output only.
 
 ## Storage
 

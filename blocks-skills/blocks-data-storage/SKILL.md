@@ -1,6 +1,6 @@
 ---
 name: blocks-data-storage
-description: "Store and serve files on a SELISE Blocks project. Two paths: the blocks CLI (data files * — presigned-upload-url/upload-to-url/upload-to-local-storage, get/get-many/info, dms-list/dms-upload, create-folder/delete-folder, update-additional-info, delete) for admin work and one-off scripting, or the @seliseblocks/client SDK's data.files/data.dms namespaces for wiring uploads/downloads into app code (React components, forms). Covers the upload pipeline (presigned URL for cloud storage, or a single local-storage call), reading files back, deleting, attaching searchable metadata, and folder management. Use whenever the user wants to upload, download, browse, organize, tag, or delete FILES/attachments/documents/images/PDFs on Blocks — 'upload a PDF and get a download link', 'attach an image to a record', 'let users download this file', 'create a folder and list its contents', 'get a presigned upload URL', 'register an uploaded file in a document folder'. This is separate from the data model: to define schemas use blocks-data-gateway-configuration, and to CRUD records use blocks-data-gateway-crud (store a file here, keep its fileId in a schema field there)."
+description: "Store and serve files on a SELISE Blocks project: presigned/local-storage upload, download, folder browsing, tags/metadata, and delete, via the blocks CLI ('data files *') for admin/scripting or the @seliseblocks/client SDK ('data.files'/'data.dms') for in-app upload/download flows. Use for prompts like upload a file and get a download link, attach an image to a record, create a folder, let users download a file, tag or delete an uploaded file. Separate from the data model — schemas/records live in blocks-data-gateway-configuration/-crud; this covers files/DMS only, implementation-mode, SDK-driven."
 ---
 
 # Blocks Data — Storage (Files / DMS)
@@ -46,6 +46,8 @@ blocks data files delete <fileId> --yes --json
 
 Same two upload paths as the SDK section below (pick based on the project's storage backend, not per-call), same `--dry-run`-before-`--yes` discipline as every other `blocks` mutation.
 
+**Shortcut:** `blocks data files upload --file ./invoice.pdf --yes --json` composes the manual sequence above into one command — presign + PUT + `dms.uploadFiles` registration for cloud storage, or add `--local-storage` for the one-step local-storage path (uploads only, no DMS registration in that case). Same relationship as `data sync` is to the manual schema/rules/reload sequence elsewhere in this skill pack: reach for the manual steps when you need to inspect or reuse an intermediate result (e.g. the presigned URL itself), reach for `upload` when you just want the file stored.
+
 ## Two upload paths — pick one per deployment
 
 A project's storage is backed by either cloud object storage (Azure Blob, S3, etc.) or local storage on the Blocks Data host. Which one applies is a property of the project's storage configuration, not something the frontend chooses per call — but the SDK exposes a distinct method for each:
@@ -56,6 +58,8 @@ A project's storage is backed by either cloud object storage (Azure Blob, S3, et
 | **Local storage** | `files.uploadToLocalStorage(...)` (one call, no presign step) |
 
 Both are followed by the same registration step, `dms.uploadFiles(...)`, if the file needs to show up in a DMS folder.
+
+**Where that configuration lives:** `blocks storage config get/list/save/delete` (a separate top-level command group, not `data files`) reads/writes the named storage configuration itself — host, port, credentials, region/endpoint or connection string, and strategy (`/os/v4/Storage/Get`, `/Gets`, `/Save`, `/Delete`) — i.e. which provider a given `configurationName` points at, cloud or local. This skill only covers *using* that config name when uploading; managing the config's own fields is out of scope here (see a dedicated storage-configuration skill if one exists, e.g. `blocks-storage-configuration`).
 
 ## Step 1a (cloud) — get a pre-signed upload URL
 
@@ -131,7 +135,7 @@ const meta = await files.get(presign.fileId, { configurationName: "Default" }); 
 
 - **`files.getMany({ fileIds, configurationName })`** — batch read (`POST /Files/GetFiles`) instead of one `files.get` per attachment.
 - **`files.info({ page, pageSize, sort, filter })`** — paged file metadata/listing (`POST /Files/GetFilesInfo`) for storage-browser UIs; unlike `presignedUploadUrl`, the SDK does not remap these field names to PascalCase — pass exactly what your app builds.
-- **`files.updateAdditionalInfo({ itemId, additionalProperties })`** — attach searchable metadata to an uploaded file, e.g. a business reference or workflow status (`POST /Files/updateFileAdditionalInfo`).
+- **`files.updateAdditionalInfo({ itemId, additionalProperties })`** — attach searchable metadata to an uploaded file, e.g. a business reference or workflow status (`POST /data/v4/Files/UpdateFileAdditionalInfo`).
 - **`files.delete({ fileId, configurationName?, eventQueueName? })`** — delete a file (`POST /Files/DeleteFile`).
 - **`dms.createFolder({ artifactName, parentId?, configurationName? })`** / **`dms.deleteFolder({ folderId, configurationName? })`** — DMS folder management (`POST /Files/CreateFolder` / `POST /Files/DeleteFolder`).
 
