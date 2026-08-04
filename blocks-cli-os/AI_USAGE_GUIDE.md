@@ -129,6 +129,20 @@ For local browser login on the real host domain:
 
 The generated cert script uses the `selfsigned` Node dependency, so it works from normal PowerShell after `npm install`; do not tell Windows users to switch to Git Bash just for OpenSSL. If hosted login or secure cookies fail locally, confirm the app is opened with the HTTPS dev URL from `VITE_BLOCKS_DEV_HOST`.
 
+## SDK Client (read-only)
+
+`sdk:client` answers "I want to use the Blocks SDK - show me the client." It resolves this project's `@seliseblocks/client` config (same values `new web` scaffolds an app with) and prints a ready-to-paste `createBlocksClient(...)` snippet - **it never writes a file or mutates anything**. To scaffold a full app instead, use `new web` above.
+
+```bash
+blocks-os sdk:client --x-blocks-key <projectTenantId> --app-domain <appDomainOrUrl> --client-id <publicOidcClientId> --blocks-api-url https://api.seliseblocks.com
+```
+
+As with `new web`, always pass `--blocks-api-url https://api.seliseblocks.com` explicitly - the default is the OS control-plane API, not the runtime gateway the SDK needs. Passing both `--app-domain` and `--client-id` skips the project lookup entirely, so it needs no CLI login at all - useful for a quick, non-interactive check. Omit either one and it resolves from the selected project instead (auto-picks when there's exactly one match, otherwise lists the options and asks you to pass the flag explicitly - it does not prompt or create anything, since this command is read-only). Use `--json` for the resolved values instead of the snippet.
+
+## Skills
+
+`skill:list [--json]` / `skill:show <name> [--json]` / `skill:add <name> [--dir <path>]` read this package's bundled copy of `blocks-skills/*/SKILL.md` (the conversational agent-context docs referenced in `BLOCKS_AGENT_GUIDE.md`) - local-only, no cloud calls. `skill:add` copies one skill's `SKILL.md` into `<dir>/<name>/SKILL.md` (default `./blocks-skills`) in the current directory, for pulling a single skill into a project outside this monorepo. As with any skill file, verify command names against this guide or `blocks-os --help` before running them - skills are conversational context, not command ground truth.
+
 ## IAM, MFA, and Auth Admin
 
 `iam:me` reads the CLI operator's own account identity (bootstrapping, not a project resource):

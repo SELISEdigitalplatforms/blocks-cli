@@ -96,6 +96,10 @@ import { releaseBuildsGet } from "./commands/release/builds/get.js";
 import { releaseBuildsList } from "./commands/release/builds/list.js";
 import { releaseDeploy } from "./commands/release/deploy.js";
 import { releaseStatus } from "./commands/release/status.js";
+import { sdkClient } from "./commands/sdk/client.js";
+import { skillAdd } from "./commands/skill/add.js";
+import { skillList } from "./commands/skill/list.js";
+import { skillShow } from "./commands/skill/show.js";
 import { useProject } from "./commands/use.js";
 import { authClientCredentialsDelete } from "./commands/auth/client-credentials/delete.js";
 import { authClientCredentialsList } from "./commands/auth/client-credentials/list.js";
@@ -366,6 +370,10 @@ const commands: Partial<Record<string, CommandHandler>> = {
   "iam:me": iamMe,
   "projects:get": getProject,
   "new:web": newWeb,
+  "skill:list": skillList,
+  "skill:show": skillShow,
+  "skill:add": skillAdd,
+  "sdk:client": sdkClient,
 };
 
 const MAX_COMMAND_WORDS = 4;
@@ -1027,5 +1035,28 @@ Scaffold:
     pass the runtime Data/IAM/Localization gateway URL explicitly (typically
     https://api.seliseblocks.com) for the scaffolded app to work at runtime.
     --oidc-url defaults to https://iam.seliseblocks.com.
+
+Skills:
+  blocks-os skill:list [--json]
+    List bundled blocks-skills/*/SKILL.md agent context docs (name +
+    description). Local-only, no cloud calls.
+  blocks-os skill:show <name> [--json]
+    Print one skill's full SKILL.md content.
+  blocks-os skill:add <name> [--dir <path>]
+    Copy a bundled skill's SKILL.md into <path>/<name>/SKILL.md in the
+    current directory (default --dir is 'blocks-skills'), for use in a
+    project outside this monorepo. Overwrites silently, same as
+    'data:schema:pull'.
+
+SDK:
+  blocks-os sdk:client [--app-domain <domain>] [--client-id <oidcClientId>]
+                    [--x-blocks-key <tenantId>] [--blocks-api-url <url>] [--oidc-url <url>] [--json]
+    Read-only: "I want to use the Blocks SDK -- show me the client." Resolves this
+    project's @seliseblocks/client config (same values 'new web' scaffolds with,
+    using the selected project unless --x-blocks-key overrides it, and the
+    project's registered domain/OIDC client when --app-domain/--client-id are
+    omitted) and prints a ready-to-paste createBlocksClient(...) snippet.
+    Passing both --app-domain and --client-id skips the project lookup entirely
+    (no login required). Never writes a file; to scaffold a new app use 'new web'.
 `);
 }
