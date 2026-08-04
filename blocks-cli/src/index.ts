@@ -1034,9 +1034,9 @@ Scaffold:
     name + redirect URI, active, registered as a Blocks OIDC identity
     provider) on the spot, or skip and register one later from the portal or
     'auth oidc-clients save'.
-    --blocks-api-url defaults to the OS API (os.seliseblocks.com) if omitted -
-    pass the runtime Data/IAM/Localization gateway URL explicitly (typically
-    https://api.seliseblocks.com) for the scaffolded app to work at runtime.
+    --blocks-api-url defaults to https://api.seliseblocks.com if omitted -
+    pass a different Data/IAM/Localization/OS gateway URL explicitly only if
+    your project uses a non-default one.
     --oidc-url defaults to https://iam.seliseblocks.com.
 
 Skills:

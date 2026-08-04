@@ -13,7 +13,7 @@ Onboard a user into the Blocks ecosystem by getting them to a working, selected 
 4. If not authenticated, log in yourself.
 5. List projects; confirm, switch, or create one - never assume a prior selection still holds.
 6. Get the app domain from the selected project via `projects get`.
-7. If login is in scope, get the app's own OIDC client id (portal-only).
+7. If login is in scope, resolve or create the app's own OIDC client id via the CLI.
 8. Scaffold a new app, or resume an existing one.
 9. Install deps, init the workspace, trust the dev cert, run the dev server.
 10. Define the data schema and push it.
@@ -56,6 +56,8 @@ In short: project-scoped **data work inside the app** (reading/writing actual re
 - This rule is for app-building work (Steps 0-13 below): do not read `blocks-cli`/`blocks-client` source code to figure out behavior for building an app against them. Use `blocks --help`, `blocks doctor --json`, and each package's own `AI_USAGE_GUIDE.md` as ground truth instead. It does not apply when the task itself is maintaining, publishing, or debugging the CLI/SDK packages - that work reads their source normally.
 - Never open, read, print, or otherwise expose the CLI's local storage files (its config/token/secret files on disk, wherever `doctor --json` says they live) or anything inside them - client ids, root tenant id, account names, tokens. These are internal to the CLI; only ever interact with them through `blocks` commands, never by inspecting the files directly.
 - Use `blocks --help` (top-level, no subcommand) as command ground truth for what exists. Do not assume `blocks <command> --help` is a safe way to check a subcommand's flags - confirmed on this CLI version, most subcommands don't recognize `--help` as special and just run their real logic with it as a no-op arg (e.g. `login --help` performs an actual login attempt; `new web <name> --help` runs real arg validation). Never use `<command> --help` as a probe on a command with no other required arguments. Also note the top-level help's one-line usage strings are abbreviated and can omit real, working flags (e.g. `new web`'s `--blocks-api-url` isn't listed there but does work) - absence from top-level help isn't proof a flag doesn't exist either; when truly unsure, ask the user or infer from `--dry-run`/error output rather than guessing.
+- Namespaced commands accept spaces or colons interchangeably - `blocks data schema list` and `blocks data:schema:list` are the same command. Either form is fine to use or to recognize when a skill file or the user writes the other one.
+- Global flags work on (almost) every command: `--json` (machine-readable output), `--account <name>` (named account profile instead of the implicit default), `--project <tenantId>` (run one project-scoped command against a different project without changing the global selection from Step 5), and `--api-url <url>` (override the control-plane API URL for that single call). Don't confuse `--api-url` with the scaffold-only `--blocks-api-url` from Step 8 - `--api-url` points the CLI's own control-plane calls somewhere else; `--blocks-api-url` is baked into the generated app's `.env` as the runtime Data/IAM/Localization gateway URL. Using `--project` for a one-off command doesn't satisfy the "project must be confirmed selected" rule below - the main build flow still goes through `blocks use` in Step 5. One exception: `blocks auth refresh --project` (see Token & session recovery step 2) uses `--project` as a boolean switch, not a `<tenantId>` value - it only ever refreshes whatever project is already globally selected, it can't target a different one.
 - A Blocks project must be confirmed selected (see Step 5) before creating or running any project-scoped command - data, localization, or release commands never run against an implicit or assumed project.
 - After the workspace is confirmed, create or update `blocks-session-log.md` outside the generated project folder, then update it throughout the workflow with goal, cwd, phase, command, key output, decision, and next step; if file writing is unavailable, keep the same log in chat as `Session log`.
 - `@seliseblocks/cli-os` (the CLI): if already installed, check whether a newer version is published and ask the user before updating - never update it silently.
@@ -68,7 +70,7 @@ In short: project-scoped **data work inside the app** (reading/writing actual re
 - CRUD: `blocksClient.data.collection<Entity>("EntityName")`.
 - Reuse the generated app's stack and components - don't rebuild from scratch.
 - Always show `--dry-run` output before any `--yes` mutating command.
-- Never guess a missing portal setting. If OIDC provider/client config is missing, stop and state exactly what's needed from the OS portal.
+- Never guess a missing portal setting for an external identity provider (SSO/federation config registered with a third party) - Blocks has no knowledge of that provider's own client id to look up, so stop and state exactly what's needed from the OS portal. This does not apply to the app's own OIDC client (Step 7), which the CLI itself can list or create - don't send the user to the portal for that one.
 - When a step differs by OS, defer to the scaffold's own generated README rather than hardcoding OS-specific commands here.
 
 ## Token & session recovery (applies across Steps 2-5)
@@ -77,15 +79,17 @@ Recovery order, cheapest/least-disruptive first - never skip a cheaper step to j
 
 1. `blocks auth refresh --json` - refreshes the account token. Try this first for any account-token failure.
 2. `blocks auth refresh --project --json` - refreshes the project (impersonation) token when a project is already selected but its session looks stale.
-3. `blocks deselect` then `blocks use <x-blocks-key>` - if the impersonated project token is stuck, rejected, or expired and a plain refresh doesn't fix it, clear it and reselect the same x-blocks-key to force a fresh impersonation. This does not touch the account session or change which x-blocks-key is selected.
+3. `blocks deselect` then `blocks use <x-blocks-key>` - use this when the impersonated project token is invalid/stuck, or any project-scoped command fails with a 4xx and step 2's plain refresh doesn't fix it. Clear it and reselect the same x-blocks-key to force a fresh impersonation. This does not touch the account session or change which x-blocks-key is selected - but re-impersonation itself always runs on the account token (see key facts below), so it only helps if the account session is still valid. If the failure is `impersonation_invalid_client`, skip this step - see key facts below.
 4. `blocks login` - only when the account refresh token itself is missing, expired, or rejected, i.e. steps 1-3 don't apply because there's no account session left to refresh from. Run this yourself - don't just print the command and wait; execute it so you can read the verification URL/code and confirm the result via `blocks auth status --json` immediately after.
 
 Key facts to hold onto:
 
 - Project tokens are never entered or requested directly - they come from impersonation, which the CLI performs lazily using the account token the first time a project-scoped command needs one. New project tokens always come from the account session via impersonation, not from the user.
-- Selecting a different project (`blocks use <x-blocks-key>`) does not carry over the previous project's impersonation token - a fresh one is created for the newly selected x-blocks-key.
-- `blocks deselect` explicitly drops the cached impersonation token along with the selected x-blocks-key. After deselect, the next `blocks use <x-blocks-key>` re-impersonates from scratch.
+- Impersonation always requires a valid account token - it's the credential the CLI presents to mint a project token, never something separate. This holds for both the lazy first impersonation and every re-impersonation after `deselect`. If the account token itself is missing/rejected, `deselect` + `use` will fail the same way the original call did; refresh or re-login the account (steps 1/4) before retrying.
+- Selecting a different project (`blocks use <x-blocks-key>`) does not carry over the previous project's cached session - each tenantId's impersonation token is cached independently. Switching to a tenantId used before in this session reuses or refreshes its own cached token; only a tenantId with no cached token yet triggers a genuinely fresh impersonation.
+- `blocks deselect` explicitly drops the cached impersonation token along with the selected x-blocks-key. Use it whenever impersonation looks invalid or a project-scoped call fails with a 4xx and step 2 didn't clear it - after deselect, the next `blocks use <x-blocks-key>` re-impersonates from scratch on the current account token.
 - Never fall back to raw `PTOK`/`PTENANT`/`ACCOUNT_TENANT`/bearer-token shortcuts to work around a token problem - use the recovery order above instead.
+- The CLI already retries once internally: if a cached token looked valid locally but the API still returns 401 (early server-side revocation, clock skew), it force-refreshes and retries the same call before surfacing any failure to you. A failure you actually see already survived that retry - proceed with the recovery order above rather than assuming a plain re-run will help.
 
 ## Step 0 - Application discovery and workspace intent
 
@@ -109,7 +113,7 @@ Run: `blocks --version`
 
 Run: `blocks auth status --json`. Read the output directly - field names are the account/project access/refresh token states (e.g. `accountAccessToken`, `accountRefreshToken`, `projectAccessToken`, `projectRefreshToken`), not a project identity; don't assume a fixed shape beyond that without checking the actual output.
 
-The CLI authenticates itself with no setup - do not ask the user for a client id, token, cookie, JWT, private key, or other secret for this, and never look for or report what the CLI uses internally to do it. (A different client id - your project's own OIDC client id for the app's end-user login, which the user registers and gives you themselves - is collected later in Step 7. That one is fine to ask for; don't confuse it with the CLI's own login.)
+The CLI authenticates itself with no setup - do not ask the user for a client id, token, cookie, JWT, private key, or other secret for this, and never look for or report what the CLI uses internally to do it. (A different client id - your project's own OIDC client id for the app's end-user login - is resolved or created via the CLI in Step 7, not something you need to ask the user to go register manually. Don't confuse it with the CLI's own login.)
 
 - If `accountRefreshToken` is `"available"` (or `"valid"`/`"expired"` - anything but `"missing"`), continue to Step 5. The CLI refreshes tokens when needed; apply the Token & session recovery order above if a refresh fails.
 - If `accountRefreshToken` is `"missing"`, go to Step 4 and run `blocks login` yourself.
@@ -157,7 +161,7 @@ Never assume a project already selected in a prior session is still the right on
 "Here are your accessible projects: `<list>`. Currently selected: `<x-blocks-key or 'none'>`. Continue with this one, or switch to another?"
 
 - Continue current: keep the selected project and go to Step 6.
-- Switch: ask which x-blocks-key from the list just shown, then run `blocks use <x-blocks-key>` - this drops the old project's impersonation and re-impersonates fresh for the new x-blocks-key (see Token & session recovery).
+- Switch: ask which x-blocks-key from the list just shown, then run `blocks use <x-blocks-key>` - this only changes which tenantId project-scoped commands target and calls no cloud API itself. The next project-scoped command resolves that tenantId's session lazily: it reuses a still-valid cached token for it, refreshes an expired one, or impersonates fresh only if neither exists yet for that tenantId (see Token & session recovery).
 
 `projects create` is currently disabled in this build (commented out pending a product decision) - there is no CLI path to create a new project. If none of the listed projects fit, tell the user a new project must be created from the Blocks portal first; once they confirm it exists, re-run `projects list` and continue from step 1 above.
 
@@ -172,19 +176,37 @@ Prefer `projects get` on the selected project as the source of truth - do not as
 - A valid app domain is present -> use it.
 - Absent -> the selected project doesn't have a domain provisioned yet. Re-confirm the correct project is selected (Step 5) and re-run `projects get --json`; check `blocks doctor --json` for a blocking project-state issue. Only after that re-verification still comes back empty, ask the user for the app domain - state plainly that the CLI/project data couldn't identify one.
 
-## Step 7 - App's public OIDC client (portal-only, separate from the CLI's own login in Step 2)
+## Step 7 - App's public OIDC client (CLI-driven, portal optional)
 
-This is **your project's own OIDC client id** - a public browser client registered in the OS portal for this specific app's end-user login. It is unrelated to how the CLI itself authenticates (Step 2), and it is not a secret - never conflate the two or reuse one for the other.
+This is **your project's own OIDC client id** - a public browser client for this specific app's end-user login. It is unrelated to how the CLI itself authenticates (Step 2), and it is not a secret - never conflate the two or reuse one for the other.
 
-State exactly what's needed: public client, callback `https://<domain>:5173/login/callback`, scope `openid profile`. Once the user registers it, have them give you the resulting client id (never a secret - a public client shouldn't have one).
+Resolve it through the CLI instead of sending the user to the portal - the portal is now an alternative, not a requirement:
 
-**Stop condition:** if login is in scope for this build, do not proceed without this client. If the user only wants the app scaffolded without a working login yet, proceeding without it is allowed - ask which is wanted if unclear.
+1. `blocks auth oidc-clients list --json` - check whether a client already registered for this project fits (matching callback/domain).
+2. If one fits, use its id.
+3. If none fits, create one directly - no portal visit needed:
+
+```bash
+blocks auth oidc-clients save --client-display-name <appName> \
+  --redirect-uris https://<domain>:5173/login/callback \
+  --scope "openid profile" --require-pkce --register-as-identity-provider --dry-run --json
+# show the dry-run output, get approval, then:
+blocks auth oidc-clients save --client-display-name <appName> \
+  --redirect-uris https://<domain>:5173/login/callback \
+  --scope "openid profile" --require-pkce --register-as-identity-provider --yes --json
+```
+
+This runs on the project's impersonated token, same as any other project-scoped command - follow the usual `--dry-run` then `--yes` mutation rule from Global rules. Treat any secret in the response as sensitive per Global rules, even though a properly configured public PKCE client shouldn't return one.
+
+**Non-interactive constraint - read before Step 8:** `blocks new web` always drops into an interactive pick-list for the OIDC client whenever `--client-id` is omitted, even to offer "skip." You run commands non-interactively, so that prompt has no stdin to answer and will hang. Always resolve a real `--client-id` here first - never omit it from Step 8 expecting a graceful skip.
+
+If the user only wants the app scaffolded without login wired up yet, still resolve/create a client id so the command doesn't hang, then simply skip building the login screens/route guards in Step 11 - an unused client id does no harm. The only way to actually reach the interactive "skip" option is if the user runs `blocks new web` themselves in their own terminal; offer that only if they'd rather not have a client created at all.
 
 ## Step 8 - Scaffold or resume
 
 For an existing application, do not run `blocks new web`. Continue to Step 9 and perform only the incomplete commands identified during workspace inspection.
 
-For a new application, scaffold from the confirmed workspace parent. Always pass `--blocks-api-url https://api.seliseblocks.com` explicitly - never omit it. If omitted, the CLI defaults it to the OS control-plane API (`os.seliseblocks.com`), not the runtime Data/IAM/Localization gateway the SDK actually needs, and the scaffolded app would be wired to the wrong service. If your project's OIDC client id exists (Step 7), include it as `--client-id`:
+For a new application, scaffold from the confirmed workspace parent. `--blocks-api-url` defaults to `https://api.seliseblocks.com`, so it only needs to be passed explicitly if your project uses a different Data/IAM/Localization/OS gateway URL. Always pass `--client-id` too, using the id resolved or created in Step 7 - never omit it, even for a scaffold-only build with no login work planned yet (see Step 7's non-interactive constraint: omitting it hangs the command waiting on a prompt you can't answer):
 
 ```bash
 blocks new web <app-name> --x-blocks-key <x-blocks-key> \
@@ -192,12 +214,7 @@ blocks new web <app-name> --x-blocks-key <x-blocks-key> \
   --client-id <your-project-oidc-client-id>
 ```
 
-If scaffold-only (no project OIDC client id yet), omit `--client-id` - the app still scaffolds fine; its login page shows a setup notice until `VITE_BLOCKS_OIDC_CLIENT_ID` is filled in `.env` later:
-
-```bash
-blocks new web <app-name> --x-blocks-key <x-blocks-key> \
-  --app-domain <domain> --blocks-api-url https://api.seliseblocks.com
-```
+Also always pass `--app-domain` explicitly with the value from Step 6, for the same reason - an ambiguous or missing domain is its own interactive pick-list that will hang a non-interactive run.
 
 ## Step 9 - Work inside the generated app folder
 
