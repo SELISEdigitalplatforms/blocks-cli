@@ -5,7 +5,7 @@ import { parseCommand } from "../../lib/workspace.js";
 export async function skillShow(argv: string[]): Promise<void> {
   const { args, flags } = parseCommand(argv);
   const name = args[0];
-  if (!name) throw new Error("Missing skill name. Run 'blocks-os skill:list' to see available skills.");
+  if (!name) throw new Error("Missing skill name. Run 'blocks-os skill list' to see available skills.");
 
   const skill = await readSkill(name);
 

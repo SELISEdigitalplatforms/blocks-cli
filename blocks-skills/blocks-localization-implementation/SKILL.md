@@ -7,7 +7,7 @@ description: "Consume SELISE Blocks localization at runtime in a scaffolded fron
 
 Make a scaffolded Blocks web app render its UI in the user's language, using only the `localization` namespace on the SDK client — `createBlocksClient(...).localization`. No fetch, no manual query strings, no hand-rolled caching: the SDK client already does all of that.
 
-The translations themselves (keys, modules, per-language values) are authored and pushed with **[blocks-localization-configuration](../blocks-localization-configuration/SKILL.md)** (uses `blocks-os localization:*`). This skill only covers loading and rendering them in the app.
+The translations themselves (keys, modules, per-language values) are authored and pushed with **[blocks-localization-configuration](../blocks-localization-configuration/SKILL.md)** (uses `blocks-os localization *`). This skill only covers loading and rendering them in the app.
 
 ## The client and its cache
 
@@ -52,7 +52,7 @@ The canonical scaffold (`blocks-os new web`) wires exactly this pattern in `src/
 - **One client, one cache** — don't call `createBlocksClient()` more than once in the app; import the scaffold's `blocksClient` singleton everywhere `t()`/`load()` is needed, or dictionaries loaded in one part of the app won't be visible in another.
 - **`translations`/`cloudTranslations` take `(moduleName, language)`** — module first.
 - **Dictionaries only contain string values** — the SDK strips any non-string fields from the raw response (and unwraps a `data` envelope if present) before caching, so don't expect nested objects in a loaded dictionary.
-- **This skill doesn't author content.** Adding a new key/module or changing a translated value goes through `blocks-localization-configuration`'s `blocks-os localization:*` commands, not this skill.
+- **This skill doesn't author content.** Adding a new key/module or changing a translated value goes through `blocks-localization-configuration`'s `blocks-os localization *` commands, not this skill.
 
 ## Example trigger prompts
 
