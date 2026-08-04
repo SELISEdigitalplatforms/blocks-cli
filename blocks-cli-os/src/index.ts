@@ -4,6 +4,7 @@ import { authStatus } from "./commands/auth/status.js";
 import { deselectProject } from "./commands/deselect.js";
 import { doctor } from "./commands/doctor.js";
 import { dataReload } from "./commands/data/reload.js";
+import { dataSync } from "./commands/data/sync.js";
 import { dataValidate } from "./commands/data/validate.js";
 import { dataConfigCreate } from "./commands/data/config/create.js";
 import { dataConfigGet } from "./commands/data/config/get.js";
@@ -40,6 +41,7 @@ import { dataFilesGetMany } from "./commands/data/files/get-many.js";
 import { dataFilesInfo } from "./commands/data/files/info.js";
 import { dataFilesPresignedUploadUrl } from "./commands/data/files/presigned-upload-url.js";
 import { dataFilesUpdateAdditionalInfo } from "./commands/data/files/update-additional-info.js";
+import { dataFilesUpload } from "./commands/data/files/upload.js";
 import { dataFilesUploadToLocalStorage } from "./commands/data/files/upload-to-local-storage.js";
 import { dataFilesUploadToUrl } from "./commands/data/files/upload-to-url.js";
 import { iamMe } from "./commands/iam/me.js";
@@ -67,6 +69,7 @@ import { localizationKeyList } from "./commands/localization/key/list.js";
 import { localizationKeyRollback } from "./commands/localization/key/rollback.js";
 import { localizationKeySave } from "./commands/localization/key/save.js";
 import { localizationKeyTranslateAll } from "./commands/localization/key/translate-all.js";
+import { localizationKeyTranslateAndExport } from "./commands/localization/key/translate-and-export.js";
 import { localizationKeyTranslateKey } from "./commands/localization/key/translate-key.js";
 import { localizationKeyTranslateKeys } from "./commands/localization/key/translate-keys.js";
 import { localizationKeyUilmExport } from "./commands/localization/key/uilm-export.js";
@@ -163,6 +166,7 @@ import { mfaDisable } from "./commands/mfa/disable.js";
 import { mfaGenerate } from "./commands/mfa/generate.js";
 import { mfaMethodSet } from "./commands/mfa/method-set.js";
 import { mfaResend } from "./commands/mfa/resend.js";
+import { mfaTotpEnable } from "./commands/mfa/totp-enable.js";
 import { mfaTotpSetup } from "./commands/mfa/totp-setup.js";
 import { mfaTotpVerifySetup } from "./commands/mfa/totp-verify-setup.js";
 import { mfaVerify } from "./commands/mfa/verify.js";
@@ -176,371 +180,228 @@ import { storageConfigList } from "./commands/storage/config/list.js";
 import { storageConfigSave } from "./commands/storage/config/save.js";
 import { CliActionableError } from "./lib/errors.js";
 
-const [command, subcommand, ...rest] = process.argv.slice(2);
+type CommandHandler = (args: string[]) => Promise<void>;
+
+// Every command below is reachable with either colon or space separators,
+// e.g. "auth:status" and "auth status" both resolve to authStatus. Keys are
+// the canonical colon-joined form; the deepest is 4 segments
+// (e.g. iam:users:access:grant).
+const commands: Partial<Record<string, CommandHandler>> = {
+  "auth:status": authStatus,
+  "auth:refresh": authRefresh,
+  "doctor": doctor,
+  "init": () => init(),
+  "login": login,
+  "logout": logout,
+  "projects:list": listProjects,
+  "use": useProject,
+  "deselect": deselectProject,
+  "data:schema:list": dataSchemaList,
+  "data:schema:pull": dataSchemaPull,
+  "data:schema:push": dataSchemaPush,
+  "data:rules:pull": dataRulesPull,
+  "data:rules:deploy": dataRulesDeploy,
+  "data:reload": dataReload,
+  "data:sync": dataSync,
+  "data:validate": dataValidate,
+  "data:config:get": dataConfigGet,
+  "data:config:create": dataConfigCreate,
+  "data:config:update": dataConfigUpdate,
+  "data:schema:get": dataSchemaGet,
+  "data:schema:get-by-name": dataSchemaGetByName,
+  "data:schema:aggregation": dataSchemaAggregation,
+  "data:schema:change-logs": dataSchemaChangeLogs,
+  "data:schema:delete": dataSchemaDelete,
+  "data:schema:fields": dataSchemaFields,
+  "data:schema:info:list": dataSchemaInfoList,
+  "data:schema:info:save": dataSchemaInfoSave,
+  "data:schema:info:update": dataSchemaInfoUpdate,
+  "data:rules:policy:get": dataRulesPolicyGet,
+  "data:rules:policy:delete": dataRulesPolicyDelete,
+  "data:validation:list": dataValidationList,
+  "data:validation:get": dataValidationGet,
+  "data:validation:by-schema": dataValidationBySchema,
+  "data:validation:by-schema-field": dataValidationBySchemaField,
+  "data:validation:save": dataValidationSave,
+  "data:validation:delete": dataValidationDelete,
+  "data:files:get": dataFilesGet,
+  "data:files:get-many": dataFilesGetMany,
+  "data:files:info": dataFilesInfo,
+  "data:files:upload": dataFilesUpload,
+  "data:files:presigned-upload-url": dataFilesPresignedUploadUrl,
+  "data:files:upload-to-url": dataFilesUploadToUrl,
+  "data:files:upload-to-local-storage": dataFilesUploadToLocalStorage,
+  "data:files:update-additional-info": dataFilesUpdateAdditionalInfo,
+  "data:files:delete": dataFilesDelete,
+  "data:files:dms-list": dataFilesDmsList,
+  "data:files:dms-upload": dataFilesDmsUpload,
+  "data:files:create-folder": dataFilesCreateFolder,
+  "data:files:delete-folder": dataFilesDeleteFolder,
+  "localization:validate": localizationValidate,
+  "localization:push": localizationPush,
+  "localization:pull": localizationPull,
+  "localization:assistant:translation-suggestion": localizationAssistantTranslationSuggestion,
+  "localization:config:get-webhook": localizationConfigGetWebhook,
+  "localization:config:save-webhook": localizationConfigSaveWebhook,
+  "localization:glossary:save": localizationGlossarySave,
+  "localization:glossary:list": localizationGlossaryList,
+  "localization:glossary:get": localizationGlossaryGet,
+  "localization:glossary:suggested": localizationGlossarySuggested,
+  "localization:glossary:delete": localizationGlossaryDelete,
+  "localization:key:save": localizationKeySave,
+  "localization:key:list": localizationKeyList,
+  "localization:key:get-by-names": localizationKeyGetByNames,
+  "localization:key:get-timeline": localizationKeyGetTimeline,
+  "localization:key:get-localization-timeline": localizationKeyGetLocalizationTimeline,
+  "localization:key:get-timeline-by-operation-id": localizationKeyGetTimelineByOperationId,
+  "localization:key:get": localizationKeyGet,
+  "localization:key:delete": localizationKeyDelete,
+  "localization:key:delete-keys": localizationKeyDeleteKeys,
+  "localization:key:get-uilm-file": localizationKeyGetUilmFile,
+  "localization:key:generate-uilm-file": localizationKeyGenerateUilmFile,
+  "localization:key:translate-all": localizationKeyTranslateAll,
+  "localization:key:translate-and-export": localizationKeyTranslateAndExport,
+  "localization:key:translate-key": localizationKeyTranslateKey,
+  "localization:key:translate-keys": localizationKeyTranslateKeys,
+  "localization:key:uilm-import": localizationKeyUilmImport,
+  "localization:key:uilm-export": localizationKeyUilmExport,
+  "localization:key:get-uilm-exported-files": localizationKeyGetUilmExportedFiles,
+  "localization:key:get-language-file-generation-history": localizationKeyGetLanguageFileGenerationHistory,
+  "localization:key:rollback": localizationKeyRollback,
+  "localization:language:save": localizationLanguageSave,
+  "localization:language:list": localizationLanguageList,
+  "localization:language:list-for-tenant": localizationLanguageListForTenant,
+  "localization:language:delete": localizationLanguageDelete,
+  "localization:language:set-default": localizationLanguageSetDefault,
+  "localization:module:save": localizationModuleSave,
+  "localization:module:list": localizationModuleList,
+  "localization:module:list-for-tenant": localizationModuleListForTenant,
+  "localization:module:tag-glossary": localizationModuleTagGlossary,
+  "release:deploy": releaseDeploy,
+  "release:status": releaseStatus,
+  "release:builds:list": releaseBuildsList,
+  "release:builds:get": releaseBuildsGet,
+  "iam:users:list": iamUsersList,
+  "iam:users:get": iamUsersGet,
+  "iam:users:create": iamUsersCreate,
+  "iam:users:update": iamUsersUpdate,
+  "iam:users:activate": iamUsersActivate,
+  "iam:users:deactivate": iamUsersDeactivate,
+  "iam:users:access:grant": iamUsersAccessGrant,
+  "iam:users:access:revoke": iamUsersAccessRevoke,
+  "iam:users:exists": iamUsersExists,
+  "iam:email:available": iamEmailAvailable,
+  "iam:roles:list": iamRolesList,
+  "iam:roles:get": iamRolesGet,
+  "iam:roles:create": iamRolesCreate,
+  "iam:roles:update": iamRolesUpdate,
+  "iam:roles:assign-permissions": iamRolesAssignPermissions,
+  "iam:roles:assignable": iamRolesAssignable,
+  "iam:permissions:list": iamPermissionsList,
+  "iam:permissions:get": iamPermissionsGet,
+  "iam:permissions:create": iamPermissionsCreate,
+  "iam:permissions:update": iamPermissionsUpdate,
+  "iam:permissions:by-severity": iamPermissionsBySeverity,
+  "iam:resources:groups": iamResourcesGroups,
+  "iam:resources:features": iamResourcesFeatures,
+  "iam:organizations:list": iamOrganizationsList,
+  "iam:organizations:get": iamOrganizationsGet,
+  "iam:organizations:create": iamOrganizationsCreate,
+  "iam:organizations:update": iamOrganizationsUpdate,
+  "iam:organizations:my": iamOrganizationsMy,
+  "iam:organizations:config:get": iamOrganizationsConfigGet,
+  "iam:organizations:config:save": iamOrganizationsConfigSave,
+  "iam:signup-settings:get": iamSignupSettingsGet,
+  "iam:signup-settings:save": iamSignupSettingsSave,
+  "mfa:config:get": mfaConfigGet,
+  "mfa:config:save": mfaConfigSave,
+  "mfa:totp:setup": mfaTotpSetup,
+  "mfa:totp:verify-setup": mfaTotpVerifySetup,
+  "mfa:totp:enable": mfaTotpEnable,
+  "mfa:generate": mfaGenerate,
+  "mfa:resend": mfaResend,
+  "mfa:verify": mfaVerify,
+  "mfa:method:set": mfaMethodSet,
+  "mfa:disable": mfaDisable,
+  "mfa:backup-codes:list": mfaBackupCodesList,
+  "mfa:backup-codes:generate": mfaBackupCodesGenerate,
+  "mfa:backup-codes:use": mfaBackupCodesUse,
+  "mail:config:list": mailConfigList,
+  "mail:config:get": mailConfigGet,
+  "mail:config:save": mailConfigSave,
+  "mail:config:delete": mailConfigDelete,
+  "mail:config:duplicate": mailConfigDuplicate,
+  "mail:template:list": mailTemplateList,
+  "mail:template:get": mailTemplateGet,
+  "mail:template:save": mailTemplateSave,
+  "mail:template:delete": mailTemplateDelete,
+  "mail:template:clone": mailTemplateClone,
+  "mail:mailbox:list": mailMailboxList,
+  "mail:mailbox:get": mailMailboxGet,
+  "notification:list": notificationList,
+  "notification:get": notificationGet,
+  "notification:save": notificationSave,
+  "notification:delete": notificationDelete,
+  "storage:config:list": storageConfigList,
+  "storage:config:get": storageConfigGet,
+  "storage:config:save": storageConfigSave,
+  "storage:config:delete": storageConfigDelete,
+  "auth:idp:list": authIdpList,
+  "auth:idp:get": authIdpGet,
+  "auth:idp:create": authIdpCreate,
+  "auth:idp:update": authIdpUpdate,
+  "auth:idp:delete": authIdpDelete,
+  "auth:idp:status": authIdpStatus,
+  "auth:config:get": authConfigGet,
+  "auth:config:save": authConfigSave,
+  "auth:client-credentials:list": authClientCredentialsList,
+  "auth:client-credentials:save": authClientCredentialsSave,
+  "auth:client-credentials:delete": authClientCredentialsDelete,
+  "auth:oidc-clients:list": authOidcClientsList,
+  "auth:oidc-clients:get": authOidcClientsGet,
+  "auth:oidc-clients:save": authOidcClientsSave,
+  "auth:oidc-clients:delete": authOidcClientsDelete,
+  "auth:oidc-clients:rotate-secret": authOidcClientsRotateSecret,
+  "auth:remove": authRemove,
+  "iam:me": iamMe,
+  "projects:get": getProject,
+  "new:web": newWeb,
+};
+
+const MAX_COMMAND_WORDS = 4;
+
+function resolveCommand(argv: string[]): { handler: CommandHandler; args: string[] } | null {
+  const words: string[] = [];
+  let tokensConsumed = 0;
+
+  for (const token of argv) {
+    if (token.startsWith("-")) break;
+
+    words.push(...token.split(":").filter(Boolean));
+    tokensConsumed++;
+
+    const handler = commands[words.join(":")];
+    if (handler) return { handler, args: argv.slice(tokensConsumed) };
+    if (words.length >= MAX_COMMAND_WORDS) break;
+  }
+
+  return null;
+}
+
+const argv = process.argv.slice(2);
+const [command, subcommand] = argv;
 
 try {
   if (command === "--version" || command === "-v" || command === "version") {
     await printVersion();
   } else if (!command || command === "help" || command === "--help" || command === "-h") {
     printHelp();
-  } else if (command === "auth:remove" || (command === "auth" && subcommand === "remove")) {
-    await authRemove(command === "auth" ? rest : [subcommand, ...rest].filter(Boolean));
-  } else if (command === "auth:status") {
-    await authStatus([subcommand, ...rest].filter(Boolean));
-  } else if (command === "auth:refresh") {
-    await authRefresh([subcommand, ...rest].filter(Boolean));
-  } else if (command === "auth" && subcommand === "status") {
-    await authStatus(rest);
-  } else if (command === "auth" && subcommand === "refresh") {
-    await authRefresh(rest);
-  } else if (command === "doctor") {
-    await doctor([subcommand, ...rest].filter(Boolean));
-  } else if (command === "init") {
-    await init();
-  } else if (command === "login") {
-    await login([subcommand, ...rest].filter(Boolean));
-  } else if (command === "logout") {
-    await logout([subcommand, ...rest].filter(Boolean));
-  } else if (command === "iam:me" || (command === "iam" && subcommand === "me")) {
-    await iamMe(command === "iam" ? rest : [subcommand, ...rest].filter(Boolean));
-  } else if (command === "projects:list") {
-    await listProjects([subcommand, ...rest].filter(Boolean));
-  } else if (command === "projects" && subcommand === "list") {
-    await listProjects(rest);
-  } else if (command === "projects:get" || (command === "projects" && subcommand === "get")) {
-    await getProject(command === "projects" ? rest : [subcommand, ...rest].filter(Boolean));
-  } else if (command === "use") {
-    await useProject([subcommand, ...rest].filter(Boolean));
-  } else if (command === "deselect") {
-    await deselectProject([subcommand, ...rest].filter(Boolean));
-  } else if (command === "new" && subcommand === "web") {
-    await newWeb(rest);
-  } else if (command === "data:schema:list") {
-    await dataSchemaList([subcommand, ...rest].filter(Boolean));
-  } else if (command === "data:schema:pull") {
-    await dataSchemaPull([subcommand, ...rest].filter(Boolean));
-  } else if (command === "data:schema:push") {
-    await dataSchemaPush([subcommand, ...rest].filter(Boolean));
-  } else if (command === "data:rules:pull") {
-    await dataRulesPull([subcommand, ...rest].filter(Boolean));
-  } else if (command === "data:rules:deploy") {
-    await dataRulesDeploy([subcommand, ...rest].filter(Boolean));
-  } else if (command === "data:reload") {
-    await dataReload([subcommand, ...rest].filter(Boolean));
-  } else if (command === "data:validate") {
-    await dataValidate([subcommand, ...rest].filter(Boolean));
-  } else if (command === "data:config:get") {
-    await dataConfigGet([subcommand, ...rest].filter(Boolean));
-  } else if (command === "data:config:create") {
-    await dataConfigCreate([subcommand, ...rest].filter(Boolean));
-  } else if (command === "data:config:update") {
-    await dataConfigUpdate([subcommand, ...rest].filter(Boolean));
-  } else if (command === "data:schema:get") {
-    await dataSchemaGet([subcommand, ...rest].filter(Boolean));
-  } else if (command === "data:schema:get-by-name") {
-    await dataSchemaGetByName([subcommand, ...rest].filter(Boolean));
-  } else if (command === "data:schema:aggregation") {
-    await dataSchemaAggregation([subcommand, ...rest].filter(Boolean));
-  } else if (command === "data:schema:change-logs") {
-    await dataSchemaChangeLogs([subcommand, ...rest].filter(Boolean));
-  } else if (command === "data:schema:delete") {
-    await dataSchemaDelete([subcommand, ...rest].filter(Boolean));
-  } else if (command === "data:schema:fields") {
-    await dataSchemaFields([subcommand, ...rest].filter(Boolean));
-  } else if (command === "data:schema:info:list") {
-    await dataSchemaInfoList([subcommand, ...rest].filter(Boolean));
-  } else if (command === "data:schema:info:save") {
-    await dataSchemaInfoSave([subcommand, ...rest].filter(Boolean));
-  } else if (command === "data:schema:info:update") {
-    await dataSchemaInfoUpdate([subcommand, ...rest].filter(Boolean));
-  } else if (command === "data:rules:policy:get") {
-    await dataRulesPolicyGet([subcommand, ...rest].filter(Boolean));
-  } else if (command === "data:rules:policy:delete") {
-    await dataRulesPolicyDelete([subcommand, ...rest].filter(Boolean));
-  } else if (command === "data:validation:list") {
-    await dataValidationList([subcommand, ...rest].filter(Boolean));
-  } else if (command === "data:validation:get") {
-    await dataValidationGet([subcommand, ...rest].filter(Boolean));
-  } else if (command === "data:validation:by-schema") {
-    await dataValidationBySchema([subcommand, ...rest].filter(Boolean));
-  } else if (command === "data:validation:by-schema-field") {
-    await dataValidationBySchemaField([subcommand, ...rest].filter(Boolean));
-  } else if (command === "data:validation:save") {
-    await dataValidationSave([subcommand, ...rest].filter(Boolean));
-  } else if (command === "data:validation:delete") {
-    await dataValidationDelete([subcommand, ...rest].filter(Boolean));
-  } else if (command === "data:files:get") {
-    await dataFilesGet([subcommand, ...rest].filter(Boolean));
-  } else if (command === "data:files:get-many") {
-    await dataFilesGetMany([subcommand, ...rest].filter(Boolean));
-  } else if (command === "data:files:info") {
-    await dataFilesInfo([subcommand, ...rest].filter(Boolean));
-  } else if (command === "data:files:presigned-upload-url") {
-    await dataFilesPresignedUploadUrl([subcommand, ...rest].filter(Boolean));
-  } else if (command === "data:files:upload-to-url") {
-    await dataFilesUploadToUrl([subcommand, ...rest].filter(Boolean));
-  } else if (command === "data:files:upload-to-local-storage") {
-    await dataFilesUploadToLocalStorage([subcommand, ...rest].filter(Boolean));
-  } else if (command === "data:files:update-additional-info") {
-    await dataFilesUpdateAdditionalInfo([subcommand, ...rest].filter(Boolean));
-  } else if (command === "data:files:delete") {
-    await dataFilesDelete([subcommand, ...rest].filter(Boolean));
-  } else if (command === "data:files:dms-list") {
-    await dataFilesDmsList([subcommand, ...rest].filter(Boolean));
-  } else if (command === "data:files:dms-upload") {
-    await dataFilesDmsUpload([subcommand, ...rest].filter(Boolean));
-  } else if (command === "data:files:create-folder") {
-    await dataFilesCreateFolder([subcommand, ...rest].filter(Boolean));
-  } else if (command === "data:files:delete-folder") {
-    await dataFilesDeleteFolder([subcommand, ...rest].filter(Boolean));
-  } else if (command === "localization:validate") {
-    await localizationValidate([subcommand, ...rest].filter(Boolean));
-  } else if (command === "localization:push") {
-    await localizationPush([subcommand, ...rest].filter(Boolean));
-  } else if (command === "localization:pull") {
-    await localizationPull([subcommand, ...rest].filter(Boolean));
-  } else if (command === "localization:assistant:translation-suggestion") {
-    await localizationAssistantTranslationSuggestion([subcommand, ...rest].filter(Boolean));
-  } else if (command === "localization:config:get-webhook") {
-    await localizationConfigGetWebhook([subcommand, ...rest].filter(Boolean));
-  } else if (command === "localization:config:save-webhook") {
-    await localizationConfigSaveWebhook([subcommand, ...rest].filter(Boolean));
-  } else if (command === "localization:glossary:save") {
-    await localizationGlossarySave([subcommand, ...rest].filter(Boolean));
-  } else if (command === "localization:glossary:list") {
-    await localizationGlossaryList([subcommand, ...rest].filter(Boolean));
-  } else if (command === "localization:glossary:get") {
-    await localizationGlossaryGet([subcommand, ...rest].filter(Boolean));
-  } else if (command === "localization:glossary:suggested") {
-    await localizationGlossarySuggested([subcommand, ...rest].filter(Boolean));
-  } else if (command === "localization:glossary:delete") {
-    await localizationGlossaryDelete([subcommand, ...rest].filter(Boolean));
-  } else if (command === "localization:key:save") {
-    await localizationKeySave([subcommand, ...rest].filter(Boolean));
-  } else if (command === "localization:key:list") {
-    await localizationKeyList([subcommand, ...rest].filter(Boolean));
-  } else if (command === "localization:key:get-by-names") {
-    await localizationKeyGetByNames([subcommand, ...rest].filter(Boolean));
-  } else if (command === "localization:key:get-timeline") {
-    await localizationKeyGetTimeline([subcommand, ...rest].filter(Boolean));
-  } else if (command === "localization:key:get-localization-timeline") {
-    await localizationKeyGetLocalizationTimeline([subcommand, ...rest].filter(Boolean));
-  } else if (command === "localization:key:get-timeline-by-operation-id") {
-    await localizationKeyGetTimelineByOperationId([subcommand, ...rest].filter(Boolean));
-  } else if (command === "localization:key:get") {
-    await localizationKeyGet([subcommand, ...rest].filter(Boolean));
-  } else if (command === "localization:key:delete") {
-    await localizationKeyDelete([subcommand, ...rest].filter(Boolean));
-  } else if (command === "localization:key:delete-keys") {
-    await localizationKeyDeleteKeys([subcommand, ...rest].filter(Boolean));
-  } else if (command === "localization:key:get-uilm-file") {
-    await localizationKeyGetUilmFile([subcommand, ...rest].filter(Boolean));
-  } else if (command === "localization:key:generate-uilm-file") {
-    await localizationKeyGenerateUilmFile([subcommand, ...rest].filter(Boolean));
-  } else if (command === "localization:key:translate-all") {
-    await localizationKeyTranslateAll([subcommand, ...rest].filter(Boolean));
-  } else if (command === "localization:key:translate-key") {
-    await localizationKeyTranslateKey([subcommand, ...rest].filter(Boolean));
-  } else if (command === "localization:key:translate-keys") {
-    await localizationKeyTranslateKeys([subcommand, ...rest].filter(Boolean));
-  } else if (command === "localization:key:uilm-import") {
-    await localizationKeyUilmImport([subcommand, ...rest].filter(Boolean));
-  } else if (command === "localization:key:uilm-export") {
-    await localizationKeyUilmExport([subcommand, ...rest].filter(Boolean));
-  } else if (command === "localization:key:get-uilm-exported-files") {
-    await localizationKeyGetUilmExportedFiles([subcommand, ...rest].filter(Boolean));
-  } else if (command === "localization:key:get-language-file-generation-history") {
-    await localizationKeyGetLanguageFileGenerationHistory([subcommand, ...rest].filter(Boolean));
-  } else if (command === "localization:key:rollback") {
-    await localizationKeyRollback([subcommand, ...rest].filter(Boolean));
-  } else if (command === "localization:language:save") {
-    await localizationLanguageSave([subcommand, ...rest].filter(Boolean));
-  } else if (command === "localization:language:list") {
-    await localizationLanguageList([subcommand, ...rest].filter(Boolean));
-  } else if (command === "localization:language:list-for-tenant") {
-    await localizationLanguageListForTenant([subcommand, ...rest].filter(Boolean));
-  } else if (command === "localization:language:delete") {
-    await localizationLanguageDelete([subcommand, ...rest].filter(Boolean));
-  } else if (command === "localization:language:set-default") {
-    await localizationLanguageSetDefault([subcommand, ...rest].filter(Boolean));
-  } else if (command === "localization:module:save") {
-    await localizationModuleSave([subcommand, ...rest].filter(Boolean));
-  } else if (command === "localization:module:list") {
-    await localizationModuleList([subcommand, ...rest].filter(Boolean));
-  } else if (command === "localization:module:list-for-tenant") {
-    await localizationModuleListForTenant([subcommand, ...rest].filter(Boolean));
-  } else if (command === "localization:module:tag-glossary") {
-    await localizationModuleTagGlossary([subcommand, ...rest].filter(Boolean));
-  } else if (command === "release:deploy") {
-    await releaseDeploy([subcommand, ...rest].filter(Boolean));
-  } else if (command === "release:status") {
-    await releaseStatus([subcommand, ...rest].filter(Boolean));
-  } else if (command === "release:builds:list") {
-    await releaseBuildsList([subcommand, ...rest].filter(Boolean));
-  } else if (command === "release:builds:get") {
-    await releaseBuildsGet([subcommand, ...rest].filter(Boolean));
-  } else if (command === "iam:users:list") {
-    await iamUsersList([subcommand, ...rest].filter(Boolean));
-  } else if (command === "iam:users:get") {
-    await iamUsersGet([subcommand, ...rest].filter(Boolean));
-  } else if (command === "iam:users:create") {
-    await iamUsersCreate([subcommand, ...rest].filter(Boolean));
-  } else if (command === "iam:users:update") {
-    await iamUsersUpdate([subcommand, ...rest].filter(Boolean));
-  } else if (command === "iam:users:activate") {
-    await iamUsersActivate([subcommand, ...rest].filter(Boolean));
-  } else if (command === "iam:users:deactivate") {
-    await iamUsersDeactivate([subcommand, ...rest].filter(Boolean));
-  } else if (command === "iam:users:access:grant") {
-    await iamUsersAccessGrant([subcommand, ...rest].filter(Boolean));
-  } else if (command === "iam:users:access:revoke") {
-    await iamUsersAccessRevoke([subcommand, ...rest].filter(Boolean));
-  } else if (command === "iam:users:exists") {
-    await iamUsersExists([subcommand, ...rest].filter(Boolean));
-  } else if (command === "iam:email:available") {
-    await iamEmailAvailable([subcommand, ...rest].filter(Boolean));
-  } else if (command === "iam:roles:list") {
-    await iamRolesList([subcommand, ...rest].filter(Boolean));
-  } else if (command === "iam:roles:get") {
-    await iamRolesGet([subcommand, ...rest].filter(Boolean));
-  } else if (command === "iam:roles:create") {
-    await iamRolesCreate([subcommand, ...rest].filter(Boolean));
-  } else if (command === "iam:roles:update") {
-    await iamRolesUpdate([subcommand, ...rest].filter(Boolean));
-  } else if (command === "iam:roles:assign-permissions") {
-    await iamRolesAssignPermissions([subcommand, ...rest].filter(Boolean));
-  } else if (command === "iam:roles:assignable") {
-    await iamRolesAssignable([subcommand, ...rest].filter(Boolean));
-  } else if (command === "iam:permissions:list") {
-    await iamPermissionsList([subcommand, ...rest].filter(Boolean));
-  } else if (command === "iam:permissions:get") {
-    await iamPermissionsGet([subcommand, ...rest].filter(Boolean));
-  } else if (command === "iam:permissions:create") {
-    await iamPermissionsCreate([subcommand, ...rest].filter(Boolean));
-  } else if (command === "iam:permissions:update") {
-    await iamPermissionsUpdate([subcommand, ...rest].filter(Boolean));
-  } else if (command === "iam:permissions:by-severity") {
-    await iamPermissionsBySeverity([subcommand, ...rest].filter(Boolean));
-  } else if (command === "iam:resources:groups") {
-    await iamResourcesGroups([subcommand, ...rest].filter(Boolean));
-  } else if (command === "iam:resources:features") {
-    await iamResourcesFeatures([subcommand, ...rest].filter(Boolean));
-  } else if (command === "iam:organizations:list") {
-    await iamOrganizationsList([subcommand, ...rest].filter(Boolean));
-  } else if (command === "iam:organizations:get") {
-    await iamOrganizationsGet([subcommand, ...rest].filter(Boolean));
-  } else if (command === "iam:organizations:create") {
-    await iamOrganizationsCreate([subcommand, ...rest].filter(Boolean));
-  } else if (command === "iam:organizations:update") {
-    await iamOrganizationsUpdate([subcommand, ...rest].filter(Boolean));
-  } else if (command === "iam:organizations:my") {
-    await iamOrganizationsMy([subcommand, ...rest].filter(Boolean));
-  } else if (command === "iam:organizations:config:get") {
-    await iamOrganizationsConfigGet([subcommand, ...rest].filter(Boolean));
-  } else if (command === "iam:organizations:config:save") {
-    await iamOrganizationsConfigSave([subcommand, ...rest].filter(Boolean));
-  } else if (command === "iam:signup-settings:get") {
-    await iamSignupSettingsGet([subcommand, ...rest].filter(Boolean));
-  } else if (command === "iam:signup-settings:save") {
-    await iamSignupSettingsSave([subcommand, ...rest].filter(Boolean));
-  } else if (command === "mfa:config:get") {
-    await mfaConfigGet([subcommand, ...rest].filter(Boolean));
-  } else if (command === "mfa:config:save") {
-    await mfaConfigSave([subcommand, ...rest].filter(Boolean));
-  } else if (command === "mfa:totp:setup") {
-    await mfaTotpSetup([subcommand, ...rest].filter(Boolean));
-  } else if (command === "mfa:totp:verify-setup") {
-    await mfaTotpVerifySetup([subcommand, ...rest].filter(Boolean));
-  } else if (command === "mfa:generate") {
-    await mfaGenerate([subcommand, ...rest].filter(Boolean));
-  } else if (command === "mfa:resend") {
-    await mfaResend([subcommand, ...rest].filter(Boolean));
-  } else if (command === "mfa:verify") {
-    await mfaVerify([subcommand, ...rest].filter(Boolean));
-  } else if (command === "mfa:method:set") {
-    await mfaMethodSet([subcommand, ...rest].filter(Boolean));
-  } else if (command === "mfa:disable") {
-    await mfaDisable([subcommand, ...rest].filter(Boolean));
-  } else if (command === "mfa:backup-codes:list") {
-    await mfaBackupCodesList([subcommand, ...rest].filter(Boolean));
-  } else if (command === "mfa:backup-codes:generate") {
-    await mfaBackupCodesGenerate([subcommand, ...rest].filter(Boolean));
-  } else if (command === "mfa:backup-codes:use") {
-    await mfaBackupCodesUse([subcommand, ...rest].filter(Boolean));
-  } else if (command === "mail:config:list") {
-    await mailConfigList([subcommand, ...rest].filter(Boolean));
-  } else if (command === "mail:config:get") {
-    await mailConfigGet([subcommand, ...rest].filter(Boolean));
-  } else if (command === "mail:config:save") {
-    await mailConfigSave([subcommand, ...rest].filter(Boolean));
-  } else if (command === "mail:config:delete") {
-    await mailConfigDelete([subcommand, ...rest].filter(Boolean));
-  } else if (command === "mail:config:duplicate") {
-    await mailConfigDuplicate([subcommand, ...rest].filter(Boolean));
-  } else if (command === "mail:template:list") {
-    await mailTemplateList([subcommand, ...rest].filter(Boolean));
-  } else if (command === "mail:template:get") {
-    await mailTemplateGet([subcommand, ...rest].filter(Boolean));
-  } else if (command === "mail:template:save") {
-    await mailTemplateSave([subcommand, ...rest].filter(Boolean));
-  } else if (command === "mail:template:delete") {
-    await mailTemplateDelete([subcommand, ...rest].filter(Boolean));
-  } else if (command === "mail:template:clone") {
-    await mailTemplateClone([subcommand, ...rest].filter(Boolean));
-  } else if (command === "mail:mailbox:list") {
-    await mailMailboxList([subcommand, ...rest].filter(Boolean));
-  } else if (command === "mail:mailbox:get") {
-    await mailMailboxGet([subcommand, ...rest].filter(Boolean));
-  } else if (command === "notification:list") {
-    await notificationList([subcommand, ...rest].filter(Boolean));
-  } else if (command === "notification:get") {
-    await notificationGet([subcommand, ...rest].filter(Boolean));
-  } else if (command === "notification:save") {
-    await notificationSave([subcommand, ...rest].filter(Boolean));
-  } else if (command === "notification:delete") {
-    await notificationDelete([subcommand, ...rest].filter(Boolean));
-  } else if (command === "storage:config:list") {
-    await storageConfigList([subcommand, ...rest].filter(Boolean));
-  } else if (command === "storage:config:get") {
-    await storageConfigGet([subcommand, ...rest].filter(Boolean));
-  } else if (command === "storage:config:save") {
-    await storageConfigSave([subcommand, ...rest].filter(Boolean));
-  } else if (command === "storage:config:delete") {
-    await storageConfigDelete([subcommand, ...rest].filter(Boolean));
-  } else if (command === "auth:idp:list") {
-    await authIdpList([subcommand, ...rest].filter(Boolean));
-  } else if (command === "auth:idp:get") {
-    await authIdpGet([subcommand, ...rest].filter(Boolean));
-  } else if (command === "auth:idp:create") {
-    await authIdpCreate([subcommand, ...rest].filter(Boolean));
-  } else if (command === "auth:idp:update") {
-    await authIdpUpdate([subcommand, ...rest].filter(Boolean));
-  } else if (command === "auth:idp:delete") {
-    await authIdpDelete([subcommand, ...rest].filter(Boolean));
-  } else if (command === "auth:idp:status") {
-    await authIdpStatus([subcommand, ...rest].filter(Boolean));
-  } else if (command === "auth:config:get") {
-    await authConfigGet([subcommand, ...rest].filter(Boolean));
-  } else if (command === "auth:config:save") {
-    await authConfigSave([subcommand, ...rest].filter(Boolean));
-  } else if (command === "auth:client-credentials:list") {
-    await authClientCredentialsList([subcommand, ...rest].filter(Boolean));
-  } else if (command === "auth:client-credentials:save") {
-    await authClientCredentialsSave([subcommand, ...rest].filter(Boolean));
-  } else if (command === "auth:client-credentials:delete") {
-    await authClientCredentialsDelete([subcommand, ...rest].filter(Boolean));
-  } else if (command === "auth:oidc-clients:list") {
-    await authOidcClientsList([subcommand, ...rest].filter(Boolean));
-  } else if (command === "auth:oidc-clients:get") {
-    await authOidcClientsGet([subcommand, ...rest].filter(Boolean));
-  } else if (command === "auth:oidc-clients:save") {
-    await authOidcClientsSave([subcommand, ...rest].filter(Boolean));
-  } else if (command === "auth:oidc-clients:delete") {
-    await authOidcClientsDelete([subcommand, ...rest].filter(Boolean));
-  } else if (command === "auth:oidc-clients:rotate-secret") {
-    await authOidcClientsRotateSecret([subcommand, ...rest].filter(Boolean));
   } else {
-    throw new Error(`Unknown command: ${[command, subcommand].filter(Boolean).join(" ")}`);
+    const resolved = resolveCommand(argv);
+    if (!resolved) {
+      throw new Error(`Unknown command: ${[command, subcommand].filter(Boolean).join(" ")}`);
+    }
+    await resolved.handler(resolved.args);
   }
 } catch (error) {
   const cliError = toCliError(error);
@@ -598,6 +459,9 @@ function printHelp(): void {
 
 Usage:
   blocks-os <command> [options]
+
+  Namespaced commands accept either form: 'blocks-os data:schema:list' or
+  'blocks-os data schema list'.
 
 Global options:
   --version                 Print CLI version.
@@ -757,6 +621,13 @@ MFA (/iam/v4/mfa*, project-scoped: requires a selected project, impersonated pro
     Start TOTP enrollment for the impersonated user.
   blocks-os mfa:totp:verify-setup <code> [--json]
     Confirm TOTP enrollment.
+  blocks-os mfa:totp:enable --mfa-type <n> [--code <c>] [--dry-run] [--yes] [--json]
+    Composed enrollment: totp:setup -> (scan the printed QR/secret, enter the code --
+    interactively prompted if --code is omitted) -> totp:verify-setup -> method:set
+    --mfa-type <n> -> backup-codes:generate. One sitting, one confirmation.
+    --mfa-type is required and not defaulted: the numeric value meaning "TOTP" is
+    tenant-defined and undocumented here (same value plain mfa:method:set expects) --
+    look it up rather than guessing.
   blocks-os mfa:generate --mfa-type <n> [--send-phone-number-as-email-domain <domain>] [--json]
     Send an OTP challenge; returns an mfaId to pass to resend/verify.
   blocks-os mfa:resend <mfaId> [--send-phone-number-as-email-domain <domain>] [--json]
@@ -895,6 +766,13 @@ Data:
     Reload Data schema configuration so staged schema/rule changes become live.
     Mutating; calls POST /data/v4/schema-configurations/reload.
 
+  blocks-os data:sync [--dry-run] [--yes] [--json]
+    Composed flow: validate local schemas/rules, then data:schema:push ->
+    data:rules:deploy -> data:reload, so pushed changes actually go live in one
+    step. Validation runs first and hard-fails before anything is sent if it
+    finds errors. Prints 3 separate step outputs (one per underlying command),
+    not one combined document. One confirmation covers the whole flow.
+
   Data source configuration (/data/v4/configurations) - check this first; by default a
   project's Data Gateway runs on Blocks-managed storage and data:config:get is all you need.
   Only create/update a configuration if you're pointing the gateway at your own database.
@@ -955,6 +833,14 @@ Data:
     blocks-os data:files:get-many <fileId...>|--file-ids a,b [--configuration-name] [--json]
     blocks-os data:files:info [--name] [--tenant-id] [--page] [--page-size] [--sort-by]
                               [--sort-desc] [--json]
+    blocks-os data:files:upload --file <localPath> [--name] [--parent-id] [--tags]
+                              [--access-modifier Public|Private] [--content-type]
+                              [--configuration-name] [--module-name <1-11>] [--local-storage]
+                              [--dry-run] [--yes] [--json]
+      Composed flow: presigned-upload-url -> PUT the file -> dms-upload, threading the
+      returned uploadUrl/fileId automatically (content-type is inferred from the file
+      extension if omitted). Pass --local-storage to use the one-call
+      upload-to-local-storage path instead, for local-storage-backed projects.
     blocks-os data:files:presigned-upload-url --name <fileName> [--parent-directory-id]
                               [--access-modifier Public|Private] [--configuration-name]
                               [--module-name <1-11>] [--meta-data] [--tags]
@@ -1058,6 +944,18 @@ Localization:
     blocks-os localization:key:translate-keys <keyId...>|--key-ids a,b --default-language <culture>
                               [--message-co-relation-id] [--project-key]
                               [--dry-run] [--yes] [--json]
+    blocks-os localization:key:translate-and-export --module-id <id> [--default-language]
+                              [--wait] [--poll-interval <seconds>] [--timeout <seconds>]
+                              [--guid] [--output-type <0-5>] [--app-ids a,b] [--languages a,b]
+                              [--reference-file-id] [--caller-tenant-id] [--start-date]
+                              [--end-date] [--dry-run] [--yes] [--json]
+      Composed flow: translate-all -> generate-uilm-file -> uilm-export. Without --wait,
+      fires all 3 back to back (same as running them by hand). With --wait, polls
+      GetTimelineByOperationId (using a generated messageCoRelationId) between translate
+      and generate, since translation runs async and there's no documented explicit
+      "done" field to check -- it stops once the timeline entry count settles across 2
+      polls, or times out with a clear next-step message. Prints one output block per
+      step, not a single combined document.
     blocks-os localization:key:uilm-import <fileId> [--message-co-relation-id]
                               [--dry-run] [--yes] [--json]
     blocks-os localization:key:uilm-export [--output-type <0-5>] [--app-ids a,b] [--languages a,b]
@@ -1085,12 +983,16 @@ Localization:
                               [--dry-run] [--yes] [--json]
 
 Release:
-  blocks-os release:deploy [--domain <customDomain>] [--dry-run] [--yes] [--json]
+  blocks-os release:deploy [--domain <customDomain>] [--wait] [--poll-interval <seconds>]
+                    [--timeout <seconds>] [--dry-run] [--yes] [--json]
     Deploy the selected project's environment. Resolves everything from state
     you already have: the repo linked to this project (Project/GetAsset) and
     that repo's connected branch (Build/repo-details) -- no --repo-id needed.
     Aborts if the connected branch doesn't match this environment's name.
     Pass --domain to also set the custom deployment domain before deploying.
+    Pass --wait to poll release:status on the resulting build until it reaches
+    a terminal state (or --timeout elapses, default 900s) instead of returning
+    immediately with just a build id.
     Mutating; no artifact upload is performed by this CLI.
 
   blocks-os release:status <buildId> [--json]
