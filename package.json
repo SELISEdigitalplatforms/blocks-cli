@@ -3,7 +3,7 @@
   "private": true,
   "description": "Umbrella workspace for SELISE Blocks npm packages.",
   "workspaces": [
-    "blocks-cli-os",
+    "blocks-cli",
     "blocks-client"
   ],
   "scripts": {

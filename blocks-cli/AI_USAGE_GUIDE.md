@@ -1,8 +1,8 @@
-# Blocks OS CLI Guide for AI Agents
+# Blocks CLI Guide for AI Agents
 
-This guide is for AI agents using the published `@seliseblocks/cli-os` npm package. The installed binary is `blocks-os`.
+This guide is for AI agents using the published `@seliseblocks/cli-os` npm package. The installed binary is `blocks`.
 
-Use `blocks-os` as the control plane. If a capability exists in the CLI, call the CLI from the terminal instead of calling Blocks cloud APIs directly from ad hoc scripts or generated application code.
+Use `blocks` as the control plane. If a capability exists in the CLI, call the CLI from the terminal instead of calling Blocks cloud APIs directly from ad hoc scripts or generated application code.
 
 ## Install
 
@@ -15,15 +15,15 @@ npm install -g @seliseblocks/cli-os
 Verify the binary:
 
 ```bash
-blocks-os --version
-blocks-os --help
+blocks --version
+blocks --help
 ```
 
-For local package development only, contributors may run `node bin/run.js ...` from the source repository. AI agents consuming the npm package should use `blocks-os ...`.
+For local package development only, contributors may run `node bin/run.js ...` from the source repository. AI agents consuming the npm package should use `blocks ...`.
 
 ## Operating Rules
 
-- Use `blocks-os ...` for all supported Blocks OS, IAM, Data, Release, and scaffold operations.
+- Use `blocks ...` for all supported Blocks OS, IAM, Data, Release, and scaffold operations.
 - Prefer `--json` for automation and parsing.
 - Use `--dry-run` before any mutating command.
 - Do not run real mutating cloud commands unless the user explicitly approved the exact action.
@@ -37,28 +37,28 @@ For local package development only, contributors may run `node bin/run.js ...` f
 Device-code login uses the packaged OS client id. It prints a verification URL and user code, opens the browser to the verification page when possible, then polls until approved:
 
 ```bash
-blocks-os login
+blocks login
 ```
 
 Check current auth state:
 
 ```bash
-blocks-os auth status --json
+blocks auth status --json
 ```
 
 If local auth state is stale or corrupted (Windows profile change, machine migration, Keychain reset), clear local auth state and log in again:
 
 ```bash
-blocks-os auth remove <account>
-blocks-os login
+blocks auth remove <account>
+blocks login
 ```
 
-Use `blocks-os logout` to revoke the current refresh token when possible and remove local session data. Use `blocks-os auth refresh --json` to force account token refresh, and `blocks-os auth refresh --project --json` after a project session already exists.
+Use `blocks logout` to revoke the current refresh token when possible and remove local session data. Use `blocks auth refresh --json` to force account token refresh, and `blocks auth refresh --project --json` after a project session already exists.
 
 Run health checks without mutation:
 
 ```bash
-blocks-os doctor --json
+blocks doctor --json
 ```
 
 ## Project Workflow
@@ -66,7 +66,7 @@ blocks-os doctor --json
 List projects:
 
 ```bash
-blocks-os projects list --json
+blocks projects list --json
 ```
 
 `projects create` is currently disabled in this build (commented out pending a product decision) - do not tell users it's available, and do not try to work around its absence with a raw API call. Projects must already exist (created from the Blocks portal) before selecting one below.
@@ -74,13 +74,13 @@ blocks-os projects list --json
 Select a project:
 
 ```bash
-blocks-os use <projectTenantId>
+blocks use <projectTenantId>
 ```
 
 Read the selected project:
 
 ```bash
-blocks-os projects get --json
+blocks projects get --json
 ```
 
 ## Scaffold a Web App
@@ -88,8 +88,8 @@ blocks-os projects get --json
 Generate a React/Vite Blocks app. All of `--x-blocks-key`, `--app-domain`, and `--client-id` are optional now - they're resolved from the selected project when omitted:
 
 ```bash
-blocks-os use <projectTenantId>   # if not already selected
-blocks-os new web <appName>
+blocks use <projectTenantId>   # if not already selected
+blocks new web <appName>
 ```
 
 This is interactive when a value isn't already known: if the project has more than one registered domain you're prompted to choose; the OIDC client is offered as a pick-list of the project's existing clients, plus "create a new one now" (prompts only for display name + redirect URI, defaulting to `https://<appDomain>/login/callback`) or "skip, register later." Do not fabricate a client id or domain value yourself.
@@ -97,14 +97,14 @@ This is interactive when a value isn't already known: if the project has more th
 **An AI agent running this non-interactively will hang on these prompts** - there's no stdin to answer "Choose 1-3:" from an automated process. Before running `new web`, gather the values yourself and pass them explicitly:
 
 ```bash
-blocks-os projects get --json                     # see the project's domain(s) under project.applications
-blocks-os auth oidc-clients list --json           # see existing OIDC clients, if any
+blocks projects get --json                     # see the project's domain(s) under project.applications
+blocks auth oidc-clients list --json           # see existing OIDC clients, if any
 ```
 
 Then run with explicit flags so no prompt is reached:
 
 ```bash
-blocks-os new web <appName> --x-blocks-key <projectTenantId> --app-domain <appDomainOrUrl> --client-id <publicOidcClientId>
+blocks new web <appName> --x-blocks-key <projectTenantId> --app-domain <appDomainOrUrl> --client-id <publicOidcClientId>
 ```
 
 Validate the scaffold:
@@ -134,26 +134,26 @@ The generated cert script uses the `selfsigned` Node dependency, so it works fro
 `sdk client` answers "I want to use the Blocks SDK - show me the client." It resolves this project's `@seliseblocks/client` config (same values `new web` scaffolds an app with) and prints a ready-to-paste `createBlocksClient(...)` snippet - **it never writes a file or mutates anything**. To scaffold a full app instead, use `new web` above.
 
 ```bash
-blocks-os sdk client --x-blocks-key <projectTenantId> --app-domain <appDomainOrUrl> --client-id <publicOidcClientId> --blocks-api-url https://api.seliseblocks.com
+blocks sdk client --x-blocks-key <projectTenantId> --app-domain <appDomainOrUrl> --client-id <publicOidcClientId> --blocks-api-url https://api.seliseblocks.com
 ```
 
 As with `new web`, always pass `--blocks-api-url https://api.seliseblocks.com` explicitly - the default is the OS control-plane API, not the runtime gateway the SDK needs. Passing both `--app-domain` and `--client-id` skips the project lookup entirely, so it needs no CLI login at all - useful for a quick, non-interactive check. Omit either one and it resolves from the selected project instead (auto-picks when there's exactly one match, otherwise lists the options and asks you to pass the flag explicitly - it does not prompt or create anything, since this command is read-only). Use `--json` for the resolved values instead of the snippet.
 
 ## Skills
 
-`skill list [--json]` / `skill show <name> [--json]` / `skill add <name> [--dir <path>]` read this package's bundled copy of `blocks-skills/*/SKILL.md` (the conversational agent-context docs referenced in `BLOCKS_AGENT_GUIDE.md`) - local-only, no cloud calls. `skill add` copies one skill's `SKILL.md` into `<dir>/<name>/SKILL.md` (default `./blocks-skills`) in the current directory, for pulling a single skill into a project outside this monorepo. As with any skill file, verify command names against this guide or `blocks-os --help` before running them - skills are conversational context, not command ground truth.
+`skill list [--json]` / `skill show <name> [--json]` / `skill add <name> [--dir <path>]` read this package's bundled copy of `blocks-skills/*/SKILL.md` (the conversational agent-context docs referenced in `BLOCKS_AGENT_GUIDE.md`) - local-only, no cloud calls. `skill add` copies one skill's `SKILL.md` into `<dir>/<name>/SKILL.md` (default `./blocks-skills`) in the current directory, for pulling a single skill into a project outside this monorepo. As with any skill file, verify command names against this guide or `blocks --help` before running them - skills are conversational context, not command ground truth.
 
 ## IAM, MFA, and Auth Admin
 
 `iam me` reads the CLI operator's own account identity (bootstrapping, not a project resource):
 
 ```bash
-blocks-os iam me --json
+blocks iam me --json
 ```
 
-Every other command below is project-scoped: it requires a project already selected (`blocks-os use <tenantId>`) and always calls IAM through an impersonated project token - never the account token, and never something you construct yourself. If no project is selected, the command fails with `project_not_selected`; run `blocks-os use <tenantId>` first (see Agent Failure Handling).
+Every other command below is project-scoped: it requires a project already selected (`blocks use <tenantId>`) and always calls IAM through an impersonated project token - never the account token, and never something you construct yourself. If no project is selected, the command fails with `project_not_selected`; run `blocks use <tenantId>` first (see Agent Failure Handling).
 
-Command families (run `blocks-os --help` for the full flag reference on each):
+Command families (run `blocks --help` for the full flag reference on each):
 
 - `iam users *`, `iam email available` - list/get/create/update/activate/deactivate, access grant/revoke, existence and email-availability checks.
 - `iam roles *` - list/get/create/update, assign-permissions, assignable.
@@ -180,75 +180,75 @@ Rules:
 Check the data-source configuration first. Most projects run on Blocks-managed storage by default, so this is usually the only `data config *` command you need:
 
 ```bash
-blocks-os data config get --json
+blocks data config get --json
 ```
 
 Only create/update a data source configuration after explicit user approval - it points the project's Data Gateway at a different (external) database, which is a deliberate, rare action:
 
 ```bash
-blocks-os data config create --connection-string "<cs>" --database-name "<name>" --dry-run --json
-blocks-os data config create --connection-string "<cs>" --database-name "<name>" --yes --json
-blocks-os data config update --item-id <id> --connection-string "<cs>" --dry-run --json
-blocks-os data config update --item-id <id> --connection-string "<cs>" --yes --json
+blocks data config create --connection-string "<cs>" --database-name "<name>" --dry-run --json
+blocks data config create --connection-string "<cs>" --database-name "<name>" --yes --json
+blocks data config update --item-id <id> --connection-string "<cs>" --dry-run --json
+blocks data config update --item-id <id> --connection-string "<cs>" --yes --json
 ```
 
 Validate local files:
 
 ```bash
-blocks-os data validate --json
+blocks data validate --json
 ```
 
 List schemas:
 
 ```bash
-blocks-os data schema list --json
+blocks data schema list --json
 ```
 
 Pull schemas:
 
 ```bash
-blocks-os data schema pull --json
+blocks data schema pull --json
 ```
 
 Push schemas only after dry-run and approval:
 
 ```bash
-blocks-os data schema push --dry-run --json
-blocks-os data schema push --yes --json
+blocks data schema push --dry-run --json
+blocks data schema push --yes --json
 ```
 
 Pull rules:
 
 ```bash
-blocks-os data rules pull --json
+blocks data rules pull --json
 ```
 
 Deploy rules only after dry-run and approval:
 
 ```bash
-blocks-os data rules deploy --dry-run --json
-blocks-os data rules deploy --yes --json
+blocks data rules deploy --dry-run --json
+blocks data rules deploy --yes --json
 ```
 
 Reload Data schema configuration only after approval:
 
 ```bash
-blocks-os data reload --dry-run --json
-blocks-os data reload --yes --json
+blocks data reload --dry-run --json
+blocks data reload --yes --json
 ```
 
 **Prefer `data sync` over running validate/push/deploy/reload separately.** It composes all four (validate → `schema push` → `rules deploy` → `data reload`) behind one confirmation, and it's the only way to guarantee the reload actually happens - nothing else calls it automatically, so schema/rule changes pushed without a following `data reload` can sit staged without going live:
 
 ```bash
-blocks-os data sync --dry-run --json
-blocks-os data sync --yes --json
+blocks data sync --dry-run --json
+blocks data sync --yes --json
 ```
 
 It validates first and hard-fails with no API calls made if schemas or the rules file don't parse/validate. It prints 3 separate step outputs (one per underlying command), not one combined JSON document - parse each block in sequence if you need machine-readable results from all three.
 
 ### Raw Data API
 
-`validate`/`schema list`/`schema pull`/`schema push`/`rules pull`/`rules deploy`/`reload` above cover the common file-oriented workflow. The rest of `/data/v4/*` is exposed directly, project-scoped with an impersonated project token only. Run `blocks-os --help` for the full flag reference on each; command families:
+`validate`/`schema list`/`schema pull`/`schema push`/`rules pull`/`rules deploy`/`reload` above cover the common file-oriented workflow. The rest of `/data/v4/*` is exposed directly, project-scoped with an impersonated project token only. Run `blocks --help` for the full flag reference on each; command families:
 
 - `data schema get`/`get-by-name`/`aggregation`/`change-logs`/`delete` - single-schema lookup by id or collection name, access-level aggregation summary, unadapted change logs (cleared by `data reload`), and irreversible delete.
 - `data schema info list`/`save`/`update` + `data schema fields` - a two-step alternative to `schema push` (create/update schema metadata, then add/update field definitions separately). Prefer the file-oriented `schema push` workflow for normal authoring; use these only for a targeted metadata or field-only change without touching the local schema JSON.
@@ -263,32 +263,32 @@ Same rules as everywhere else: `--dry-run` before any mutating command, then `--
 **Prefer the composed `data files upload` over the manual steps below.** It runs presign → PUT → dms-upload for you (or the one-call local-storage path with `--local-storage`), so the file is both stored and visible in DMS afterward - no copy-pasting `uploadUrl`/`fileId` between commands:
 
 ```bash
-blocks-os data files upload --file ./invoice.pdf --access-modifier Public --dry-run --json
-blocks-os data files upload --file ./invoice.pdf --access-modifier Public --yes --json
-blocks-os data files upload --file ./invoice.pdf --local-storage --yes --json   # local-storage-backed projects
+blocks data files upload --file ./invoice.pdf --access-modifier Public --dry-run --json
+blocks data files upload --file ./invoice.pdf --access-modifier Public --yes --json
+blocks data files upload --file ./invoice.pdf --local-storage --yes --json   # local-storage-backed projects
 ```
 
 Manual cloud-storage upload, if you need the intermediate steps for some reason (two calls):
 
 ```bash
-blocks-os data files presigned-upload-url --name invoice.pdf --access-modifier Public --json
+blocks data files presigned-upload-url --name invoice.pdf --access-modifier Public --json
 # take the returned uploadUrl and fileId, then:
-blocks-os data files upload-to-url --url "<uploadUrl>" --file ./invoice.pdf --content-type application/pdf --dry-run --json
-blocks-os data files upload-to-url --url "<uploadUrl>" --file ./invoice.pdf --content-type application/pdf --yes --json
+blocks data files upload-to-url --url "<uploadUrl>" --file ./invoice.pdf --content-type application/pdf --dry-run --json
+blocks data files upload-to-url --url "<uploadUrl>" --file ./invoice.pdf --content-type application/pdf --yes --json
 ```
 
 Manual local-storage upload (one call):
 
 ```bash
-blocks-os data files upload-to-local-storage --file ./invoice.pdf --access-modifier Public --dry-run --json
-blocks-os data files upload-to-local-storage --file ./invoice.pdf --access-modifier Public --yes --json
+blocks data files upload-to-local-storage --file ./invoice.pdf --access-modifier Public --dry-run --json
+blocks data files upload-to-local-storage --file ./invoice.pdf --access-modifier Public --yes --json
 ```
 
 Either manual upload path only stores the bytes - it does not make the file appear in a DMS folder. Register it afterward if the user needs that (the composed `data files upload` above already does this step for you):
 
 ```bash
-blocks-os data files dms-upload --file-storage-id <fileId> --artifact-name invoice.pdf --dry-run --json
-blocks-os data files dms-upload --file-storage-id <fileId> --artifact-name invoice.pdf --yes --json
+blocks data files dms-upload --file-storage-id <fileId> --artifact-name invoice.pdf --dry-run --json
+blocks data files dms-upload --file-storage-id <fileId> --artifact-name invoice.pdf --yes --json
 ```
 
 ## Localization
@@ -323,27 +323,27 @@ Nested JSON is accepted on input and flattened before validation:
 Validate first:
 
 ```bash
-blocks-os localization validate --module common --language en --json
+blocks localization validate --module common --language en --json
 ```
 
 Push only after dry-run and approval:
 
 ```bash
-blocks-os localization push --module common --language en --dry-run --json
-blocks-os localization push --module common --language en --yes --json
+blocks localization push --module common --language en --dry-run --json
+blocks localization push --module common --language en --yes --json
 ```
 
 Pull published cloud localization when local fallback files need to be refreshed:
 
 ```bash
-blocks-os localization pull --module common --language en --json
+blocks localization pull --module common --language en --json
 ```
 
 Use Localization gateway v4 paths without `/api`: `/localization/v4/Module/Gets`, `/localization/v4/Module/Save`, `/localization/v4/Key/SaveKeys`, and `/localization/v4/Key/GetCloudUilmFile`.
 
 ### Raw Localization API
 
-`validate`/`push`/`pull` above cover the common i18n file workflow. Every other `/localization/v4/*` endpoint is also exposed directly, project-scoped with an impersonated project token only (never the account token). Run `blocks-os --help` for the full flag reference on each; command families:
+`validate`/`push`/`pull` above cover the common i18n file workflow. Every other `/localization/v4/*` endpoint is also exposed directly, project-scoped with an impersonated project token only (never the account token). Run `blocks --help` for the full flag reference on each; command families:
 
 - `localization assistant translation-suggestion` - AI translation suggestion for a single string (`--source-text`, `--destination-language`, optional glossary/context flags).
 - `localization config get-webhook`/`save-webhook` - tenant webhook config for localization change notifications.
@@ -363,23 +363,23 @@ Same rules as everywhere else: `--dry-run` before any mutating command, then `--
 Project-scoped SMTP/inbound mail configuration, templates, and mailbox reads via `/os/v4/Mail/*`:
 
 ```bash
-blocks-os mail config list --json
-blocks-os mail config get <name> --json
-blocks-os mail config save --name <n> --host <h> --port <p> --enable-ssl \
+blocks mail config list --json
+blocks mail config get <name> --json
+blocks mail config save --name <n> --host <h> --port <p> --enable-ssl \
   --sender-name <n> --sender-address <addr> --account-password <p> --dry-run --json
-blocks-os mail config save --configuration-id <id> ... --yes --json   # update
-blocks-os mail config delete <configurationId> --dry-run --json
-blocks-os mail config duplicate <configurationId> --dry-run --json
+blocks mail config save --configuration-id <id> ... --yes --json   # update
+blocks mail config delete <configurationId> --dry-run --json
+blocks mail config duplicate <configurationId> --dry-run --json
 
-blocks-os mail template list --configuration-id <id> --json
-blocks-os mail template get <itemId> --json
-blocks-os mail template save --configuration-id <id> --name <n> --language <l> \
+blocks mail template list --configuration-id <id> --json
+blocks mail template get <itemId> --json
+blocks mail template save --configuration-id <id> --name <n> --language <l> \
   --subject <s> --template-body <html> --dry-run --json
-blocks-os mail template delete <itemId> --dry-run --json
-blocks-os mail template clone <itemId> --name <n> --dry-run --json
+blocks mail template delete <itemId> --dry-run --json
+blocks mail template clone <itemId> --name <n> --dry-run --json
 
-blocks-os mail mailbox list --configuration-id <id> --json
-blocks-os mail mailbox get <messageId> --json
+blocks mail mailbox list --configuration-id <id> --json
+blocks mail mailbox get <messageId> --json
 ```
 
 Treat `--account-password` as a secret; the CLI redacts it in `--dry-run` output but the live response is still yours to protect.
@@ -389,11 +389,11 @@ Treat `--account-password` as a secret; the CLI redacts it in `--dry-run` output
 Project-scoped notification channel configuration via `/os/v4/Notification/*`:
 
 ```bash
-blocks-os notification list --json
-blocks-os notification get <itemId> --json
-blocks-os notification save --name <n> --channel <0|1> --type <0-3> --dry-run --json
-blocks-os notification save --name <n> --channel <0|1> --type <0-3> --update --yes --json
-blocks-os notification delete <itemId> --dry-run --json
+blocks notification list --json
+blocks notification get <itemId> --json
+blocks notification save --name <n> --channel <0|1> --type <0-3> --dry-run --json
+blocks notification save --name <n> --channel <0|1> --type <0-3> --update --yes --json
+blocks notification delete <itemId> --dry-run --json
 ```
 
 `--channel` and `--type` are raw numeric enum values from the Blocks OS API (`NotifierTypes`, `NotificationReceiverTypes`) — the API does not publish names for them.
@@ -403,11 +403,11 @@ blocks-os notification delete <itemId> --dry-run --json
 Project-scoped storage backend configuration via `/os/v4/Storage/*`:
 
 ```bash
-blocks-os storage config list --json
-blocks-os storage config get <name> --json
-blocks-os storage config save --name <n> --strategy <s> --secret-key <k> --access-key <k> --dry-run --json
-blocks-os storage config save --item-id <id> --update ... --yes --json   # update
-blocks-os storage config delete <name> --dry-run --json
+blocks storage config list --json
+blocks storage config get <name> --json
+blocks storage config save --name <n> --strategy <s> --secret-key <k> --access-key <k> --dry-run --json
+blocks storage config save --item-id <id> --update ... --yes --json   # update
+blocks storage config delete <name> --dry-run --json
 ```
 
 `--secret-key`, `--access-key`, `--password`, and `--connection-string` are secrets; the CLI redacts them in `--dry-run` output only.
@@ -417,10 +417,10 @@ blocks-os storage config delete <name> --dry-run --json
 `release deploy` needs no `--repo-id` - it resolves the repo linked to the selected project (`Project/GetAsset`) and that repo's connected branch (`Build/repo-details`) on its own, and refuses to deploy if the connected branch doesn't match the project's environment name. Trigger a deploy only after dry-run and approval:
 
 ```bash
-blocks-os release deploy --dry-run --json
-blocks-os release deploy --yes --json
-blocks-os release deploy --domain <customDomain> --yes --json   # also sets the custom deployment domain first
-blocks-os release deploy --yes --wait --json                    # poll until the build finishes instead of returning the build id
+blocks release deploy --dry-run --json
+blocks release deploy --yes --json
+blocks release deploy --domain <customDomain> --yes --json   # also sets the custom deployment domain first
+blocks release deploy --yes --wait --json                    # poll until the build finishes instead of returning the build id
 ```
 
 If no repo is linked yet, the command fails with `repo_not_linked` - that requires GitHub OAuth, so it can only be done from the Blocks portal; do not attempt to link a repo from the CLI.
@@ -430,24 +430,24 @@ If no repo is linked yet, the command fails with `repo_not_linked` - that requir
 Read build status:
 
 ```bash
-blocks-os release status <buildId> --json
-blocks-os release builds get <buildId> --json
+blocks release status <buildId> --json
+blocks release builds get <buildId> --json
 ```
 
 List builds for a repository (repoId is optional now - omit it to resolve from the selected project's linked repo assets, auto-picked if there's exactly one, otherwise interactively prompted, which will hang a non-interactive agent - pass `--repo-id` explicitly if you don't already know there's exactly one):
 
 ```bash
-blocks-os release builds list --repo-id <repoId> --json
+blocks release builds list --repo-id <repoId> --json
 ```
 
 ## Agent Failure Handling
 
-- `not_logged_in`: run `blocks-os login`, then `blocks-os projects list`, then `blocks-os use <tenantId>`.
-- `refresh_token_rejected`: run `blocks-os login`.
+- `not_logged_in`: run `blocks login`, then `blocks projects list`, then `blocks use <tenantId>`.
+- `refresh_token_rejected`: run `blocks login`.
 - `refresh_network_error`: check the network and configured OIDC URL, then retry.
-- `auth_repair_required`: inspect `blocks-os auth status --json`; if local storage is unreadable or stale, run `blocks-os auth remove <account>`, then `blocks-os auth status --json` and `blocks-os login`.
-- `project_not_selected`: run `blocks-os projects list`, then `blocks-os use <projectTenantId>`.
-- `api_auth_failed`: run `blocks-os auth status --json`, then login again.
+- `auth_repair_required`: inspect `blocks auth status --json`; if local storage is unreadable or stale, run `blocks auth remove <account>`, then `blocks auth status --json` and `blocks login`.
+- `project_not_selected`: run `blocks projects list`, then `blocks use <projectTenantId>`.
+- `api_auth_failed`: run `blocks auth status --json`, then login again.
 - `repo_not_linked` (from `release deploy`): no repo is linked to this project. This needs GitHub OAuth - tell the user to link it from the Blocks portal, do not retry from the CLI.
 - `repo_ambiguous` (from `release deploy`): multiple repos are linked and none is named for the current environment. Tell the user to check the project's repo links in the portal.
 - `repo_not_found` (from `release deploy`): the linked asset's repo id doesn't exist in blocks-release. Tell the user to check the project's repo link in the portal.
@@ -469,9 +469,9 @@ npm pack --dry-run
 Live smoke checks after login:
 
 ```bash
-blocks-os projects list --json
-blocks-os iam me --json
-blocks-os data schema list --json
+blocks projects list --json
+blocks iam me --json
+blocks data schema list --json
 ```
 
 ## Security Boundary

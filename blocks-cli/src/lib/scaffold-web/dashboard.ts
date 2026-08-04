@@ -56,7 +56,7 @@ export async function writeDashboard(root: string): Promise<void> {
     "          </li>",
     "          <li>",
     "            <Languages size={18} />",
-    "            <span>Edit <code>blocks/localization/*.en.json</code>, then run <code>blocks-os localization push</code> to sync copy to Blocks.</span>",
+    "            <span>Edit <code>blocks/localization/*.en.json</code>, then run <code>blocks localization push</code> to sync copy to Blocks.</span>",
     "          </li>",
     "        </ul>",
     "      </div>",

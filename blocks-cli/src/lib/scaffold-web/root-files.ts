@@ -129,7 +129,7 @@ export async function writeRootFiles(root: string, options: WebOptions): Promise
     "- `/login/callback` — completes the hosted IAM callback via `blocksClient.auth.idp.callback()`, then returns to the page you started from.",
     "- `/` and `/profile` — protected; redirect to `/login` when signed out.",
     "- Sidebar + topbar shell matching the `@seliseblocks/blocks-kit` look (icon-only rail on narrow screens, avatar dropdown, notifications menu, active-item accent bar).",
-    "- `blocks/localization/*.en.json` local i18n seed files for AI or human edits. Sync them through `blocks-os localization validate` and `blocks-os localization push`; the runtime app reads Localization service data through `blocksClient.localization`.",
+    "- `blocks/localization/*.en.json` local i18n seed files for AI or human edits. Sync them through `blocks localization validate` and `blocks localization push`; the runtime app reads Localization service data through `blocksClient.localization`.",
     "",
     "IAM's hosted login sets the session as a **Secure, httpOnly** cookie by default -- this app never reads, stores, or refreshes a token itself. \"Signed in\" is determined by calling `blocksClient.auth.userInfo()` (`GET /iam/v4/auth/me`), which the browser's cookie authenticates automatically; this is different from `blocksClient.iam.me()`, the full IAM profile call used on the Profile page. Logging out calls `blocksClient.auth.logout()` so IAM ends the session server-side. A cached bearer token (and `blocksClient.auth.oidc.refreshToken()` to refresh it) is only used if a tenant's OIDC config explicitly returns tokens in the response body instead of a cookie.",
     ""

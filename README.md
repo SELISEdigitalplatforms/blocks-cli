@@ -6,7 +6,7 @@ Umbrella workspace for SELISE Blocks npm packages.
 
 | Folder | Package | Purpose |
 |---|---|---|
-| `blocks-cli-os` | `@seliseblocks/cli-os` | Terminal/admin/AI control plane for auth, projects, scaffolding, Data config, Release operations, and IAM/MFA/Auth/Mail/Notification/Storage admin. |
+| `blocks-cli` | `@seliseblocks/cli-os` | Terminal/admin/AI control plane for auth, projects, scaffolding, Data config, Release operations, and IAM/MFA/Auth/Mail/Notification/Storage admin. |
 | `blocks-client` | `@seliseblocks/client` | Framework-neutral frontend TypeScript SDK for auth, current user, Data runtime access, Localization, and shared HTTP/config. |
 
 ## Commands
@@ -26,7 +26,7 @@ npm run build
 Work on a single package:
 
 ```bash
-cd blocks-cli-os
+cd blocks-cli
 npm test
 
 cd ../blocks-client

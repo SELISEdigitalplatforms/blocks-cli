@@ -5,7 +5,7 @@ description: "Signed-in (or partially-signed-in) user's own SELISE Blocks IAM ac
 
 # Blocks IAM — Account Self-Service
 
-Account-lifecycle and account-security actions the signed-in (or not-yet-fully-signed-in) user takes on **their own** account, all through the single `@seliseblocks/client` instance the scaffold gives you — `blocks-os new web` wires up `createBlocksClient({ apiUrl, xBlocksKey, oidc, accessToken })` once; every call below hangs off that instance's `.auth` or `.iam` namespace. **Never** hand-roll `fetch`/`curl` against `api.seliseblocks.com` for these.
+Account-lifecycle and account-security actions the signed-in (or not-yet-fully-signed-in) user takes on **their own** account, all through the single `@seliseblocks/client` instance the scaffold gives you — `blocks new web` wires up `createBlocksClient({ apiUrl, xBlocksKey, oidc, accessToken })` once; every call below hangs off that instance's `.auth` or `.iam` namespace. **Never** hand-roll `fetch`/`curl` against `api.seliseblocks.com` for these.
 
 Source of truth: `auth-client.ts` and `iam-client.ts` in `@seliseblocks/client`. Every method has a What/Why/How docstring in source — this skill surfaces them, it doesn't add new ones.
 

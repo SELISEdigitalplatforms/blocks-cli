@@ -1,13 +1,13 @@
 ---
 name: blocks-data-gateway-crud
-description: "Implement create/read/update/delete against a SELISE Blocks project's runtime Data Gateway using the @seliseblocks/client SDK. Use data.collection(schemaName) for straightforward per-item CRUD through POST /data/v4/gateway, data.graphql() for joins or custom query shapes, and data.schemas.* for schema metadata. Shows how to wire CRUD into the React 18 + Vite + TanStack Query app that blocks-os new web scaffolds. Use whenever the user wants to read or write actual records through a Blocks Data schema from app code."
+description: "Implement create/read/update/delete against a SELISE Blocks project's runtime Data Gateway using the @seliseblocks/client SDK. Use data.collection(schemaName) for straightforward per-item CRUD through POST /data/v4/gateway, data.graphql() for joins or custom query shapes, and data.schemas.* for schema metadata. Shows how to wire CRUD into the React 18 + Vite + TanStack Query app that blocks new web scaffolds. Use whenever the user wants to read or write actual records through a Blocks Data schema from app code."
 ---
 
 # Blocks Data - Gateway CRUD
 
 Once a schema exists and has been reloaded via [blocks-data-gateway-configuration](../blocks-data-gateway-configuration/SKILL.md), the Data Gateway exposes runtime records through GraphQL at `POST /data/v4/gateway`. This skill shows how to use the generated app's shared `@seliseblocks/client` instance for CRUD. Do not use raw `fetch` or `curl` against Blocks APIs from app code.
 
-Prerequisite: a project selected via `blocks-os use` and an app scaffolded with `blocks-os new web <name> ...`. If either is missing, run [blocks-onboarding](../blocks-onboarding/SKILL.md) first.
+Prerequisite: a project selected via `blocks use` and an app scaffolded with `blocks new web <name> ...`. If either is missing, run [blocks-onboarding](../blocks-onboarding/SKILL.md) first.
 
 ## Use the Existing Client
 
