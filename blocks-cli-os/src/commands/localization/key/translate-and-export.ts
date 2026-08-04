@@ -121,7 +121,7 @@ async function waitForTranslation(operationId: string, flags: Record<string, str
       throw new CliActionableError(
         `Timed out after ${timeoutMs / 1000}s waiting for translation operation '${operationId}' to settle.`,
         "translation_wait_timeout",
-        `Check manually with 'blocks-os localization:key:get-timeline-by-operation-id ${operationId}', then run generate-uilm-file/uilm-export yourself once ready.`
+        `Check manually with 'blocks-os localization key get-timeline-by-operation-id ${operationId}', then run generate-uilm-file/uilm-export yourself once ready.`
       );
     }
 

@@ -1,13 +1,13 @@
 ---
 name: blocks-data-storage
-description: "Store and serve files on a SELISE Blocks project. Two paths: the blocks-os CLI (data:files:* — presigned-upload-url/upload-to-url/upload-to-local-storage, get/get-many/info, dms-list/dms-upload, create-folder/delete-folder, update-additional-info, delete) for admin work and one-off scripting, or the @seliseblocks/client SDK's data.files/data.dms namespaces for wiring uploads/downloads into app code (React components, forms). Covers the upload pipeline (presigned URL for cloud storage, or a single local-storage call), reading files back, deleting, attaching searchable metadata, and folder management. Use whenever the user wants to upload, download, browse, organize, tag, or delete FILES/attachments/documents/images/PDFs on Blocks — 'upload a PDF and get a download link', 'attach an image to a record', 'let users download this file', 'create a folder and list its contents', 'get a presigned upload URL', 'register an uploaded file in a document folder'. This is separate from the data model: to define schemas use blocks-data-gateway-configuration, and to CRUD records use blocks-data-gateway-crud (store a file here, keep its fileId in a schema field there)."
+description: "Store and serve files on a SELISE Blocks project. Two paths: the blocks-os CLI (data files * — presigned-upload-url/upload-to-url/upload-to-local-storage, get/get-many/info, dms-list/dms-upload, create-folder/delete-folder, update-additional-info, delete) for admin work and one-off scripting, or the @seliseblocks/client SDK's data.files/data.dms namespaces for wiring uploads/downloads into app code (React components, forms). Covers the upload pipeline (presigned URL for cloud storage, or a single local-storage call), reading files back, deleting, attaching searchable metadata, and folder management. Use whenever the user wants to upload, download, browse, organize, tag, or delete FILES/attachments/documents/images/PDFs on Blocks — 'upload a PDF and get a download link', 'attach an image to a record', 'let users download this file', 'create a folder and list its contents', 'get a presigned upload URL', 'register an uploaded file in a document folder'. This is separate from the data model: to define schemas use blocks-data-gateway-configuration, and to CRUD records use blocks-data-gateway-crud (store a file here, keep its fileId in a schema field there)."
 ---
 
 # Blocks Data — Storage (Files / DMS)
 
 Storage is DMS (document management system). Two ways to reach it, pick based on what the user is actually doing:
 
-- **`blocks-os data:files:*` (CLI)** — admin tasks, one-off scripts, or anything the user is doing from a terminal/agent context rather than inside a running app. Talks to `/data/v4/Files/*` directly.
+- **`blocks-os data files *` (CLI)** — admin tasks, one-off scripts, or anything the user is doing from a terminal/agent context rather than inside a running app. Talks to `/data/v4/Files/*` directly.
 - **`@seliseblocks/client`'s `data.files` / `data.dms` namespaces (SDK)** — wiring upload/download/browse into actual app code (a React component, a form submit handler). `BlocksDataClient` in `blocks-packages/blocks-client/src/data/data-client.ts`.
 
 Both call the same underlying endpoints; which one to use is about *where the code runs*, not a capability gap — unlike some other Data resources, this one has full CLI coverage.
@@ -25,23 +25,23 @@ Store a file here and keep its returned `fileId` in a schema field (see **[block
 
 ```bash
 # Cloud storage (pre-signed URL), two steps
-blocks-os data:files:presigned-upload-url --name invoice.pdf --access-modifier Public --json
-blocks-os data:files:upload-to-url --url "<uploadUrl from above>" --file ./invoice.pdf --content-type application/pdf --yes --json
+blocks-os data files presigned-upload-url --name invoice.pdf --access-modifier Public --json
+blocks-os data files upload-to-url --url "<uploadUrl from above>" --file ./invoice.pdf --content-type application/pdf --yes --json
 
 # Local storage, one step
-blocks-os data:files:upload-to-local-storage --file ./invoice.pdf --access-modifier Public --yes --json
+blocks-os data files upload-to-local-storage --file ./invoice.pdf --access-modifier Public --yes --json
 
 # Register the uploaded file in a DMS folder (upload alone doesn't do this)
-blocks-os data:files:dms-upload --file-storage-id <fileId> --artifact-name invoice.pdf --yes --json
+blocks-os data files dms-upload --file-storage-id <fileId> --artifact-name invoice.pdf --yes --json
 
 # Read it back
-blocks-os data:files:dms-list --parent-id "" --json
-blocks-os data:files:get <fileId> --json
+blocks-os data files dms-list --parent-id "" --json
+blocks-os data files get <fileId> --json
 
 # Folders, metadata, cleanup
-blocks-os data:files:create-folder Invoices --yes --json
-blocks-os data:files:update-additional-info <fileId> --additional-properties '{"status":"reviewed"}' --yes --json
-blocks-os data:files:delete <fileId> --yes --json
+blocks-os data files create-folder Invoices --yes --json
+blocks-os data files update-additional-info <fileId> --additional-properties '{"status":"reviewed"}' --yes --json
+blocks-os data files delete <fileId> --yes --json
 ```
 
 Same two upload paths as the SDK section below (pick based on the project's storage backend, not per-call), same `--dry-run`-before-`--yes` discipline as every other `blocks-os` mutation.
@@ -137,7 +137,7 @@ const meta = await files.get(presign.fileId, { configurationName: "Default" }); 
 
 ## Gotchas
 
-- **Terminal/admin task → CLI (`data:files:*`); app code → SDK.** Both exist and both are fully supported; don't default to writing a throwaway script against the SDK for something the CLI already does in one command, and don't reach for `blocks-os` from inside a React component.
+- **Terminal/admin task → CLI (`data files *`); app code → SDK.** Both exist and both are fully supported; don't default to writing a throwaway script against the SDK for something the CLI already does in one command, and don't reach for `blocks-os` from inside a React component.
 - **`--module-name` / `moduleName` and `--parent-directory-id` / `parentDirectoryId` on the presigned-upload-url call** — optional in the CLI/SDK types, but the underlying endpoint may require them for a given project/storage setup. Confirm the expected module value with the project's storage configuration, and always send a `parentDirectoryId` value (`""` for root) when the endpoint requires a parent folder value — the CLI command defaults it to `""` automatically if you omit `--parent-directory-id`.
 - **The pre-signed PUT is the one call with no Blocks auth.** `uploadToUrl` sends no `x-blocks-key` and no bearer token by design — everything else in this skill (`presignedUploadUrl`, `uploadToLocalStorage`, `dms.*`, `files.get`/`getMany`/`info`/`delete`) is a normal authenticated Blocks API call.
 - **Upload ≠ visible in a folder.** `uploadToUrl`/`uploadToLocalStorage` only gets the bytes stored; call `dms.uploadFiles` afterward if the file needs to appear under a DMS folder.
@@ -147,11 +147,11 @@ const meta = await files.get(presign.fileId, { configurationName: "Default" }); 
 
 ## Example trigger prompts
 
-- "Upload a PDF and get a download link." → CLI (`data:files:presigned-upload-url` + `upload-to-url`, or `upload-to-local-storage`) for a one-off; SDK if it's a feature in the app.
+- "Upload a PDF and get a download link." → CLI (`data files presigned-upload-url` + `upload-to-url`, or `upload-to-local-storage`) for a one-off; SDK if it's a feature in the app.
 - "Attach an image to this record." (upload via CLI or SDK, then store the `fileId` via blocks-data-gateway-crud)
 - "Let users download this file from the app." → SDK, this is in-app behavior.
-- "Create a folder and list its contents." → `data:files:create-folder` + `data:files:dms-list`.
-- "Get a presigned upload URL for a cloud storage upload." → `data:files:presigned-upload-url`.
-- "This deployment uses local storage — how do I upload a file?" → `data:files:upload-to-local-storage`.
-- "Tag this uploaded file with a status so it's searchable later." → `data:files:update-additional-info`.
-- "Delete this file / delete this folder." → `data:files:delete` / `data:files:delete-folder`.
+- "Create a folder and list its contents." → `data files create-folder` + `data files dms-list`.
+- "Get a presigned upload URL for a cloud storage upload." → `data files presigned-upload-url`.
+- "This deployment uses local storage — how do I upload a file?" → `data files upload-to-local-storage`.
+- "Tag this uploaded file with a status so it's searchable later." → `data files update-additional-info`.
+- "Delete this file / delete this folder." → `data files delete` / `data files delete-folder`.

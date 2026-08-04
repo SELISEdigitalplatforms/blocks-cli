@@ -112,7 +112,7 @@ async function waitForBuild(buildId: string, flags: Record<string, string | bool
       throw new CliActionableError(
         `Timed out after ${timeoutMs / 1000}s waiting for build '${buildId}' to reach a terminal status.`,
         "build_wait_timeout",
-        `Check manually with 'blocks-os release:status ${buildId}'.`
+        `Check manually with 'blocks-os release status ${buildId}'.`
       );
     }
 
