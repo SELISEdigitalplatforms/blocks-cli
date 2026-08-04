@@ -8,9 +8,11 @@ export type TokenResponse = {
   error?: string;
   error_description?: string;
   expires_in?: number;
+  expires_utc?: string;
   id_token?: string;
   refresh_token?: string;
   refresh_expires_in?: number;
+  refresh_expires_utc?: string;
   refresh_token_expires_in?: number;
   scope?: string;
   token_type?: string;
@@ -19,7 +21,16 @@ export type TokenResponse = {
 const EXPIRY_SKEW_MS = 60_000;
 const DEFAULT_REFRESH_TOKEN_LIFETIME_SECONDS = 30 * 60;
 
+function parseUtcTimestamp(value?: string): string | undefined {
+  if (!value) return undefined;
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? undefined : parsed.toISOString();
+}
+
 export function expiresAtFromToken(response: TokenResponse, accessToken: string): string | undefined {
+  const utc = parseUtcTimestamp(response.expires_utc);
+  if (utc) return utc;
+
   if (typeof response.expires_in === "number" && response.expires_in > 0) {
     return new Date(Date.now() + response.expires_in * 1000).toISOString();
   }
@@ -42,6 +53,9 @@ export function expiresAtFromJwtFirst(response: TokenResponse, accessToken: stri
 }
 
 export function refreshExpiresAtFromToken(response: TokenResponse, refreshToken?: string): string | undefined {
+  const utc = parseUtcTimestamp(response.refresh_expires_utc);
+  if (utc) return utc;
+
   if (refreshToken) {
     try {
       const payload = decodeJwtPayload(refreshToken);

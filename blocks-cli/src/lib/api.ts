@@ -27,32 +27,44 @@ export async function blocksRequest<T>(path: string, options: RequestOptions = {
     url.searchParams.set(key, String(value));
   }
 
-  const headers: Record<string, string> = {
+  const isFormData = options.body instanceof FormData;
+  const baseHeaders: Record<string, string> = {
     Accept: "application/json"
   };
+  if (options.body !== undefined && !isFormData) baseHeaders["Content-Type"] = "application/json";
 
-  const isFormData = options.body instanceof FormData;
-  if (options.body !== undefined && !isFormData) headers["Content-Type"] = "application/json";
+  const send = async (forceRefresh: boolean): Promise<Response> => {
+    const headers: Record<string, string> = { ...baseHeaders };
 
-  if (options.accountAuth) {
-    const account = await getAccountSession(options.accountName);
-    headers.Authorization = `Bearer ${account.accessToken}`;
-    headers["x-blocks-key"] = account.accountTenant;
+    if (options.accountAuth) {
+      const account = await getAccountSession(options.accountName, { forceRefresh });
+      headers.Authorization = `Bearer ${account.accessToken}`;
+      headers["x-blocks-key"] = account.accountTenant;
+    }
+
+    if (options.impersonatedProjectAuth) {
+      const project = await getImpersonatedProjectSession(options.accountName, options.projectTenantId, { forceRefresh });
+      headers.Authorization = `Bearer ${project.accessToken}`;
+      headers["x-blocks-key"] = project.accountTenant;
+    }
+
+    return fetch(url, {
+      body: options.body === undefined ? undefined : isFormData ? (options.body as FormData) : JSON.stringify(options.body),
+      headers,
+      method: options.method ?? (options.body === undefined ? "GET" : "POST")
+    }).catch((error: Error) => {
+      throw new Error(`Blocks API request failed for ${url.origin}${url.pathname}: ${error.message}`);
+    });
+  };
+
+  let response = await send(false);
+  if (response.status === 401 && (options.accountAuth || options.impersonatedProjectAuth)) {
+    // The locally cached expiry said the token was still good, but the server
+    // rejected it anyway (early revocation, clock skew, forced logout server-side).
+    // Force one refresh-and-retry before giving up -- this is what actually
+    // prevents a spurious 're-run blocks login' when the refresh token is still valid.
+    response = await send(true);
   }
-
-  if (options.impersonatedProjectAuth) {
-    const project = await getImpersonatedProjectSession(options.accountName, options.projectTenantId);
-    headers.Authorization = `Bearer ${project.accessToken}`;
-    headers["x-blocks-key"] = project.accountTenant;
-  }
-
-  const response = await fetch(url, {
-    body: options.body === undefined ? undefined : isFormData ? (options.body as FormData) : JSON.stringify(options.body),
-    headers,
-    method: options.method ?? (options.body === undefined ? "GET" : "POST")
-  }).catch((error: Error) => {
-    throw new Error(`Blocks API request failed for ${url.origin}${url.pathname}: ${error.message}`);
-  });
 
   const text = await response.text();
   const data = parseJson(text);

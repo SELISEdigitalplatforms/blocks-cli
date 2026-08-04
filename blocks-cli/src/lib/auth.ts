@@ -24,6 +24,13 @@ export type ProjectSession = {
   tenantId: string;
 };
 
+export type SessionOptions = {
+  // Bypass the local expiresAt cache and refresh before returning -- used to
+  // recover from a 401 that the local expiry check didn't predict (early
+  // server-side revocation, clock skew), instead of failing the command.
+  forceRefresh?: boolean;
+};
+
 export type DeviceAuthorizationResponse = {
   device_code: string;
   expires_in: number;
@@ -38,7 +45,6 @@ export type DevicePollingOptions = {
 };
 
 const DEVICE_GRANT = "urn:ietf:params:oauth:grant-type:device_code";
-const FALLBACK_IMPERSONATION_CLIENT_ID = "57214b67-aa9c-4307-92ab-a25e35180fac";
 const MAX_CONSECUTIVE_TRANSIENT_ERRORS = 3;
 
 export async function requestDeviceAuthorization(profile: AccountProfile): Promise<DeviceAuthorizationResponse> {
@@ -173,7 +179,7 @@ function throwIfTooManyTransientErrors(count: number, cause: unknown): void {
   );
 }
 
-export async function getAccountSession(accountOverride?: string): Promise<AccountSession> {
+export async function getAccountSession(accountOverride?: string, options: SessionOptions = {}): Promise<AccountSession> {
   let config = await readConfig();
   let store = await readTokenStore();
   const { name, profile } = getAccountProfile(config, accountOverride);
@@ -183,7 +189,7 @@ export async function getAccountSession(accountOverride?: string): Promise<Accou
     throw new Error(`Account '${name}' is not logged in. Run 'blocks login' first.`);
   }
 
-  if (!isExpiring(token.expiresAt)) {
+  if (!options.forceRefresh && !isExpiring(token.expiresAt)) {
     return {
       accessToken: token.accessToken,
       account: name,
@@ -223,7 +229,7 @@ export async function selectProject(tenantId: string): Promise<void> {
   });
 }
 
-export async function getImpersonatedProjectSession(accountOverride?: string, tenantOverride?: string): Promise<ProjectSession> {
+export async function getImpersonatedProjectSession(accountOverride?: string, tenantOverride?: string, options: SessionOptions = {}): Promise<ProjectSession> {
   let config = await readConfig();
   let store = await readTokenStore();
   const { name, profile } = getAccountProfile(config, accountOverride);
@@ -233,7 +239,7 @@ export async function getImpersonatedProjectSession(accountOverride?: string, te
   }
 
   const projectToken = store.accounts[name]?.projects?.[tenantId];
-  if (projectToken?.accessToken && !isExpiring(projectToken.expiresAt)) {
+  if (!options.forceRefresh && projectToken?.accessToken && !isExpiring(projectToken.expiresAt)) {
     return {
       accessToken: projectToken.accessToken,
       account: name,
@@ -253,7 +259,7 @@ export async function getImpersonatedProjectSession(accountOverride?: string, te
     return projectSessionFromToken(name, tenantId, store.accounts[name]!.projects![tenantId], store.accounts[name]?.account?.accountTenant ?? profile.rootTenantId);
   }
 
-  const account = await getAccountSession(name);
+  const account = await getAccountSession(name, options);
   config = await readConfig();
   store = await readTokenStore();
   const rootRefresh = store.accounts[name]?.account?.refreshToken;
@@ -354,29 +360,9 @@ async function impersonateProject(args: {
   refreshToken: string;
   tenantId: string;
 }): Promise<TokenResponse> {
-  const first = await postImpersonate(args, args.clientId);
-  if (first.ok) return first.data;
-
-  const message = first.data.error_description ?? first.data.error ?? "";
-  if (args.clientId !== FALLBACK_IMPERSONATION_CLIENT_ID && /invalid_client|client configuration/i.test(message)) {
-    const fallback = await postImpersonate(args, FALLBACK_IMPERSONATION_CLIENT_ID);
-    if (fallback.ok) return fallback.data;
-    throw new Error(fallback.data.error_description ?? fallback.data.error ?? `Impersonation failed with HTTP ${fallback.status}`);
-  }
-
-  throw new Error(first.data.error_description ?? first.data.error ?? `Impersonation failed with HTTP ${first.status}`);
-}
-
-async function postImpersonate(args: {
-  accessToken: string;
-  accountTenant: string;
-  apiUrl: string;
-  refreshToken: string;
-  tenantId: string;
-}, clientId: string): Promise<{ data: TokenResponse; ok: boolean; status: number }> {
   const response = await fetch(new URL("/iam/v4/auth/impersonate", args.apiUrl), {
     body: JSON.stringify({
-      client_id: clientId,
+      client_id: args.clientId,
       refresh_token: args.refreshToken,
       targeted_tenant_id: args.tenantId
     }),
@@ -390,11 +376,18 @@ async function postImpersonate(args: {
   });
 
   const data = parseJson(await response.text()) as TokenResponse;
-  return {
-    data,
-    ok: response.ok && !data.error,
-    status: response.status
-  };
+  if (response.ok && !data.error) return data;
+
+  const message = data.error_description ?? data.error ?? "";
+  if (/invalid_client|client configuration/i.test(message)) {
+    throw new CliActionableError(
+      `Impersonation failed: the account's OIDC client ('${args.clientId}') is not registered for impersonation (${message}).`,
+      "impersonation_invalid_client",
+      "Check the client_id in 'blocks auth config get', then contact an admin to register it for impersonation."
+    );
+  }
+
+  throw new Error(message || `Impersonation failed with HTTP ${response.status}`);
 }
 
 // Thrown only once we have an actual response from the identity provider
