@@ -622,8 +622,8 @@ test("init uses centralized default API URL", async () => {
   assert.equal(result.status, 0, result.stderr);
   const blocksConfig = JSON.parse(await readFile(join(cwd, "blocks.json"), "utf8"));
   const envExample = await readFile(join(cwd, ".env.example"), "utf8");
-  assert.equal(blocksConfig.project.apiUrl, "https://os.seliseblocks.com");
-  assert.match(envExample, /^VITE_BLOCKS_API_URL=https:\/\/os\.seliseblocks\.com$/m);
+  assert.equal(blocksConfig.project.apiUrl, "https://api.seliseblocks.com");
+  assert.match(envExample, /^VITE_BLOCKS_API_URL=https:\/\/api\.seliseblocks\.com$/m);
 });
 
 test("new web uses centralized default URLs when no API/OIDC overrides are passed", async () => {
@@ -640,7 +640,7 @@ test("new web uses centralized default URLs when no API/OIDC overrides are passe
 
   assert.equal(result.status, 0, result.stderr);
   const envFile = await readFile(join(cwd, "dev-app", ".env"), "utf8");
-  assert.match(envFile, /^VITE_BLOCKS_API_URL=https:\/\/os\.seliseblocks\.com$/m);
+  assert.match(envFile, /^VITE_BLOCKS_API_URL=https:\/\/api\.seliseblocks\.com$/m);
   assert.match(envFile, /^VITE_BLOCKS_OIDC_URL=https:\/\/iam\.seliseblocks\.com$/m);
 });
 

@@ -127,9 +127,9 @@ blocks new web <appName> --x-blocks-key <projectTenantId> --app-domain <appDomai
 ```
 
 `new web` also accepts `--blocks-api-url <url>` and `--oidc-url <url>`, same as `sdk client`
-below. `--blocks-api-url` defaults to the OS control-plane API if omitted - pass the runtime
-Data/IAM/Localization gateway URL explicitly (typically `https://api.seliseblocks.com`) for the
-scaffolded app to work at runtime. `--oidc-url` defaults to `https://iam.seliseblocks.com`.
+below. `--blocks-api-url` defaults to `https://api.seliseblocks.com` if omitted - pass a
+different Data/IAM/Localization/OS gateway URL explicitly only if your project uses a
+non-default one. `--oidc-url` defaults to `https://iam.seliseblocks.com`.
 
 Validate the scaffold:
 
@@ -161,7 +161,7 @@ The generated cert script uses the `selfsigned` Node dependency, so it works fro
 blocks sdk client --x-blocks-key <projectTenantId> --app-domain <appDomainOrUrl> --client-id <publicOidcClientId> --blocks-api-url https://api.seliseblocks.com
 ```
 
-As with `new web`, always pass `--blocks-api-url https://api.seliseblocks.com` explicitly - the default is the OS control-plane API, not the runtime gateway the SDK needs. Passing both `--app-domain` and `--client-id` skips the project lookup entirely, so it needs no CLI login at all - useful for a quick, non-interactive check. Omit either one and it resolves from the selected project instead (auto-picks when there's exactly one match, otherwise lists the options and asks you to pass the flag explicitly - it does not prompt or create anything, since this command is read-only). Use `--json` for the resolved values instead of the snippet.
+As with `new web`, `--blocks-api-url` already defaults to `https://api.seliseblocks.com`; only pass it explicitly if your project uses a different gateway URL. Passing both `--app-domain` and `--client-id` skips the project lookup entirely, so it needs no CLI login at all - useful for a quick, non-interactive check. Omit either one and it resolves from the selected project instead (auto-picks when there's exactly one match, otherwise lists the options and asks you to pass the flag explicitly - it does not prompt or create anything, since this command is read-only). Use `--json` for the resolved values instead of the snippet.
 
 ## Skills
 
