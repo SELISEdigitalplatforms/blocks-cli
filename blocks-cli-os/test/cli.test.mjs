@@ -10,6 +10,7 @@ import { writeConfig as writeConfigFile } from "../dist/lib/config.js";
 import { writeTokenStore } from "../dist/lib/token-store.js";
 import { getAccountSession, pollDeviceToken } from "../dist/lib/auth.js";
 import { CliActionableError } from "../dist/lib/errors.js";
+import { listSkills, parseFrontmatter, readSkill } from "../dist/lib/skills.js";
 
 const repoRoot = resolve(import.meta.dirname, "..");
 const bin = join(repoRoot, "bin", "run.js");
@@ -741,6 +742,97 @@ test("linux ignores empty XDG_CONFIG_HOME and uses home config fallback", { skip
   assert.equal(status.status, 0, status.stderr);
   const data = JSON.parse(status.stdout);
   assert.ok(data.checks.some((check) => check.detail.includes(join(homeDir, ".config", "seliseblocks", "cli-os", "tokens.json"))));
+});
+
+test("parseFrontmatter extracts name and description from SKILL.md frontmatter", () => {
+  const raw = [
+    "---",
+    "name: example-skill",
+    "description: \"Line one with a colon: still one field.\"",
+    "---",
+    "",
+    "# Body heading",
+    "Body text."
+  ].join("\n");
+
+  const parsed = parseFrontmatter(raw);
+  assert.equal(parsed.name, "example-skill");
+  assert.equal(parsed.description, "Line one with a colon: still one field.");
+  assert.match(parsed.body, /# Body heading/);
+});
+
+test("parseFrontmatter returns the raw text as body when there is no frontmatter block", () => {
+  const parsed = parseFrontmatter("# Just a heading\nNo frontmatter here.");
+  assert.equal(parsed.name, undefined);
+  assert.equal(parsed.description, undefined);
+  assert.match(parsed.body, /Just a heading/);
+});
+
+test("listSkills reads every bundled blocks-skills entry with a name and description", async () => {
+  const skills = await listSkills();
+  assert.ok(skills.length > 0, "expected at least one bundled skill");
+  assert.ok(skills.some((skill) => skill.name === "blocks-onboarding"));
+  for (const skill of skills) {
+    assert.ok(skill.name, `skill at ${skill.path} is missing a name`);
+    assert.ok(skill.description, `skill '${skill.name}' is missing a description`);
+  }
+});
+
+test("readSkill returns full content for a known skill and throws a helpful error for an unknown one", async () => {
+  const skill = await readSkill("blocks-onboarding");
+  assert.equal(skill.name, "blocks-onboarding");
+  assert.match(skill.content, /^---/);
+
+  await assert.rejects(() => readSkill("does-not-exist"), /Unknown skill 'does-not-exist'/);
+});
+
+test("skill:list and skill:add expose bundled blocks-skills content", async () => {
+  const { cwd, configDir } = await makeWorkspace();
+  const env = testEnv(configDir, { BLOCKS_OS_SECRET_STORE: "file" });
+
+  const list = run(["skill:list", "--json"], { cwd, env });
+  assert.equal(list.status, 0, list.stderr);
+  assert.ok(JSON.parse(list.stdout).some((skill) => skill.name === "blocks-onboarding"));
+
+  const add = run(["skill:add", "blocks-onboarding"], { cwd, env });
+  assert.equal(add.status, 0, add.stderr);
+  const added = await readFile(join(cwd, "blocks-skills", "blocks-onboarding", "SKILL.md"), "utf8");
+  assert.match(added, /^---/);
+
+  const show = run(["skill:show", "does-not-exist"], { cwd, env });
+  assert.equal(show.status, 1);
+  assert.match(show.stderr, /Unknown skill 'does-not-exist'/);
+});
+
+test("sdk:client prints the resolved config and snippet without writing any files, when app-domain and client-id are both explicit", async () => {
+  const { cwd, configDir } = await makeWorkspace();
+  const env = testEnv(configDir, { BLOCKS_OS_SECRET_STORE: "file" });
+  const flags = [
+    "--x-blocks-key", "sdk-test-tenant",
+    "--app-domain", "https://sdk-test.example.test",
+    "--client-id", "sdk-test-client",
+    "--blocks-api-url", "https://api.seliseblocks.com",
+    "--oidc-url", "https://iam.seliseblocks.com"
+  ];
+
+  const jsonResult = run(["sdk:client", ...flags, "--json"], { cwd, env });
+  assert.equal(jsonResult.status, 0, jsonResult.stderr);
+  assert.deepEqual(JSON.parse(jsonResult.stdout), {
+    apiUrl: "https://api.seliseblocks.com",
+    appDomain: "https://sdk-test.example.test",
+    notes: [],
+    oidcClientId: "sdk-test-client",
+    oidcUrl: "https://iam.seliseblocks.com",
+    xBlocksKey: "sdk-test-tenant"
+  });
+
+  const snippetResult = run(["sdk:client", ...flags], { cwd, env });
+  assert.equal(snippetResult.status, 0, snippetResult.stderr);
+  assert.match(snippetResult.stdout, /createBlocksClient/);
+  assert.match(snippetResult.stdout, /xBlocksKey: "sdk-test-tenant"/);
+
+  const entries = await readdir(cwd);
+  assert.deepEqual(entries, [], "sdk:client must not write any files");
 });
 
 async function makeWorkspace() {
