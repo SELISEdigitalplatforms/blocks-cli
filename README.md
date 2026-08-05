@@ -11,6 +11,8 @@ Umbrella workspace for SELISE Blocks npm packages.
 
 ## Commands
 
+For AI agents that need to enter the workflow from any state, start with [AI_START_GUIDE.md](AI_START_GUIDE.md).
+
 Run all package tests:
 
 ```bash
