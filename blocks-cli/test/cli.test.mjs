@@ -339,6 +339,146 @@ test("fresh workspace dry-run commands do not require data files", async () => {
   assert.deepEqual(JSON.parse(rules.stdout), { dryRun: true, policies: 0, security: 0 });
 });
 
+test("space-separated complex command aliases resolve like colon commands", async () => {
+  const { cwd, configDir } = await makeWorkspace();
+  const env = testEnv(configDir, { BLOCKS_SECRET_STORE: "file" });
+  const args = [
+    "data", "validation", "save",
+    "--schema-id", "schema-1",
+    "--field-name", "postalCode",
+    "--body", JSON.stringify({ validations: [{ type: 1, value: "^[0-9]{5}$", isActive: true }] }),
+    "--dry-run",
+    "--json"
+  ];
+
+  const result = run(args, { cwd, env });
+  assert.equal(result.status, 0, result.stderr);
+  const output = JSON.parse(result.stdout);
+  assert.equal(output.endpoint, "/data/v4/data-validations");
+  assert.deepEqual(output.request, {
+    fieldName: "postalCode",
+    schemaId: "schema-1",
+    validations: [{ type: 1, value: "^[0-9]{5}$", isActive: true }]
+  });
+});
+
+test("rich JSON payload commands let scalar flags override body fields without dropping arrays", async () => {
+  const { cwd, configDir } = await makeWorkspace();
+  const env = testEnv(configDir, { BLOCKS_SECRET_STORE: "file" });
+  const result = run([
+    "data:validation:save",
+    "--body", JSON.stringify({
+      fieldName: "email",
+      itemId: "validation-1",
+      schemaId: "schema-from-body",
+      validations: [
+        { errorMessage: "Digits only", isActive: true, type: 1, value: "^[0-9]+$" },
+        { isActive: false, type: 2, value: "legacy" }
+      ]
+    }),
+    "--schema-id", "schema-from-flag",
+    "--dry-run",
+    "--json"
+  ], { cwd, env });
+
+  assert.equal(result.status, 0, result.stderr);
+  const output = JSON.parse(result.stdout);
+  assert.equal(output.request.schemaId, "schema-from-flag");
+  assert.equal(output.request.fieldName, "email");
+  assert.equal(output.request.itemId, "validation-1");
+  assert.equal(output.request.validations.length, 2);
+});
+
+test("notifier notify dry-run parses comma lists and JSON array flags", async () => {
+  const { cwd, configDir } = await makeWorkspace();
+  const env = testEnv(configDir, { BLOCKS_SECRET_STORE: "file" });
+  const subscriptionFilters = [
+    { actionName: "created", context: "orders", value: "*" },
+    { actionName: "paid", context: "orders", value: "true" }
+  ];
+
+  const result = run([
+    "notifier", "notify",
+    "--roles", "admin, manager , ,ops",
+    "--user-ids", "u1,u2",
+    "--subscription-filters", JSON.stringify(subscriptionFilters),
+    "--denormalized-payload", JSON.stringify({ orderId: "A-100" }),
+    "--save-denormalized-payload-as-object",
+    "--content-available",
+    "--dry-run",
+    "--json"
+  ], { cwd, env });
+
+  assert.equal(result.status, 0, result.stderr);
+  const output = JSON.parse(result.stdout);
+  assert.equal(output.endpoint, "/logic/v4/Notifier/Notify");
+  assert.deepEqual(output.request.roles, ["admin", "manager", "ops"]);
+  assert.deepEqual(output.request.userIds, ["u1", "u2"]);
+  assert.deepEqual(output.request.subscriptionFilters, subscriptionFilters);
+  assert.equal(output.request.saveDenormalizedPayloadAsAnObject, true);
+  assert.equal(output.request.contentAvailable, true);
+});
+
+test("secret-bearing command dry-runs redact secrets while preserving typed fields", async () => {
+  const { cwd, configDir } = await makeWorkspace();
+  const env = testEnv(configDir, { BLOCKS_SECRET_STORE: "file" });
+
+  const result = run([
+    "mail:config:save",
+    "--name", "primary",
+    "--host", "smtp.example.test",
+    "--port", "587",
+    "--enable-ssl",
+    "--sender-name", "Blocks",
+    "--sender-address", "noreply@example.test",
+    "--account-password", "super-secret",
+    "--dry-run",
+    "--json"
+  ], { cwd, env });
+
+  assert.equal(result.status, 0, result.stderr);
+  const output = JSON.parse(result.stdout);
+  assert.equal(output.endpoint, "/os/v4/Mail/Save");
+  assert.equal(output.request.accountPassword, "***");
+  assert.equal(output.request.configurationName, "primary");
+  assert.equal(output.request.enableSSL, true);
+  assert.equal(output.request.port, 587);
+  assert.doesNotMatch(result.stdout, /super-secret/);
+});
+
+test("composed data file upload dry-run plans presign, provider PUT, and DMS registration", async () => {
+  const { cwd, configDir } = await makeWorkspace();
+  const env = testEnv(configDir, { BLOCKS_SECRET_STORE: "file" });
+
+  const result = run([
+    "data", "files", "upload",
+    "--file", "invoice.pdf",
+    "--parent-id", "folder-1",
+    "--tags", "finance,2026",
+    "--access-modifier", "Public",
+    "--module-name", "3",
+    "--dry-run",
+    "--json"
+  ], { cwd, env });
+
+  assert.equal(result.status, 0, result.stderr);
+  const output = JSON.parse(result.stdout);
+  assert.equal(output.dryRun, true);
+  assert.deepEqual(output.steps.map((step) => step.endpoint), [
+    "/data/v4/Files/GetPreSignedUrlForUpload",
+    "PUT <uploadUrl>",
+    "/data/v4/Files/UploadFile"
+  ]);
+  assert.deepEqual(output.steps[0].body, {
+    accessModifier: "Public",
+    moduleName: 3,
+    name: "invoice.pdf",
+    parentDirectoryId: "folder-1",
+    tags: "finance,2026"
+  });
+  assert.equal(output.steps[1].contentType, "application/pdf");
+});
+
 test("localization validate accepts nested i18n JSON and reports flattened key count", async () => {
   const { cwd, configDir } = await makeWorkspace();
   await mkdir(join(cwd, "blocks", "localization"), { recursive: true });
@@ -632,7 +772,8 @@ test("new web uses centralized default URLs when no API/OIDC overrides are passe
   const result = run([
     "new", "web", "dev-app",
     "--x-blocks-key", "dev-project-key",
-    "--app-domain", "https://dev-app.example.test"
+    "--app-domain", "https://dev-app.example.test",
+    "--client-id", "dev-client-id"
   ], {
     cwd,
     env: testEnv(configDir, { BLOCKS_SECRET_STORE: "file" })

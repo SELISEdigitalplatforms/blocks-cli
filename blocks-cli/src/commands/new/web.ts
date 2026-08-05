@@ -15,7 +15,8 @@ export async function newWeb(argv: string[]): Promise<void> {
   if (!name) throw new Error("Missing web app name.");
 
   const tenantId = stringFlag(flags, "x-blocks-key") || (await selectedProject(flags));
-  const { project } = await findProjectByTenantId(tenantId, flags);
+  const explicitAppDomain = stringFlag(flags, "app-domain");
+  const project = explicitAppDomain ? {} : (await findProjectByTenantId(tenantId, flags)).project;
 
   const apiUrl = stringFlag(flags, "blocks-api-url", { defaultValue: defaults().apiUrl });
   const oidcUrl = stringFlag(flags, "oidc-url", { defaultValue: defaults().oidcUrl });
