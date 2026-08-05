@@ -8,6 +8,11 @@ type RequestOptions = {
   body?: unknown;
   impersonatedProjectAuth?: boolean;
   method?: string;
+  // Uses the impersonated project session when a project is currently
+  // selected, falling back to the account session otherwise. For endpoints
+  // that are safe to call either way (the server rebuilds permission checks
+  // against the root tenant while impersonating).
+  preferImpersonatedProjectAuth?: boolean;
   projectTenantId?: string;
   query?: Record<string, string | number | boolean | string[] | undefined>;
 };
@@ -45,7 +50,25 @@ export async function blocksRequest<T>(path: string, options: RequestOptions = {
     if (options.impersonatedProjectAuth) {
       const project = await getImpersonatedProjectSession(options.accountName, options.projectTenantId, { forceRefresh });
       headers.Authorization = `Bearer ${project.accessToken}`;
+      // The impersonated token is minted and signed by the root tenant's IdP --
+      // its JWKS only exists under the root tenant, so signature validation
+      // needs x-blocks-key pointed at root, not the target project. The actual
+      // tenant-data scoping comes from a claim already inside the validated
+      // token, not from this header.
       headers["x-blocks-key"] = project.accountTenant;
+    }
+
+    if (options.preferImpersonatedProjectAuth) {
+      const tenantId = options.projectTenantId ?? config.selectedProject?.tenantId;
+      if (tenantId) {
+        const project = await getImpersonatedProjectSession(options.accountName, tenantId, { forceRefresh });
+        headers.Authorization = `Bearer ${project.accessToken}`;
+        headers["x-blocks-key"] = project.accountTenant;
+      } else {
+        const account = await getAccountSession(options.accountName, { forceRefresh });
+        headers.Authorization = `Bearer ${account.accessToken}`;
+        headers["x-blocks-key"] = account.accountTenant;
+      }
     }
 
     return fetch(url, {
@@ -57,13 +80,21 @@ export async function blocksRequest<T>(path: string, options: RequestOptions = {
     });
   };
 
+  const method = options.method ?? (options.body === undefined ? "GET" : "POST");
+
   let response = await send(false);
-  if (response.status === 401 && (options.accountAuth || options.impersonatedProjectAuth)) {
+  if (response.status === 401 && (options.accountAuth || options.impersonatedProjectAuth || options.preferImpersonatedProjectAuth)) {
     // The locally cached expiry said the token was still good, but the server
     // rejected it anyway (early revocation, clock skew, forced logout server-side).
     // Force one refresh-and-retry before giving up -- this is what actually
     // prevents a spurious 're-run blocks login' when the refresh token is still valid.
     response = await send(true);
+  } else if (response.status === 500 && method === "GET") {
+    // Some tenant-scoped read endpoints (mfa config, signup-settings) intermittently
+    // 500 with a JWKS/kid lookup failure right after impersonation, then succeed on
+    // an immediate identical retry once the signing-key cache catches up. Safe to
+    // retry blindly here because GET is idempotent.
+    response = await send(false);
   }
 
   const text = await response.text();

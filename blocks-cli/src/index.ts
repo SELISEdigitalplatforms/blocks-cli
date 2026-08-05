@@ -512,7 +512,9 @@ Auth:
     Device-code login. Prints a verification URL and user code, opens the
     browser to the verification page when possible so you only need to click
     approve, then polls until the device is authorized; stores account access
-    and refresh tokens and auto-refreshes later.
+    and refresh tokens and auto-refreshes later. If a project was previously
+    selected, re-impersonates it automatically; otherwise lists projects and
+    prompts you to run 'blocks use <tenantId>'.
 
   blocks auth status [--json]
     Show only whether account/project access and refresh tokens are missing,
@@ -530,8 +532,9 @@ Auth:
 
 Projects:
   blocks projects list [--json]
-    List accessible Blocks projects via /os/v4/Project/Gets using the account
-    token. Read-only.
+    List accessible Blocks projects via /os/v4/Project/Gets. Uses the
+    impersonated project session when a project is selected, otherwise the
+    account token. Read-only.
 
   blocks projects get [tenantId] [--deployment] [--json]
     Read one project from Project/Gets. Uses selected project when tenantId is
@@ -540,20 +543,24 @@ Projects:
     to resolve its target. Read-only.
 
   blocks use <project-tenant-id>
-    Save the selected project tenant globally and in blocks.json when present.
-    Does not call cloud APIs.
+    Save the selected project tenant globally and in blocks.json when present,
+    then immediately impersonate it. If a different project was selected,
+    stops that impersonation first to reclaim a fresh account refresh token
+    before starting the new one.
 
   blocks deselect
-    Clear the selected project tenant (globally and in blocks.json) and drop
-    its cached impersonation token. Use this to recover when an impersonated
-    project token has expired or failed, then run 'blocks use <tenantId>'
-    again to reselect and re-impersonate.
+    Stop the active impersonation (restoring a fresh account refresh token),
+    then clear the selected project tenant (globally and in blocks.json) and
+    drop its cached impersonation token. Run 'blocks use <tenantId>' again to
+    reselect and re-impersonate.
 
 IAM:
   blocks iam me [--json]
-    Read the current user from IAM using the account token (bootstrapping/CLI
-    operator identity, not a project resource). Every other iam * command below
-    is project-scoped: it requires a selected project and calls IAM using an
+    Read the current user from IAM (bootstrapping/CLI operator identity, not
+    a project resource). Uses the impersonated project session when a project
+    is selected, otherwise the account token -- the server always resolves
+    this to the root identity either way. Every other iam * command below is
+    project-scoped: it requires a selected project and calls IAM using an
     impersonated project token only, never the account token.
 
   Users (/iam/v4/iam/users*):
