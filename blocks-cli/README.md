@@ -10,7 +10,7 @@ CLI for SELISE Blocks Cloud.
 Install the npm package where you want to operate the CLI:
 
 ```bash
-npm install -g @seliseblocks/cli-os
+npm install -g @seliseblocks/cli-os@latest
 blocks --version
 ```
 

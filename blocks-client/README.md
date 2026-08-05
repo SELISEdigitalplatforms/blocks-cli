@@ -11,7 +11,7 @@ For AI agents and automation, see [AI_USAGE_GUIDE.md](AI_USAGE_GUIDE.md).
 ## Install
 
 ```bash
-npm install @seliseblocks/client
+npm install @seliseblocks/client@latest
 ```
 
 Requires Node.js 20+ or a browser/runtime with `fetch`.

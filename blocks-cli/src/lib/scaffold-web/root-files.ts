@@ -21,7 +21,7 @@ export async function writeRootFiles(root: string, options: WebOptions): Promise
     },
     dependencies: {
       "@radix-ui/react-dropdown-menu": "^2.1.24",
-      "@seliseblocks/client": "^0.1.1",
+      "@seliseblocks/client": "^0.1.3",
       "@tanstack/react-query": "^5.101.4",
       clsx: "^2.1.1",
       "lucide-react": "^1.28.0",
