@@ -6,7 +6,7 @@ These mutate tenant-level state. Build them as an explicit feature in an admin s
 
 ### `organizations.list(query)` / `organizations.get(id)` — browse and inspect
 
-`GET /iam/v4/iam/organizations` (paging/search query params) and `GET /iam/v4/iam/organizations/{id}`. Read-only, so no confirmation is needed to call them — but they're part of the admin org-management surface (browsing arbitrary orgs, not just "my own"), so gate the screen itself behind whatever admin permission the app already checks. Typical use: an org-picker/detail view feeding into an edit form, populated before a `create`/`update` call.
+Read-only, so no confirmation is needed to call them — but they're part of the admin org-management surface (browsing arbitrary orgs, not just "my own"), so gate the screen itself behind whatever admin permission the app already checks. Typical use: an org-picker/detail view feeding into an edit form, populated before a `create`/`update` call.
 
 ```ts
 const page = await blocksClient.iam.organizations.list({ Page: 1, PageSize: 20, "Filter.Name": search });
@@ -15,7 +15,7 @@ const org = await blocksClient.iam.organizations.get(organizationId);
 
 ### `organizations.create(request)` / `organizations.update(id, request)`
 
-`POST /iam/v4/iam/organizations/create` and `POST /iam/v4/iam/organizations/{id}`. Create/edit an organization's record (name, description, contact info, branding, addresses, default roles/permissions for new members, etc. — verify current field names against what the admin UI/API actually accepts rather than assuming they haven't changed).
+Create/edit an organization's record (name, description, contact info, branding, addresses, default roles/permissions for new members, etc. — verify current field names against what the admin UI/API actually accepts rather than assuming they haven't changed).
 
 ```ts
 // Only after the admin has reviewed and confirmed this exact payload:
@@ -33,7 +33,7 @@ await blocksClient.iam.organizations.update(organizationId, {
 
 ### `organizations.getConfig()` / `organizations.saveConfig(request)` — org-level settings
 
-`GET`/`POST /iam/v4/iam/organizations/config`. Project/org-wide policy, including multi-org enablement. Read the current config first, show the user the diff of what would change, then save.
+Project/org-wide policy, including multi-org enablement. Read the current config first, show the user the diff of what would change, then save.
 
 ```ts
 const current = await blocksClient.iam.organizations.getConfig();
@@ -46,7 +46,7 @@ await blocksClient.iam.organizations.saveConfig({
 
 ### `signupSettings.save(request)` — save signup policy
 
-`POST /iam/v4/iam/signup-settings`. Same confirm-first rule: this changes what the public signup screen allows for every future visitor, so restate the exact policy change (e.g., "turn on org creation from signup") before calling.
+Same confirm-first rule: this changes what the public signup screen allows for every future visitor, so restate the exact policy change (e.g., "turn on org creation from signup") before calling.
 
 ```ts
 await blocksClient.iam.signupSettings.save({

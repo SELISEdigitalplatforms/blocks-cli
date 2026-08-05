@@ -5,7 +5,7 @@ description: "Work with SELISE Blocks RBAC (roles & permissions) via `blocks iam
 
 # Blocks IAM — Access Control (Permissions & Roles)
 
-This skill covers **permission and role definitions** in SELISE Blocks — the RBAC model itself, not who has which role (that's [blocks-iam-users](../blocks-iam-users/SKILL.md)). Everything goes through either `blocks iam roles/permissions *` (CLI) or `blocksClient.iam.*` from **`@seliseblocks/client`**, the single SDK instance every `blocks new web` scaffold wires up at `src/lib/blocks/client.ts` and exports as `blocksClient`. No raw `fetch`/`curl` for either surface.
+This skill covers **permission and role definitions** in SELISE Blocks — the RBAC model itself, not who has which role (that's the blocks-iam-users skill). Everything goes through either `blocks iam roles/permissions *` (CLI) or `blocksClient.iam.*` from **`@seliseblocks/client`**, the single SDK instance every `blocks new web` scaffold wires up at `src/lib/blocks/client.ts` and exports as `blocksClient`. No raw `fetch`/`curl` for either surface.
 
 ```ts
 import { blocksClient } from "../../lib/blocks/client";
@@ -13,7 +13,7 @@ import { blocksClient } from "../../lib/blocks/client";
 
 ## The platform boundary — read this before writing any code
 
-Role and permission administration is **not** portal-only or app-UI-only — `blocks` has a full, working CLI surface for it too (`iam:roles:*` / `iam:permissions:*` in `blocks-cli/src/index.ts`). There are two equally real surfaces for the same operations, and the choice is about *where the human is*, not which one is "allowed" — see [flows/manage-roles-permissions.md](flows/manage-roles-permissions.md) for the full command reference and the CLI-vs-SDK decision.
+Role and permission administration is **not** portal-only or app-UI-only — `blocks` has a full, working CLI surface for it too. There are two equally real surfaces for the same operations, and the choice is about *where the human is*, not which one is "allowed" — see [flows/manage-roles-permissions.md](flows/manage-roles-permissions.md) for the full command reference and the CLI-vs-SDK decision.
 
 Identity-provider/OIDC client provisioning is the one piece that really is **portal-only, human-driven**, at `https://os.seliseblocks.com` — unrelated to roles/permissions, don't bolt it onto this skill.
 

@@ -5,7 +5,7 @@ description: "Manage OTHER users' IAM records via `blocksClient.iam.users.*` (ne
 
 # Blocks IAM — Managing Other Users
 
-This skill is about an **admin managing other people's IAM accounts** from inside a Blocks app — inviting them, editing their profile, changing their access, deactivating them. It is not about the signed-in user managing their own account (that's **[blocks-iam-account](../blocks-iam-account/SKILL.md)**) and not about defining the roles/permissions being assigned (that's **blocks-iam-access-control**).
+This skill is about an **admin managing other people's IAM accounts** from inside a Blocks app — inviting them, editing their profile, changing their access, deactivating them. It is not about the signed-in user managing their own account (that's the **blocks-iam-account** skill) and not about defining the roles/permissions being assigned (that's **blocks-iam-access-control**).
 
 Everything here goes through the SDK: `blocksClient.iam.users.*` on the app's single `@seliseblocks/client` instance (created once, typically at `src/lib/blocks/client.ts` by `blocks new web`). **Never raw `fetch`/`curl` against `api.seliseblocks.com`.**
 
@@ -22,7 +22,7 @@ There are two legitimate ways to drive full user administration (create, update,
 - **SDK — `blocksClient.iam.users.*`** — build the capability **as a feature inside a signed-in admin's own app**: the admin is looking at a screen, clicking "Deactivate" on a specific user row, and their own IAM permissions gate whether the call succeeds.
 - **CLI — `blocks iam users *` / `blocks iam email available`** — the same operations, invoked directly from a terminal or an agent's shell tool. These are fully wired, project-scoped commands (see "CLI surface" below), not a read-only stub — `iam me` is a separate, account-scoped command for the CLI operator's own identity and is not the only IAM command the CLI has.
 
-What is **not** legitimate on either surface: an agent deciding on its own, without the human explicitly directing that specific action in the moment, to call `create`/`update`/`deactivate`/`activate`/`updateAccess`/`revokeAccess` (SDK) or `users create`/`update`/`activate`/`deactivate`/`access grant`/`access revoke` (CLI). State the exact change in plain language and get the user's explicit go-ahead first, every time, even if they asked for something adjacent a moment ago. The CLI enforces this mechanically — every mutating command requires `--dry-run` (preview only, no call) or `--yes`/an interactive "yes" before it executes (see `confirmMutation` in `blocks-cli/src/lib/confirm.ts`) — but that built-in gate doesn't replace stating the change and getting a real go-ahead when an agent is the one typing the command.
+What is **not** legitimate on either surface: an agent deciding on its own, without the human explicitly directing that specific action in the moment, to call `create`/`update`/`deactivate`/`activate`/`updateAccess`/`revokeAccess` (SDK) or `users create`/`update`/`activate`/`deactivate`/`access grant`/`access revoke` (CLI). State the exact change in plain language and get the user's explicit go-ahead first, every time, even if they asked for something adjacent a moment ago. The CLI enforces this mechanically — every mutating command requires `--dry-run` (preview only, no call) or `--yes`/an interactive "yes" before it executes — but that built-in gate doesn't replace stating the change and getting a real go-ahead when an agent is the one typing the command.
 
 ## Safe surface — reads and checks, no confirmation needed
 
@@ -76,16 +76,16 @@ await blocksClient.iam.users.updateAccess({ userId: "usr_8a2f", roles: ["editor"
 
 ## CLI surface — `blocks iam users *`, `blocks iam email available`
 
-These are real, fully-wired commands (`blocks-cli/src/commands/iam/users/*.ts`, `blocks-cli/src/commands/iam/email/available.ts`, registered in `blocks-cli/src/index.ts`) — not a stub and not limited to `iam me`. `iam me` is a separate, account-scoped command (current CLI operator's own identity via the account token); every command below is **project-scoped**: it requires a project already selected (`blocks use <project-tenant-id>`) and calls IAM with an impersonated project token, same as the rest of the project-scoped CLI surface.
+These are real, fully-wired commands — not a stub and not limited to `iam me`. `iam me` is a separate, account-scoped command (current CLI operator's own identity via the account token); every command below is **project-scoped**: it requires a project already selected (`blocks use <project-tenant-id>`) and calls IAM with an impersonated project token, same as the rest of the project-scoped CLI surface.
 
 Reads — no confirmation needed:
 
 | Command | What it does |
 |---|---|
-| `blocks iam users list [--page 1] [--page-size 20] [--email <e>] [--name <n>] [--organization-id <id>] [--sort-by <field>] [--sort-desc] [--filter '<json>'] [--json]` | Paged/filtered user query (`POST /iam/v4/iam/users`). `--filter` merges a raw JSON object over the convenience flags. |
+| `blocks iam users list [--page 1] [--page-size 20] [--email <e>] [--name <n>] [--organization-id <id>] [--sort-by <field>] [--sort-desc] [--filter '<json>'] [--json]` | Paged/filtered user query. `--filter` merges a raw JSON object over the convenience flags. |
 | `blocks iam users get <id> [--organization-id <id>] [--json]` | One user record, optionally scoped to an org. |
-| `blocks iam users exists <email> [--json]` | Existence check by email (`GET /iam/v4/iam/users/exists`). |
-| `blocks iam email available <email> [--json]` | Duplicate-email check (`GET /iam/v4/iam/email/available`). |
+| `blocks iam users exists <email> [--json]` | Existence check by email. |
+| `blocks iam email available <email> [--json]` | Duplicate-email check. |
 
 Mutations — every one supports `--dry-run` (print the request body and exit, no call) and requires either `--yes` or a typed `yes` at an interactive prompt before it executes:
 

@@ -26,9 +26,9 @@ Request/payload types for most of these methods are intentionally loose (`Record
 
 Three related calls, all under `blocksClient.auth`, all public (no bearer token needed for `activate`/`validateActivation` — the emailed code is the credential):
 
-- **`auth.validateActivation(request)`** — `POST /iam/v4/auth/validate-activation`, no auth. Check the activation code/state *before* showing the final "set your password" step, so an expired/invalid link fails fast with a clear message instead of after the user fills out the form.
-- **`auth.activate(request)`** — `POST /iam/v4/auth/activate`, no auth. Completes setup for a user created/invited in an inactive state: pass the emailed `code` plus the new password (and whatever else your tenant's activation contract needs, e.g. `firstName`/`lastName`) after your UI confirms password === confirm-password client-side (don't send a confirm field — that's a UI-only check).
-- **`auth.resendActivation(request)`** — `POST /iam/v4/auth/resend-activation`. Send a new code/link when the old one expired. This call attaches the bearer token if one happens to be configured, but works either way — typical callers are not-yet-active, so don't gate this behind requiring a token.
+- **`auth.validateActivation(request)`** — no auth required. Check the activation code/state *before* showing the final "set your password" step, so an expired/invalid link fails fast with a clear message instead of after the user fills out the form.
+- **`auth.activate(request)`** — no auth required. Completes setup for a user created/invited in an inactive state: pass the emailed `code` plus the new password (and whatever else your tenant's activation contract needs, e.g. `firstName`/`lastName`) after your UI confirms password === confirm-password client-side (don't send a confirm field — that's a UI-only check).
+- **`auth.resendActivation(request)`** — Send a new code/link when the old one expired. This call attaches the bearer token if one happens to be configured, but works either way — typical callers are not-yet-active, so don't gate this behind requiring a token.
 
 ```ts
 // after the user opens /activate?code=... and submits password + confirm
@@ -48,9 +48,9 @@ await blocksClient.auth.activate({
 
 ## Password — forgot, reset, and authenticated change
 
-- **`auth.recover(request)`** — `POST /iam/v4/auth/recover`, no auth. Public entry point for "forgot password" — typically just the account's email. Triggers IAM to send a reset link/code.
-- **`auth.resetPassword(request)`** — `POST /iam/v4/auth/reset-password`, no auth. Completes the recovery: pass the emailed reset token plus the new password. IAM owns token validation and password-policy enforcement — surface its response/errors directly rather than pre-validating password rules yourself.
-- **`auth.changePassword(request)`** — `POST /iam/v4/auth/change-password`, requires an access token (an authenticated account-security action, not part of the recovery flow). Use this for a signed-in "change my password" settings-page action — current password + new password.
+- **`auth.recover(request)`** — no auth required. Public entry point for "forgot password" — typically just the account's email. Triggers IAM to send a reset link/code.
+- **`auth.resetPassword(request)`** — no auth required. Completes the recovery: pass the emailed reset token plus the new password. IAM owns token validation and password-policy enforcement — surface its response/errors directly rather than pre-validating password rules yourself.
+- **`auth.changePassword(request)`** — requires an access token (an authenticated account-security action, not part of the recovery flow). Use this for a signed-in "change my password" settings-page action — current password + new password.
 
 ```ts
 // forgot-password page
@@ -65,8 +65,8 @@ await blocksClient.auth.changePassword({ oldPassword, newPassword });
 
 ## Logout — end this session or all sessions
 
-- **`auth.logout(request = {})`** — `POST /iam/v4/auth/logout`. Ends the current session; commonly takes `{ refreshToken }` if your app manages a refresh token directly (the typed field on `BlocksLogoutRequest`). If your app relies on the hosted IdP's session cookie instead, an empty `{}` is enough — the SDK always sends the request with `credentials: "include"`.
-- **`auth.logoutAll(request = {})`** — `POST /iam/v4/auth/logout-all`. "Sign out everywhere" — invalidates every session for the account, not just the current one. Good for a security settings page next to change-password.
+- **`auth.logout(request = {})`** — Ends the current session; commonly takes `{ refreshToken }` if your app manages a refresh token directly (the typed field on `BlocksLogoutRequest`). If your app relies on the hosted IdP's session cookie instead, an empty `{}` is enough — the SDK always sends the request with `credentials: "include"`.
+- **`auth.logoutAll(request = {})`** — "Sign out everywhere" — invalidates every session for the account, not just the current one. Good for a security settings page next to change-password.
 
 ```ts
 async function signOut() {
@@ -83,8 +83,8 @@ async function signOut() {
 
 ## Profile bootstrap and self-edit
 
-- **`iam.me()`** — `GET /iam/v4/iam/me`. The current IAM user record: roles, permissions, active organization context, resolved from the access token. This is the right call to bootstrap an app's profile/account page or a permission-gated shell after login — don't reconstruct this from token claims yourself.
-- **`iam.updateMe(request)`** — `POST /iam/v4/iam/me`. Updates the CURRENT authenticated user's own profile fields (name, etc., per your tenant's IAM contract). The backend resolves the user id from the token — **never** pass another user's id here; that's `iam.users.update(id, request)` in the admin skill, a different call entirely.
+- **`iam.me()`** — The current IAM user record: roles, permissions, active organization context, resolved from the access token. This is the right call to bootstrap an app's profile/account page or a permission-gated shell after login — don't reconstruct this from token claims yourself.
+- **`iam.updateMe(request)`** — Updates the CURRENT authenticated user's own profile fields (name, etc., per your tenant's IAM contract). The backend resolves the user id from the token — **never** pass another user's id here; that's `iam.users.update(id, request)` in the admin skill, a different call entirely.
 
 ```ts
 const me = await blocksClient.iam.me();
@@ -98,14 +98,14 @@ await blocksClient.iam.updateMe({ firstName, lastName });
 
 Enrolling, challenging, or turning off MFA for the **signed-in user's own** account, via `blocksClient.mfa.*` (see `mfa-client.ts`'s own docstrings — they call this out as self-service, distinct from `mfa.saveConfig`, which is a tenant/admin policy action, not covered here):
 
-- **`mfa.totp.setup()`** — `POST /iam/v4/mfa/totp/setup`. Starts authenticator-app enrollment; render IAM's returned secret/QR in your UI.
-- **`mfa.totp.verifySetup({ code })`** — `POST /iam/v4/mfa/totp/verify-setup`. Confirms enrollment with the 6-digit code from the authenticator app.
-- **`mfa.generate({ mfaType, sendPhoneNumberAsEmailDomain? })`** — `POST /iam/v4/mfa/generate`. Sends an email/SMS OTP challenge; returns an `mfaId` for `resend`/`verify`.
-- **`mfa.resend({ mfaId, sendPhoneNumberAsEmailDomain? })`** — `POST /iam/v4/mfa/resend`. Re-sends a pending OTP.
-- **`mfa.verify({ mfaId, verificationCode, authType, isFromTokenCall? })`** — `POST /iam/v4/mfa/verify`. Confirms an OTP or step-up challenge; set `isFromTokenCall` when verifying as part of a login/token exchange.
-- **`mfa.setMethod({ mfaType })`** — `PUT /iam/v4/mfa/method`. Switches which enrolled method is active.
-- **`mfa.disable()`** — `POST /iam/v4/mfa/disable`. Self-service opt-out, where the tenant's policy allows it.
-- **`mfa.backupCodes.list()`** / **`.generate()`** / **`.use({ code, userId })`** — `GET|POST /iam/v4/mfa/backup-codes[/generate|/use]`. View remaining recovery codes, mint a fresh set (treat the response as sensitive, show once), or consume one when the primary method is unavailable.
+- **`mfa.totp.setup()`** — Starts authenticator-app enrollment; render IAM's returned secret/QR in your UI.
+- **`mfa.totp.verifySetup({ code })`** — Confirms enrollment with the 6-digit code from the authenticator app.
+- **`mfa.generate({ mfaType, sendPhoneNumberAsEmailDomain? })`** — Sends an email/SMS OTP challenge; returns an `mfaId` for `resend`/`verify`.
+- **`mfa.resend({ mfaId, sendPhoneNumberAsEmailDomain? })`** — Re-sends a pending OTP.
+- **`mfa.verify({ mfaId, verificationCode, authType, isFromTokenCall? })`** — Confirms an OTP or step-up challenge; set `isFromTokenCall` when verifying as part of a login/token exchange.
+- **`mfa.setMethod({ mfaType })`** — Switches which enrolled method is active.
+- **`mfa.disable()`** — Self-service opt-out, where the tenant's policy allows it.
+- **`mfa.backupCodes.list()`** / **`.generate()`** / **`.use({ code, userId })`** — View remaining recovery codes, mint a fresh set (treat the response as sensitive, show once), or consume one when the primary method is unavailable.
 
 ```ts
 await blocksClient.mfa.totp.setup();
@@ -116,8 +116,8 @@ The same self-service surface is also reachable from a terminal via `blocks mfa 
 
 ## Signup and login discovery
 
-- **`auth.signup(request)`** — `POST /iam/v4/auth/signup`, no auth. Registers a new account; IAM owns account-creation rules — send its expected payload and render its response/errors directly rather than pre-validating fields yourself.
-- **`auth.loginOptions()`** — `GET /iam/v4/auth/login-options`, no auth. Discovers which login methods the tenant supports; call before rendering the login screen so you only show controls IAM actually accepts.
+- **`auth.signup(request)`** — no auth required. Registers a new account; IAM owns account-creation rules — send its expected payload and render its response/errors directly rather than pre-validating fields yourself.
+- **`auth.loginOptions()`** — no auth required. Discovers which login methods the tenant supports; call before rendering the login screen so you only show controls IAM actually accepts.
 
 ```ts
 const options = await blocksClient.auth.loginOptions();
@@ -130,8 +130,8 @@ await blocksClient.auth.signup({ email, password, firstName, lastName });
 
 Useful inside a signup or invite form before submit — both still send `x-blocks-key` even though they don't require a signed-in user:
 
-- **`iam.users.emailAvailable(query)`** — `GET /iam/v4/iam/email/available`, no auth. Returns an availability flag (`isAvailable`/`IsAvailable` — IAM's casing varies, check both) for a candidate email.
-- **`iam.users.exists(email)`** — `GET /iam/v4/iam/users/exists`. Existence check by email.
+- **`iam.users.emailAvailable(query)`** — no auth required. Returns an availability flag (`isAvailable`/`IsAvailable` — IAM's casing varies, check both) for a candidate email.
+- **`iam.users.exists(email)`** — Existence check by email.
 
 ```ts
 const availability = await blocksClient.iam.users.emailAvailable({ email });

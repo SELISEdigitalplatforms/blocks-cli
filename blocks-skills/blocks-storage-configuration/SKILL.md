@@ -5,22 +5,22 @@ description: "Configure which storage provider (Azure Blob, S3, or local disk) b
 
 # Blocks Storage — Configuration
 
-This skill manages the **storage configuration record itself** — which cloud provider (or local disk) a named configuration points at, and the connection details needed to reach it. It does not upload, download, or browse files; that's a separate, project-scoped runtime concern handled by the sibling skill **[blocks-data-storage](../blocks-data-storage/SKILL.md)** (`blocks data files *` CLI, or the SDK's `data.files`/`data.dms` at runtime).
+This skill manages the **storage configuration record itself** — which cloud provider (or local disk) a named configuration points at, and the connection details needed to reach it. It does not upload, download, or browse files; that's a separate, project-scoped runtime concern handled by the sibling blocks-data-storage skill (`blocks data files *` CLI, or the SDK's `data.files`/`data.dms` at runtime).
 
 **CLI-only, no SDK path.** There is no `@seliseblocks/client` method for reading or writing a storage configuration's own fields — the SDK's role in this area starts *after* a configuration exists (it takes a `configurationName` and uploads/downloads against whatever that config points at). If a user wants to set up, inspect, or change a storage provider, that's this skill's `blocks storage config *` commands; if they want to move bytes, hand off to blocks-data-storage.
 
-**Prerequisite:** a project is selected (`blocks use <tenantId>`). If login/project state is unknown, run **[blocks-onboarding](../blocks-onboarding/SKILL.md)** first.
+**Prerequisite:** a project is selected (`blocks use <tenantId>`). If login/project state is unknown, run the blocks-onboarding skill first.
 
 ## Command family
 
-All four commands hit `/os/v4/Storage/*` and require an **impersonated project token** (`impersonatedProjectAuth: true` + `projectTenantId` from the selected project) — there is no account-token path for this surface, consistent with other project-scoped admin commands (`secrets *`, `data config *`, etc.).
+All four commands require an **impersonated project token** — there is no account-token path for this surface, consistent with other project-scoped admin commands (`secrets *`, `data config *`, etc.).
 
-| Command | Endpoint | Notes |
-|---|---|---|
-| `blocks storage config list` | `GET /os/v4/Storage/Gets` | No parameters beyond the selected project. Read-only. |
-| `blocks storage config get <name>` | `GET /os/v4/Storage/Get` | `<name>` (positional) or `--name` (required if no positional arg) is sent as query `ConfigurationName`. Read-only. |
-| `blocks storage config save` | `POST /os/v4/Storage/Save` | Upsert — create or update a configuration. Mutating. |
-| `blocks storage config delete <name>` | `DELETE /os/v4/Storage/Delete` | `<name>` (positional) or `--name` (required if no positional arg) is sent as query `ConfigurationName`. Mutating. |
+| Command | Notes |
+|---|---|
+| `blocks storage config list` | No parameters beyond the selected project. Read-only. |
+| `blocks storage config get <name>` | `<name>` (positional) or `--name` (required if no positional arg). Read-only. |
+| `blocks storage config save` | Upsert — create or update a configuration. Mutating. |
+| `blocks storage config delete <name>` | `<name>` (positional) or `--name` (required if no positional arg). Mutating. |
 
 ```bash
 blocks storage config list --json
@@ -65,7 +65,7 @@ blocks storage config save --item-id <id> --update --connection-string "<new con
 
 ## `--dry-run` before `--yes` — always
 
-Both mutating commands (`save`, `delete`) follow the standard `blocks` mutation discipline: `--dry-run` prints what would be sent and returns without calling the API; `--yes` skips the interactive confirmation prompt and sends the request for real. Omitting both drops into an interactive `Type 'yes' to continue:` prompt (`confirmMutation`) — not viable in a scripted/agent context, so always pass one or the other explicitly.
+Both mutating commands (`save`, `delete`) follow the standard `blocks` mutation discipline: `--dry-run` prints what would be sent and returns without calling the API; `--yes` skips the interactive confirmation prompt and sends the request for real. Omitting both drops into an interactive "Type 'yes' to continue" prompt — not viable in a scripted/agent context, so always pass one or the other explicitly.
 
 ```bash
 blocks storage config delete Default --dry-run --json
@@ -76,7 +76,7 @@ blocks storage config delete Default --yes --json
 
 ## Gotchas
 
-- **`get`/`list` are not redacted.** Only `save --dry-run`'s own preview output redacts `accessKey`/`connectionString`/`password`/`secretKey`. If the `/os/v4/Storage/Get` or `/Gets` response ever echoes credential fields back, treat that output as sensitive — don't paste it into logs, tickets, or chat verbatim.
+- **`get`/`list` are not redacted.** Only `save --dry-run`'s own preview output redacts `accessKey`/`connectionString`/`password`/`secretKey`. If a `get`/`list` response ever echoes credential fields back, treat that output as sensitive — don't paste it into logs, tickets, or chat verbatim.
 - **`save` is upsert, not separate create/update commands.** Whether a call creates or updates is determined by whether `--item-id` is present, not by a different command name.
 - **This is provider configuration, not file operations.** `blocks storage config *` never touches an actual file's bytes. For "upload a file," "get a download link," "list a folder" — that's **blocks-data-storage** (`blocks data files *` or the SDK), using a `configurationName` that a `storage config` record already defines.
 - **No positional-or-flag ambiguity trap:** `get`/`delete` accept the configuration name as either the first positional argument or `--name`; only one is required, not both.

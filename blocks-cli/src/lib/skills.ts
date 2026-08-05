@@ -6,6 +6,10 @@ import { fileURLToPath } from "node:url";
 export type SkillSummary = { description: string; name: string; path: string };
 export type SkillDetail = SkillSummary & { content: string };
 
+// Canonical public catalog -- the source of truth when the locally bundled
+// skills are missing a name, or out of date relative to what's published.
+export const SKILLS_REPO_URL = "https://github.com/SELISEdigitalplatforms/blocks-cli/tree/main/blocks-skills";
+
 // Resolves where blocks-skills/*/SKILL.md content lives, in priority order:
 // 1. Bundled into this package at build time (see scripts/copy-skills.mjs) --
 //    what a published npm install actually ships.
@@ -74,7 +78,9 @@ export async function readSkill(name: string): Promise<SkillDetail> {
   const match = skills.find((skill) => skill.name === name);
   if (!match) {
     const available = skills.map((skill) => skill.name).join(", ") || "(none found)";
-    throw new Error(`Unknown skill '${name}'. Available skills: ${available}`);
+    throw new Error(
+      `Unknown skill '${name}'. Available skills: ${available}. If the skill you're looking for isn't listed (the bundled set may be out of date), check the full catalog at ${SKILLS_REPO_URL}.`
+    );
   }
 
   const content = await readFile(match.path, "utf8");

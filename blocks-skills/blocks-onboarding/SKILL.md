@@ -7,7 +7,7 @@ description: "Onboard a user into SELISE Blocks before any other Blocks skill ca
 
 Every other Blocks skill assumes: the `blocks` CLI is installed, the user is logged in (`login`), and a project is selected (`use`). This skill detects which of those is missing and closes the gap. **Everything here goes through `blocks` — never a raw `fetch`/`curl` against `api.seliseblocks.com`.**
 
-`blocks-cli`'s own [AI_USAGE_GUIDE.md](../../blocks-cli/AI_USAGE_GUIDE.md) is the command-level ground truth (exact flags, defaults, failure codes); this skill is the conversational flow around it — what to ask, what's portal-only, and in what order.
+The CLI's own usage guide (bundled with the `blocks-cli` package) is the command-level ground truth (exact flags, defaults, failure codes); this skill is the conversational flow around it — what to ask, what's portal-only, and in what order.
 
 ## Probe first, ask second
 
@@ -65,7 +65,7 @@ Run `blocks init` once per project directory to create `blocks.json`, `blocks/da
 
 Then route to what the user actually wants:
 - Building a frontend from scratch → resolve the app's public OIDC client first, then scaffold:
-  - `blocks auth oidc-clients list --json` — check whether a client already registered for this project fits. If none fits, create one directly (no portal visit needed): `blocks auth oidc-clients save --client-display-name <appName> --redirect-uris https://<domain>:5173/login/callback --scope "openid profile" --require-pkce --register-as-identity-provider --dry-run --json`, then re-run with `--yes` after showing the dry-run output and getting approval. See **[blocks-iam-sso-oidc-configuration](../blocks-iam-sso-oidc-configuration/SKILL.md)** for the full decision tree and field-level gotchas.
+  - `blocks auth oidc-clients list --json` — check whether a client already registered for this project fits. If none fits, create one directly (no portal visit needed): `blocks auth oidc-clients save --client-display-name <appName> --redirect-uris https://<domain>:5173/login/callback --scope "openid profile" --require-pkce --register-as-identity-provider --dry-run --json`, then re-run with `--yes` after showing the dry-run output and getting approval. See the blocks-iam-sso-oidc-configuration skill for the full decision tree and field-level gotchas.
   - `blocks new web <name> --x-blocks-key <tenantId> --app-domain <domain> --blocks-api-url https://api.seliseblocks.com --client-id <the-resolved-client-id>`. **Always pass `--client-id` and `--app-domain` explicitly** — omitting either drops `new web` into an interactive pick-list prompt with no non-interactive escape (not even to "skip"), which hangs a scripted/agent run with no stdin to answer it.
 - Defining data / CRUD / localization / release on an existing project → hand off to the matching skill; the project is already selected via `blocks use`, so its commands can proceed directly.
 

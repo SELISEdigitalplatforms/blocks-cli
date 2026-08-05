@@ -1,7 +1,9 @@
 #!/usr/bin/env node
 // Consistency lint for blocks-skills/. Run: node blocks-skills/lint.mjs
 //
-// Checks:
+// A skill is consumed by an AI that has ONLY the globally-installed `blocks`
+// CLI and a project-local `@seliseblocks/client` -- never this monorepo, and
+// `blocks skill add` pulls exactly one skill directory at a time. Checks:
 // 1. Every skill directory has a SKILL.md with frontmatter: `name` matches the
 //    directory name, `name` <= 64 chars, `description` present, non-empty,
 //    on a single physical line (blocks-cli's own frontmatter parser --
@@ -11,10 +13,16 @@
 //    (warn -- this pack's house style target is ~400-600).
 // 2. Relative markdown links (in SKILL.md and any flows/*.md) resolve to a
 //    real file.
-// 3. No links into another skill's internal files -- a skill may link to a
-//    sibling skill's SKILL.md, but not into its flows/ or other subfolders,
-//    since `blocks skill add` copies one skill directory at a time and a
-//    cross-skill internal link would go dead for that consumer.
+// 3. No links leave the containing skill's own directory at all -- not into
+//    another skill's SKILL.md, not into its flows/, not to a monorepo-only
+//    file outside blocks-skills/. A skill may mention another skill BY NAME
+//    in plain text, never as a link, since the target isn't guaranteed to be
+//    present for a consumer who only pulled this one skill. Links within the
+//    same skill's own directory (SKILL.md <-> its own flows/*.md) are fine.
+// 4. No raw API endpoint paths (e.g. `/iam/v4/...`, `/os/v4/...`) -- skills
+//    describe CLI commands and SDK methods, never the wire protocol behind
+//    them; citing a path is exactly the kind of detail that could tempt a
+//    raw fetch/curl bypass every skill already forbids.
 // Exit 0 = clean, 1 = problems found (all listed, not just the first).
 import { readdirSync, readFileSync, existsSync, statSync } from "node:fs";
 import { dirname, join, relative } from "node:path";
@@ -27,6 +35,7 @@ const warnings = [];
 const DESCRIPTION_HARD_LIMIT = 1024;
 const DESCRIPTION_WARN_LIMIT = 700;
 const NAME_LIMIT = 64;
+const ENDPOINT_PATTERN = /\/(iam|data|os|logic|release|localization)\/v4\/[A-Za-z0-9/{}._-]*/g;
 
 const skillDirs = readdirSync(skillsDir, { withFileTypes: true })
   .filter((entry) => entry.isDirectory())
@@ -44,12 +53,15 @@ for (const skillName of skillDirs) {
 
   checkFrontmatter(skillName, skillMdPath);
   checkLinksInFile(skillName, skillMdPath);
+  checkEndpointsInFile(skillMdPath);
 
   const flowsDir = join(skillPath, "flows");
   if (existsSync(flowsDir) && statSync(flowsDir).isDirectory()) {
     for (const entry of readdirSync(flowsDir, { withFileTypes: true })) {
       if (entry.isFile() && entry.name.endsWith(".md")) {
-        checkLinksInFile(skillName, join(flowsDir, entry.name));
+        const flowPath = join(flowsDir, entry.name);
+        checkLinksInFile(skillName, flowPath);
+        checkEndpointsInFile(flowPath);
       }
     }
   }
@@ -126,15 +138,22 @@ function checkLinksInFile(skillName, filePath) {
 
     const resolvedRelToSkills = relative(skillsDir, resolved).split(/[\\/]/);
     const targetSkill = resolvedRelToSkills[0];
-    if (targetSkill && targetSkill !== skillName && targetSkill !== "..") {
-      const isTargetSkillRoot = resolvedRelToSkills.length === 2 && resolvedRelToSkills[1] === "SKILL.md";
-      if (!isTargetSkillRoot) {
-        errors.push(
-          `${rel}: links into another skill's internal files ('${pathPart}') -- ` +
-            `only linking to another skill's own SKILL.md is allowed, since skills are copied one directory at a time`
-        );
-      }
+    if (targetSkill !== skillName) {
+      errors.push(
+        `${rel}: link leaves this skill's own directory ('${pathPart}') -- ` +
+          `mention other skills by name in plain text instead, never a link, since ` +
+          `'blocks skill add' only copies one skill directory at a time and the target isn't guaranteed to be present`
+      );
     }
+  }
+}
+
+function checkEndpointsInFile(filePath) {
+  const raw = readFileSync(filePath, "utf8");
+  const rel = relative(skillsDir, filePath);
+
+  for (const match of raw.matchAll(ENDPOINT_PATTERN)) {
+    errors.push(`${rel}: raw API endpoint path '${match[0]}' -- describe the CLI command/SDK method instead, never the wire path`);
   }
 }
 

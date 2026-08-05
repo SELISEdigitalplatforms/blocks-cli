@@ -7,7 +7,7 @@ description: "Configure a SELISE Blocks project's data model via the blocks CLI 
 
 The Data schema/rules model of a Blocks project is configured entirely through the `blocks` CLI now — there is no supported reason to hand-roll `fetch`/`curl` calls against `api.seliseblocks.com/data/v4` anymore. The CLI reads and writes local files under `blocks/data/` and talks to the Data service for you.
 
-**Prerequisite:** `blocks init` has been run (creates `blocks/data/schemas/` and `blocks/data/rules.json`) and a project is selected (`blocks use <tenantId>`). If either is missing, or auth state is unknown, run the **[blocks-onboarding](../blocks-onboarding/SKILL.md)** skill first — it covers `auth status` probing, login, and project selection in detail; this skill assumes that's already done.
+**Prerequisite:** `blocks init` has been run (creates `blocks/data/schemas/` and `blocks/data/rules.json`) and a project is selected (`blocks use <tenantId>`). If either is missing, or auth state is unknown, run the blocks-onboarding skill first — it covers `auth status` probing, login, and project selection in detail; this skill assumes that's already done.
 
 ## Check the data-source configuration first
 
@@ -60,7 +60,7 @@ Pulling before editing avoids clobbering schema changes someone else made in the
    ```bash
    blocks data schema push --yes --json
    ```
-   This is mutating — POST for new schemas, PUT for existing ones (`/data/v4/schemas/define` under the hood). Never skip straight to `--yes`.
+   This is mutating — it creates new schemas and updates existing ones in a single call. Never skip straight to `--yes`.
 6. **Reload so it goes live.** Schema/rule edits are staged until reload succeeds — the runtime gateway doesn't see them before this:
    ```bash
    blocks data reload --dry-run --json
@@ -156,7 +156,7 @@ Two things the old, pre-CLI version of this skill used to handle no longer have 
 - **Mock/sample data cleanup.** There is no `blocks data mock*` command, and the SDK's `data.utilities.mockData()` (in `@seliseblocks/client`) is **read-only** — it inventories mock data, it does not delete it. If a user asks to "wipe the demo data" or "clean up sample records," tell them plainly: this isn't exposed in the current CLI or SDK. Check whether the OS portal (`https://os.seliseblocks.com`) has a Data-section control for it; if not, there's no way to do this today short of deleting real records through generated GraphQL mutations one at a time, which is not the same thing and should not be presented as equivalent.
 - **Schema export/import between projects** (e.g. cloning a dev project's data model into staging). No CLI command and no SDK method exist for this. If a user wants to copy a data model between projects, the honest answer is: not supported by current tooling. Check the OS portal for a manual option; otherwise the only fallback is manually recreating schemas in the target project's `blocks/data/schemas/` and pushing them — which is a manual reconstruction, not a real export/import, and should be described as such.
 
-Don't guess at endpoint paths or reconstruct the old skill's HTTP calls for either of these — that old skill (`blocks-skills/skills/blocks-data-gateway-configuration/`) is retained purely as historical reference and its REST patterns are not the tooling this project uses anymore.
+Don't guess at a raw API call to work around either gap — there is no supported path today, full stop.
 
 ## The one thing that goes through the SDK, not the CLI
 
