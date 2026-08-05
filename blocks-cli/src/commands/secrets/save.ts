@@ -50,7 +50,7 @@ function redactSecret(body: Record<string, unknown>): Record<string, unknown> {
 
   const redacted: Record<string, string> = {};
   for (const [key, value] of Object.entries(pairs as Record<string, string>)) {
-    redacted[key] = /secret|password|key$/i.test(key) ? "***" : value;
+    redacted[key] = /(secret|password|key$)/i.test(key) ? "***" : value;
   }
   return { ...body, keyValuePairs: redacted };
 }
