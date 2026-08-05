@@ -5,7 +5,7 @@ description: "Run a scaffolded (`blocks new web`) Blocks app locally over HTTPS 
 
 # Blocks Frontend — Local HTTPS for a Scaffolded App
 
-This is the local dev loop for an app already created with `blocks new web` (see [blocks-onboarding](../blocks-onboarding/SKILL.md) Step 4 for the scaffold command itself — this skill doesn't repeat it). The scaffold **already generates its own cert tooling**; nothing here is built from scratch, and nothing uses raw `openssl`/`curl`/`fetch`.
+This is the local dev loop for an app already created with `blocks new web` (see the blocks-onboarding skill for the scaffold command itself — this skill doesn't repeat it). The scaffold **already generates its own cert tooling**; nothing here is built from scratch, and nothing uses raw `openssl`/`curl`/`fetch`.
 
 ## Why localhost doesn't work
 
@@ -16,7 +16,7 @@ Browser login goes through the hosted Blocks IAM IdP flow (`blocksClient.auth.id
 `--app-domain` on `blocks new web` is the app's real Blocks origin, e.g. `https://dbpdba.seliseblocks.com`. The generated `.env` keeps two derived values:
 
 - `VITE_BLOCKS_APP_DOMAIN` — the full value as passed, with scheme (`https://dbpdba.seliseblocks.com`).
-- `VITE_BLOCKS_DEV_HOST` — the same host with no scheme (`dbpdba.seliseblocks.com`), computed by the scaffold generator (`hostFromAppDomain` in `fs.ts`) and used everywhere locally: hosts file, cert `commonName`/SAN, and `vite.config.ts`'s `server.host`/`allowedHosts`.
+- `VITE_BLOCKS_DEV_HOST` — the same host with no scheme (`dbpdba.seliseblocks.com`), computed by the scaffold generator and used everywhere locally: hosts file, cert `commonName`/SAN, and `vite.config.ts`'s `server.host`/`allowedHosts`.
 
 You never need to look this up separately — it's already sitting in `.env` after scaffolding.
 

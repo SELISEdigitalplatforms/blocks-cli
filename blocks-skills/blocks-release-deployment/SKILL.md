@@ -5,15 +5,15 @@ description: "Trigger and inspect SELISE Blocks Release builds/deploys entirely 
 
 # Blocks Release — Deployment
 
-Trigger and read Release builds through `blocks release *` — source: `@seliseblocks/cli-os` (this monorepo's `blocks-cli/` package). This is **100% CLI, no SDK equivalent** — `@seliseblocks/client` (`createBlocksClient()`) exposes only `auth`, `data`, `iam`, and `localization`; there is no `release` namespace anywhere in the SDK. Never write a frontend/app-code path for this — it's always a terminal command.
+Trigger and read Release builds through `blocks release *`. This is **100% CLI, no SDK equivalent** — `@seliseblocks/client` (`createBlocksClient()`) exposes only `auth`, `data`, `iam`, and `localization`; there is no `release` namespace anywhere in the SDK. Never write a frontend/app-code path for this — it's always a terminal command.
 
-**Prerequisite:** a project is selected (`blocks use <tenantId>`) and that project has a repo linked from the Blocks portal — see **[blocks-onboarding](../blocks-onboarding/SKILL.md)**. There is no local config file for release settings; `blocks init` only scaffolds `blocks/data/schemas/`, `blocks/data/rules.json`, and `.env.example` — it has no release-related output at all. `deploy` and `builds list` both resolve which repo to act on directly from the project's linked assets (see below), not from any file on disk.
+**Prerequisite:** a project is selected (`blocks use <tenantId>`) and that project has a repo linked from the Blocks portal — see the blocks-onboarding skill. There is no local config file for release settings; `blocks init` only scaffolds `blocks/data/schemas/`, `blocks/data/rules.json`, and `.env.example` — it has no release-related output at all. `deploy` and `builds list` both resolve which repo to act on directly from the project's linked assets (see below), not from any file on disk.
 
 ## Safe read commands
 
 - **`blocks release status <buildId> [--json]`** — one build's status by id (positional arg, or `--build-id <id>`).
 - **`blocks release builds get <buildId> [--json]`** — literally the same call as `release status`; it's a pure alias in the CLI's own source (`releaseBuildsGet` just calls `releaseStatus(argv)`), not a different endpoint or response shape. Use whichever name the user said.
-- **`blocks release builds list [<repoId>] [--repo-id <repoId>] [--json]`** — all builds for one repository. `repoId` is optional: if omitted, the CLI auto-resolves it from the selected project's linked repo assets the same way `deploy` does (see "Resolving the repo" below) — **except** when more than one repo is linked, in which case it falls back to an interactive `selectFromList()` prompt instead of erring or guessing. That prompt has no stdin in a non-interactive/agent run and will hang — if you can't guarantee a human is watching the terminal, resolve and pass `--repo-id` explicitly instead of letting this fall through to the prompt (same hang risk `BLOCKS_AGENT_GUIDE.md` already flags for `blocks new web`'s OIDC-client picker).
+- **`blocks release builds list [<repoId>] [--repo-id <repoId>] [--json]`** — all builds for one repository. `repoId` is optional: if omitted, the CLI auto-resolves it from the selected project's linked repo assets the same way `deploy` does (see "Resolving the repo" below) — **except** when more than one repo is linked, in which case it falls back to an interactive `selectFromList()` prompt instead of erring or guessing. That prompt has no stdin in a non-interactive/agent run and will hang — if you can't guarantee a human is watching the terminal, resolve and pass `--repo-id` explicitly instead of letting this fall through to the prompt (the same hang risk applies to `blocks new web`'s OIDC-client picker when `--client-id` is omitted — always resolve and pass required values explicitly rather than relying on an interactive fallback).
 
 None of these mutate anything — safe to run without confirmation.
 
@@ -37,7 +37,7 @@ There is **no `--repo-id` flag on `deploy`** — the repo is always resolved aut
 
 ### Branch/environment safety check
 
-Before building, `deploy` fetches the resolved repo's details (`/release/v4/api/Build/repo-details`) to read its linked branch, then compares that branch to the project's `environment` (case-insensitive). If they don't match, it throws `branch_environment_mismatch` rather than building the wrong branch.
+Before building, `deploy` fetches the resolved repo's details to read its linked branch, then compares that branch to the project's `environment` (case-insensitive). If they don't match, it throws `branch_environment_mismatch` rather than building the wrong branch.
 
 ### Error codes you may see
 
@@ -51,19 +51,19 @@ Before building, `deploy` fetches the resolved repo's details (`/release/v4/api/
 
 ### Optional flags
 
-- **`--domain <domain>`** — before triggering the build, makes an extra call to `/release/v4/api/Build/repo-update` to set a custom deployment domain for this repo/environment.
-- **`--wait`** — after triggering, polls `/release/v4/api/Build` (by the returned `buildId`) every `--poll-interval` seconds until the status matches a terminal pattern (succeeded/success/completed/failed/error/cancelled/aborted/done, case-insensitive) or `--timeout` elapses (then throws `build_wait_timeout`).
+- **`--domain <domain>`** — before triggering the build, makes an extra call to set a custom deployment domain for this repo/environment.
+- **`--wait`** — after triggering, polls the build status (by the returned `buildId`) every `--poll-interval` seconds until the status matches a terminal pattern (succeeded/success/completed/failed/error/cancelled/aborted/done, case-insensitive) or `--timeout` elapses (then throws `build_wait_timeout`).
 - **`--poll-interval <seconds>`** — polling interval for `--wait`, default `10`.
 - **`--timeout <seconds>`** — max time to wait for `--wait`, default `900`.
 
-`--dry-run` prints the resolved `repoId`, `branch`, `environment`, `projectKey`, and (if given) `domain` — it does **not** build a request body from any local file, since none exists. The real request sent to `/release/v4/api/Build/manual` when not a dry run is simply `{ repoId }`. Always show the `--dry-run` output and get explicit approval before re-running with `--yes` — never skip straight to `--yes`.
+`--dry-run` prints the resolved `repoId`, `branch`, `environment`, `projectKey`, and (if given) `domain` — it does **not** build a request body from any local file, since none exists. The real request when not a dry run is simply `{ repoId }`. Always show the `--dry-run` output and get explicit approval before re-running with `--yes` — never skip straight to `--yes`.
 
 ## Gotchas
 
 - **No SDK path, ever.** If asked "how do I trigger a deploy from my app," the answer is: you don't — this is a CLI-only, human/CI-operated action, not something to wire into frontend code.
 - **No artifact upload.** `release deploy` triggers a *configured* pipeline/repository build — it does not accept or upload a build artifact you hand it. If a user asks to "upload my build and deploy it," that capability doesn't exist in this CLI; say so rather than inventing an upload flag.
 - **`release builds get` and `release status` are the same command.** Don't treat them as returning different data or document them separately — the CLI's own source has `builds get` call `release status` directly.
-- **Release commands are project-scoped, not account-level.** Every `blocksRequest` call in `deploy`, `status`, and `builds list` passes `impersonatedProjectAuth: true`, and `deploy`/`builds list` both resolve `tenantId`/`tenantGroupId` from `resolveSelectedProject(flags)` — i.e. whichever project is currently selected via `blocks use`. Behavior changes if the selected project changes; there is no account-level/project-independent mode here.
+- **Release commands are project-scoped, not account-level.** `deploy`, `status`, and `builds list` all run on an impersonated project token, and `deploy`/`builds list` both resolve which project's linked assets to use from whichever project is currently selected via `blocks use`. Behavior changes if the selected project changes; there is no account-level/project-independent mode here.
 - **`deploy` never takes a repo id from the user** — it's always auto-resolved from the project's linked assets, with a real branch/environment safety check before it will build. Don't offer or accept a `--repo-id` flag on `deploy`.
 - **`builds list --repo-id` is optional, not required** — it falls back to the same auto-resolve logic as `deploy`, but that fallback can hit an interactive prompt if multiple repos are linked. Pass `--repo-id` explicitly in any non-interactive/agent context to avoid the hang.
 - **`buildId` for `status`/`builds get` is always required**, never guessed — ask the user rather than assuming a value.

@@ -5,7 +5,7 @@ description: "Enable/configure SSO for a Blocks project — register an OIDC cli
 
 # Blocks IAM — SSO / OIDC Configuration
 
-Setting up SSO for a Blocks project means provisioning two related tenant records: an **OIDC client** (`/iam/v4/oidc-clients`, the app-facing public client used for hosted login) and an **identity provider** (`/iam/v4/auth/identity-providers`, the record the hosted-login redirect/callback flow actually authenticates against). Both are exposed by real, implemented `blocks` CLI commands — this is not a portal-only action.
+Setting up SSO for a Blocks project means provisioning two related tenant records: an **OIDC client** (the app-facing public client used for hosted login) and an **identity provider** (the record the hosted-login redirect/callback flow actually authenticates against). Both are exposed by real, implemented `blocks` CLI commands — this is not a portal-only action.
 
 ## The one thing to get right: which login is this?
 
@@ -35,7 +35,7 @@ All of these commands are project-scoped: they need a selected project (`blocks 
      --register-as-identity-provider \
      [--dry-run] [--yes]
    ```
-   This mirrors exactly what `blocks new web`'s interactive OIDC-client prompt does (see `createOidcClientInteractively()` in `blocks-cli/src/commands/new/web.ts`) when scaffolding a new web app. `--register-as-identity-provider` is what turns this from "just an OIDC client" into something the hosted-login redirect flow (`auth.idp.redirectToProvider()` / `auth.idp.callback()`) can authenticate against — per the CLI's own scaffold help text, this registers the client "as a Blocks OIDC identity provider" in the same call. For the common case (your own app logging its own users in via Blocks-hosted login), this single command is usually the entire provisioning step — `blocks new web` never calls `auth idp create` separately.
+   This mirrors exactly what `blocks new web`'s interactive OIDC-client prompt does when scaffolding a new web app. `--register-as-identity-provider` is what turns this from "just an OIDC client" into something the hosted-login redirect flow (`auth.idp.redirectToProvider()` / `auth.idp.callback()`) can authenticate against — per the CLI's own scaffold help text, this registers the client "as a Blocks OIDC identity provider" in the same call. For the common case (your own app logging its own users in via Blocks-hosted login), this single command is usually the entire provisioning step — `blocks new web` never calls `auth idp create` separately.
 3. **Inspect/manage the resulting identity-provider record** with `blocks auth idp list [--json]` / `blocks auth idp get <id> [--json]`. Use `blocks auth idp status <id> --active|--active=false` to enable/disable without deleting, and `blocks auth idp delete <id>` to remove it — deleting an identity provider **also deletes its related OIDC client registration**, so treat `idp delete` as the higher-blast-radius operation of the two.
 4. **`blocks auth idp create`/`update` exist as a separate, more general path** for constructing an identity-provider record directly — most relevant when federating an *external* identity provider (Google, Azure AD, Okta, etc.) rather than using Blocks' own OIDC client as the login mechanism:
    ```
@@ -44,7 +44,7 @@ All of these commands are project-scoped: they need a selected project (`blocks 
      [--scope] [--redirect-uris a,b] [--active] \
      [--body '<json>'|--file <path>] [--dry-run] [--yes]
    ```
-   `--provider`, `--provider-type`, `--protocol`, and `--client-id` are required on create, and are immutable afterward — `auth idp update <id>` accepts the same flags but IAM requires you to either omit them or echo the existing values exactly. Richer provider configs (JWKS, private keys, initial roles, etc.) go through `--body`/`--file` rather than a dedicated flag. **How exactly a `clientId` passed here pairs with a `/iam/v4/oidc-clients` record is not shown in the CLI source** — the two collections are related (per the cascading delete behavior above) but the create/update commands don't expose an explicit "link to this OIDC client" field beyond passing the same id. If you need to federate an external provider, treat `idp create`'s field values as IAM's contract and confirm anything beyond the flags above against the tenant's actual behavior rather than guessing.
+   `--provider`, `--provider-type`, `--protocol`, and `--client-id` are required on create, and are immutable afterward — `auth idp update <id>` accepts the same flags but IAM requires you to either omit them or echo the existing values exactly. Richer provider configs (JWKS, private keys, initial roles, etc.) go through `--body`/`--file` rather than a dedicated flag. **How exactly a `clientId` passed here pairs with an OIDC client record is not shown anywhere documented** — the two collections are related (per the cascading delete behavior above) but the create/update commands don't expose an explicit "link to this OIDC client" field beyond passing the same id. If you need to federate an external provider, treat `idp create`'s field values as IAM's contract and confirm anything beyond the flags above against the tenant's actual behavior rather than guessing.
 5. **Hand off.** Once a client id (and, if relevant, an identity-provider id) exists, the frontend wiring — login button, callback route, token handling, `client.auth.idp.initiate()`/`redirectToProvider()`/`.callback()` from `@seliseblocks/client` — is owned by **blocks-iam-sso-oidc-implementation**. Do not duplicate that work here; route to it.
 
 ## Mutation discipline
@@ -63,7 +63,7 @@ Never raw `fetch`/`curl` these endpoints to route around the CLI's confirmation/
 
 ## Secondary, optional: the SDK's `identityProviders` admin methods
 
-`@seliseblocks/client` (see `auth-client.ts`, the `readonly identityProviders = { list, get, create, update, updateStatus, delete }` block) also exposes typed methods that call `GET/POST/PUT/PATCH/DELETE /iam/v4/auth/identity-providers` — the same endpoint the CLI's `auth idp` commands hit. Reach for this when you're building an **in-app admin settings screen** for a signed-in administrator, where *they* click a button labeled something like "Add identity provider" and *they* fill in a form, in the moment they personally intend to make that change:
+`@seliseblocks/client` (see `auth-client.ts`, the `readonly identityProviders = { list, get, create, update, updateStatus, delete }` block) also exposes typed methods that call the same identity-provider resource the CLI's `auth idp` commands hit. Reach for this when you're building an **in-app admin settings screen** for a signed-in administrator, where *they* click a button labeled something like "Add identity provider" and *they* fill in a form, in the moment they personally intend to make that change:
 
 ```tsx
 // A settings page for a signed-in admin user. The admin types into the form
@@ -77,7 +77,7 @@ Request/payload types on these SDK methods are intentionally loose (`Record<stri
 
 ## Related skills
 
-- **[blocks-onboarding](../blocks-onboarding/SKILL.md)** — owns `blocks login` itself (authenticates with no setup, nothing to register or look up). Go there first if `blocks` itself isn't authenticated, or if the user is conflating "logging in the CLI" with "SSO for my app."
+- **blocks-onboarding** — owns `blocks login` itself (authenticates with no setup, nothing to register or look up). Go there first if `blocks` itself isn't authenticated, or if the user is conflating "logging in the CLI" with "SSO for my app."
 - **blocks-iam-sso-oidc-implementation** — owns everything that happens once an identity provider/client id exists: wiring the login button, callback route, and token/session handling in the scaffolded React app using `@seliseblocks/client`. This skill hands off to it and does not duplicate its content.
 
 ## Example trigger prompts → routing

@@ -7,19 +7,19 @@ description: "Store and serve files on a SELISE Blocks project: presigned/local-
 
 Storage is DMS (document management system). Two ways to reach it, pick based on what the user is actually doing:
 
-- **`blocks data files *` (CLI)** — admin tasks, one-off scripts, or anything the user is doing from a terminal/agent context rather than inside a running app. Talks to `/data/v4/Files/*` directly.
-- **`@seliseblocks/client`'s `data.files` / `data.dms` namespaces (SDK)** — wiring upload/download/browse into actual app code (a React component, a form submit handler). `BlocksDataClient` in `blocks-packages/blocks-client/src/data/data-client.ts`.
+- **`blocks data files *` (CLI)** — admin tasks, one-off scripts, or anything the user is doing from a terminal/agent context rather than inside a running app.
+- **`@seliseblocks/client`'s `data.files` / `data.dms` namespaces (SDK)** — wiring upload/download/browse into actual app code (a React component, a form submit handler).
 
-Both call the same underlying endpoints; which one to use is about *where the code runs*, not a capability gap — unlike some other Data resources, this one has full CLI coverage.
+Both surfaces do the same work; which one to use is about *where the code runs*, not a capability gap — unlike some other Data resources, this one has full CLI coverage.
 
-**Prerequisite:** a project is selected (`blocks use <tenantId>`). For the SDK path, a frontend also needs to be scaffolded. If login/project state is unknown, or there's no app to write SDK code into yet, run **[blocks-onboarding](../blocks-onboarding/SKILL.md)** first — it gets `blocks new web` scaffolding in place (React 18 + TypeScript + Vite + Tailwind + Radix + TanStack Query + a single `@seliseblocks/client` instance). The SDK examples below assume that scaffold's shared client, conventionally exported as `blocksClient` from `src/lib/blocks/client.ts`.
+**Prerequisite:** a project is selected (`blocks use <tenantId>`). For the SDK path, a frontend also needs to be scaffolded. If login/project state is unknown, or there's no app to write SDK code into yet, run the blocks-onboarding skill first — it gets `blocks new web` scaffolding in place (React 18 + TypeScript + Vite + Tailwind + Radix + TanStack Query + a single `@seliseblocks/client` instance). The SDK examples below assume that scaffold's shared client, conventionally exported as `blocksClient` from `src/lib/blocks/client.ts`.
 
 ```ts
 import { blocksClient } from "../lib/blocks/client";
 const { files, dms } = blocksClient.data;
 ```
 
-Store a file here and keep its returned `fileId` in a schema field (see **[blocks-data-gateway-crud](../blocks-data-gateway-crud/SKILL.md)**) to associate it with a record.
+Store a file here and keep its returned `fileId` in a schema field (see the blocks-data-gateway-crud skill) to associate it with a record.
 
 ## CLI quick reference
 
@@ -59,7 +59,7 @@ A project's storage is backed by either cloud object storage (Azure Blob, S3, et
 
 Both are followed by the same registration step, `dms.uploadFiles(...)`, if the file needs to show up in a DMS folder.
 
-**Where that configuration lives:** `blocks storage config get/list/save/delete` (a separate top-level command group, not `data files`) reads/writes the named storage configuration itself — host, port, credentials, region/endpoint or connection string, and strategy (`/os/v4/Storage/Get`, `/Gets`, `/Save`, `/Delete`) — i.e. which provider a given `configurationName` points at, cloud or local. This skill only covers *using* that config name when uploading; managing the config's own fields is out of scope here (see a dedicated storage-configuration skill if one exists, e.g. `blocks-storage-configuration`).
+**Where that configuration lives:** `blocks storage config get/list/save/delete` (a separate top-level command group, not `data files`) reads/writes the named storage configuration itself — host, port, credentials, region/endpoint or connection string, and strategy — i.e. which provider a given `configurationName` points at, cloud or local. This skill only covers *using* that config name when uploading; managing the config's own fields is out of scope here — see the blocks-storage-configuration skill.
 
 ## Step 1a (cloud) — get a pre-signed upload URL
 
@@ -74,7 +74,7 @@ const presign = await files.presignedUploadUrl({
 });
 ```
 
-This is `POST /data/v4/Files/GetPreSignedUrlForUpload`. It returns the pre-signed `uploadUrl` plus a `fileId` you'll need for the next steps — the method's return type is `Promise<unknown>`, so read the exact response shape at runtime rather than assuming a typed contract. Note `contentType` in this request is not forwarded to the presign call itself (the normalizer drops it); pass it again to `uploadToUrl` below so the PUT gets the right `Content-Type` header. Treat `configurationName` and `moduleName` values as project-specific unless the tenant's storage configuration says otherwise.
+It returns the pre-signed `uploadUrl` plus a `fileId` you'll need for the next steps — the method's return type is `Promise<unknown>`, so read the exact response shape at runtime rather than assuming a typed contract. Note `contentType` in this request is not forwarded to the presign call itself (the normalizer drops it); pass it again to `uploadToUrl` below so the PUT gets the right `Content-Type` header. Treat `configurationName` and `moduleName` values as project-specific unless the tenant's storage configuration says otherwise.
 
 ## Step 1b (cloud) — PUT the binary to that URL
 
@@ -86,7 +86,7 @@ await files.uploadToUrl({
 });
 ```
 
-This is the one call in the whole skill that is **provider-direct, not a Blocks API call** — it sends **no `x-blocks-key` and no bearer token**. It PUTs straight to the storage provider's pre-signed URL (`this.http.external`, not `this.http.request`). If you don't set your own `x-ms-blob-type` header, the SDK adds `x-ms-blob-type: Blockblob` for you (Azure's block-blob upload header); verify that this matches the storage provider and signed-URL policy for the project rather than assuming every provider ignores extra headers.
+This is the one call in the whole skill that is **provider-direct, not a Blocks API call** — it sends **no `x-blocks-key` and no bearer token**. It PUTs straight to the storage provider's pre-signed URL. If you don't set your own `x-ms-blob-type` header, the SDK adds `x-ms-blob-type: Blockblob` for you (Azure's block-blob upload header); verify that this matches the storage provider and signed-URL policy for the project rather than assuming every provider ignores extra headers.
 
 ## Step 1 (local storage) — the one-call alternative
 
@@ -103,7 +103,7 @@ await files.uploadToLocalStorage({
 });
 ```
 
-This is `POST /data/v4/Files/UploadFileToLocalStorage` — the SDK builds a multipart `FormData` body for you (`File`, `Name`, `ItemId`, `MetaData`, `ParentDirectoryId`, `Tags`, `AccessModifier`, `ConfigurationName`, `AdditionalProperties[key]`) and sends it as a normal authenticated Blocks API call (`x-blocks-key` + bearer, unlike the pre-signed PUT above).
+The SDK builds a multipart `FormData` body for you (`File`, `Name`, `ItemId`, `MetaData`, `ParentDirectoryId`, `Tags`, `AccessModifier`, `ConfigurationName`, `AdditionalProperties[key]`) and sends it as a normal authenticated Blocks API call (`x-blocks-key` + bearer, unlike the pre-signed PUT above).
 
 ## Step 2 — register the file in a DMS folder
 
@@ -120,24 +120,24 @@ await dms.uploadFiles({
 });
 ```
 
-This is `POST /data/v4/Files/UploadFile` — despite the name, this is the DMS *registration* call, not the binary upload. `upload` is an array, so multiple files can be registered into folders in one call.
+Despite the method's name suggesting a binary upload, this is the DMS *registration* call — the bytes are already stored by Step 1a/1b or Step 1. `upload` is an array, so multiple files can be registered into folders in one call.
 
 ## Step 3 — read it back
 
 ```ts
-const folder = await dms.list({ parentId: "", take: 20 });          // POST /data/v4/Files/GetDmsFileAndFolder
-const meta = await files.get(presign.fileId, { configurationName: "Default" }); // GET /data/v4/Files/GetFile
+const folder = await dms.list({ parentId: "", take: 20 });
+const meta = await files.get(presign.fileId, { configurationName: "Default" });
 ```
 
 `dms.list` returns the combined folder+file listing for a `parentId` (`""` = root), with `searchKey`/`skip`/`take` for search and paging. The same endpoint is also reachable as `files.listFolder(...)` — they're identical calls, `dms.list` is the more discoverable name for folder-browsing UI. `files.get` confirms a specific upload landed: a successful response with a non-null `url` (download link) and matching `name`/size means the file is stored.
 
 ## Other file operations
 
-- **`files.getMany({ fileIds, configurationName })`** — batch read (`POST /Files/GetFiles`) instead of one `files.get` per attachment.
-- **`files.info({ page, pageSize, sort, filter })`** — paged file metadata/listing (`POST /Files/GetFilesInfo`) for storage-browser UIs; unlike `presignedUploadUrl`, the SDK does not remap these field names to PascalCase — pass exactly what your app builds.
-- **`files.updateAdditionalInfo({ itemId, additionalProperties })`** — attach searchable metadata to an uploaded file, e.g. a business reference or workflow status (`POST /data/v4/Files/UpdateFileAdditionalInfo`).
-- **`files.delete({ fileId, configurationName?, eventQueueName? })`** — delete a file (`POST /Files/DeleteFile`).
-- **`dms.createFolder({ artifactName, parentId?, configurationName? })`** / **`dms.deleteFolder({ folderId, configurationName? })`** — DMS folder management (`POST /Files/CreateFolder` / `POST /Files/DeleteFolder`).
+- **`files.getMany({ fileIds, configurationName })`** — batch read instead of one `files.get` per attachment.
+- **`files.info({ page, pageSize, sort, filter })`** — paged file metadata/listing for storage-browser UIs; unlike `presignedUploadUrl`, the SDK does not remap these field names to PascalCase — pass exactly what your app builds.
+- **`files.updateAdditionalInfo({ itemId, additionalProperties })`** — attach searchable metadata to an uploaded file, e.g. a business reference or workflow status.
+- **`files.delete({ fileId, configurationName?, eventQueueName? })`** — delete a file.
+- **`dms.createFolder({ artifactName, parentId?, configurationName? })`** / **`dms.deleteFolder({ folderId, configurationName? })`** — DMS folder management.
 
 ## Gotchas
 

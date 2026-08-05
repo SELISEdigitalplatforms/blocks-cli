@@ -7,11 +7,11 @@ description: "Consume SELISE Blocks localization at runtime in a scaffolded fron
 
 Make a scaffolded Blocks web app render its UI in the user's language, using only the `localization` namespace on the SDK client — `createBlocksClient(...).localization`. No fetch, no manual query strings, no hand-rolled caching: the SDK client already does all of that.
 
-The translations themselves (keys, modules, per-language values) are authored and pushed with **[blocks-localization-configuration](../blocks-localization-configuration/SKILL.md)** (uses `blocks localization *`). This skill only covers loading and rendering them in the app.
+The translations themselves (keys, modules, per-language values) are authored and pushed with the blocks-localization-configuration skill (uses `blocks localization *`). This skill only covers loading and rendering them in the app.
 
 ## The client and its cache
 
-`localization` is a `BlocksLocalizationClient` instance created once inside `createBlocksClient()` (source: `blocks-packages/blocks-client/src/localization/localization-client.ts`). It holds its dictionary cache as instance state — a `Map` keyed by `` `${language}:${moduleName}` `` plus an `activeLanguage`. That cache is **only as shared as the client instance is**: the canonical scaffold creates one `blocksClient` singleton (`src/lib/blocks/client.ts`, from `createBlocksClient()`) and imports it everywhere, so every `t()` call sees every dictionary loaded anywhere in the app. If you instantiate a second `createBlocksClient()` somewhere, it gets its own empty cache — don't do that; import the one singleton.
+`localization` is a `BlocksLocalizationClient` instance created once inside `createBlocksClient()`. It holds its dictionary cache as instance state — a `Map` keyed by `` `${language}:${moduleName}` `` plus an `activeLanguage`. That cache is **only as shared as the client instance is**: the canonical scaffold creates one `blocksClient` singleton (`src/lib/blocks/client.ts`, from `createBlocksClient()`) and imports it everywhere, so every `t()` call sees every dictionary loaded anywhere in the app. If you instantiate a second `createBlocksClient()` somewhere, it gets its own empty cache — don't do that; import the one singleton.
 
 ## Public vs. authenticated methods
 
@@ -19,15 +19,15 @@ Every method has a matching pair — one public, one tenant/session-scoped:
 
 | Public (no token sent) | Authenticated (sends token when configured) |
 |---|---|
-| `languages()` — `GET /Language/Gets` | `languagesForCurrentTenant()` — `GET /Language/GetLanguagesForCurrentTenant` |
-| `modules()` — `GET /Module/Gets` | `modulesForCurrentTenant()` — `GET /Module/GetModulesForCurrentTenant` |
-| `translations(moduleName, language)` — `GET /Key/GetUilmFile` | `cloudTranslations(moduleName, language)` — `GET /Key/GetCloudUilmFile` |
+| `languages()` | `languagesForCurrentTenant()` |
+| `modules()` | `modulesForCurrentTenant()` |
+| `translations(moduleName, language)` | `cloudTranslations(moduleName, language)` |
 | `load(language, modules[])` | `loadCloud(language, modules[])` |
 
 - `languages()`/`modules()`/`translations()`/`load()` are explicitly public — all tenant-supported cultures and translation bundles, usable pre-login for a language picker or startup locale selection.
 - `languagesForCurrentTenant()`/`modulesForCurrentTenant()`/`cloudTranslations()`/`loadCloud()` are scoped to whichever tenant the active `x-blocks-key` resolves to (and send the caller's access token if the client is configured with one) — use these for protected, tenant-specific dictionaries behind a signed-in session.
 
-`keysByNames({ keyNames, moduleId? })` — `POST /Key/GetsByKeyNames` — fetches specific key records (metadata/translations) without downloading a whole module dictionary; useful for a one-off label or an admin screen that inspects individual keys.
+`keysByNames({ keyNames, moduleId? })` fetches specific key records (metadata/translations) without downloading a whole module dictionary; useful for a one-off label or an admin screen that inspects individual keys.
 
 **Argument order matters**: `translations(moduleName, language)` and `cloudTranslations(moduleName, language)` take module first, language second — easy to transpose.
 
@@ -38,7 +38,7 @@ Every method has a matching pair — one public, one tenant/session-scoped:
 3. **Render labels** with `blocksClient.localization.t(key, fallback, { language, moduleName })`. It reads from dictionaries already loaded by `translations()`/`load()` (or their cloud equivalents) — it does not fetch anything itself. Missing key → `fallback` → the raw key, in that order.
 4. **Switch language**: on switcher change, call `load()` (or `loadCloud()`) again with the new language and the same module list, then re-render. There's no separate "invalidate" step — loading a language populates its own cache entries; you don't need to clear the old language's entries (they just stop being read once `activeLanguage`/your app state moves on).
 
-The canonical scaffold (`blocks new web`) wires exactly this pattern in `src/lib/i18n/LocalizationProvider.tsx` (written by `blocks-cli`'s `src/lib/scaffold-web/i18n.ts`): a React context holds `language` state (seeded from `localStorage`), a `useEffect` on `language` calls `blocksClient.localization.load(language, MODULES)` and stores the merged dictionary in state, and `t(key, fallback)` reads `cloudDictionary[key] ?? defaultDictionary[key] ?? fallback ?? key` — layering the network dictionary over a build-time `defaultDictionary` (from `src/lib/i18n/dictionary.ts`, generated from the same keys as the seed JSON in `blocks/localization/*.json`) as an offline/first-paint safety net, itself falling back to the caller-supplied fallback and finally the key. Mirror this shape rather than inventing your own provider — it's already generated into new projects. Note the scaffold's own `t()` is a plain function on context, not the SDK's `localization.t()` — either is fine; the SDK's built-in `t()` needs no separate context/provider if you're happy reading `blocksClient.localization.t(...)` directly in components.
+The canonical scaffold (`blocks new web`) wires exactly this pattern in `src/lib/i18n/LocalizationProvider.tsx`: a React context holds `language` state (seeded from `localStorage`), a `useEffect` on `language` calls `blocksClient.localization.load(language, MODULES)` and stores the merged dictionary in state, and `t(key, fallback)` reads `cloudDictionary[key] ?? defaultDictionary[key] ?? fallback ?? key` — layering the network dictionary over a build-time `defaultDictionary` (from `src/lib/i18n/dictionary.ts`, generated from the same keys as the seed JSON in `blocks/localization/*.json`) as an offline/first-paint safety net, itself falling back to the caller-supplied fallback and finally the key. Mirror this shape rather than inventing your own provider — it's already generated into new projects. Note the scaffold's own `t()` is a plain function on context, not the SDK's `localization.t()` — either is fine; the SDK's built-in `t()` needs no separate context/provider if you're happy reading `blocksClient.localization.t(...)` directly in components.
 
 ## `t()` lookup details worth knowing
 

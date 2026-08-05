@@ -1,13 +1,13 @@
 ---
 name: blocks-data-gateway-crud
-description: "Implement create/read/update/delete against a SELISE Blocks project's runtime Data Gateway using the @seliseblocks/client SDK. Use data.collection(schemaName) for straightforward per-item CRUD through POST /data/v4/gateway, data.graphql() for joins or custom query shapes, and data.schemas.* for schema metadata. Shows how to wire CRUD into the React 18 + Vite + TanStack Query app that blocks new web scaffolds. Use whenever the user wants to read or write actual records through a Blocks Data schema from app code."
+description: "Implement create/read/update/delete against a SELISE Blocks project's runtime Data Gateway using the @seliseblocks/client SDK. Use data.collection(schemaName) for straightforward per-item CRUD, data.graphql() for joins or custom query shapes, and data.schemas.*/data.validations.* for schema/validation metadata. Shows how to wire CRUD into the React 18 + Vite + TanStack Query app that blocks new web scaffolds. Use whenever the user wants to read or write actual records through a Blocks Data schema from app code."
 ---
 
 # Blocks Data - Gateway CRUD
 
-Once a schema exists and has been reloaded via [blocks-data-gateway-configuration](../blocks-data-gateway-configuration/SKILL.md), the Data Gateway exposes runtime records through GraphQL at `POST /data/v4/gateway`. This skill shows how to use the generated app's shared `@seliseblocks/client` instance for CRUD. Do not use raw `fetch` or `curl` against Blocks APIs from app code.
+Once a schema exists and has been reloaded via the blocks-data-gateway-configuration skill, the Data Gateway exposes runtime records through GraphQL. This skill shows how to use the generated app's shared `@seliseblocks/client` instance for CRUD. Do not use raw `fetch` or `curl` against Blocks APIs from app code.
 
-Prerequisite: a project selected via `blocks use` and an app scaffolded with `blocks new web <name> ...`. If either is missing, run [blocks-onboarding](../blocks-onboarding/SKILL.md) first.
+Prerequisite: a project selected via `blocks use` and an app scaffolded with `blocks new web <name> ...`. If either is missing, run the blocks-onboarding skill first.
 
 ## Use the Existing Client
 
@@ -52,7 +52,7 @@ products.delete(itemId);
 
 What the helper does:
 
-- `list` and `get` call `query getProducts($input: DynamicQueryInput)` through `POST /data/v4/gateway`.
+- `list` and `get` call `query getProducts($input: DynamicQueryInput)`.
 - `create` calls `mutation insertProduct($input: ProductInsertInput!)`.
 - `update` calls `mutation updateProduct($filter: String, $input: ProductUpdateInput!)`.
 - `delete` calls `mutation deleteProduct($filter: String, $input: ProductDeleteInput!)`.
@@ -199,7 +199,7 @@ Use `data.validations.*` to read field-level validation rules at runtime (e.g. t
 - `data.validations.bySchemaAndField({ schemaId, fieldName })` for one field's rule;
 - `data.validations.getById(id)` when you already have the validation id.
 
-Validation rules are authored and saved separately via `blocks data validation save` (see [blocks-data-gateway-configuration](../blocks-data-gateway-configuration/SKILL.md)); this SDK namespace only reads them.
+Validation rules are authored and saved separately via `blocks data validation save` (see the blocks-data-gateway-configuration skill); this SDK namespace only reads them.
 
 ## Gotchas
 

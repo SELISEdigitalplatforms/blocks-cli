@@ -32,7 +32,7 @@ export function RequirePermission({ permission, children }: { permission: string
 
 Two more read methods round this out:
 
-- `blocksClient.iam.resources.features(query?)` — `GET /iam/v4/iam/resource/features`. Feature/resource flags for the active user context; use this to drive nav items or feature flags that are more granular than a flat permission string.
-- `blocksClient.iam.roles.assignable()` — `GET /iam/v4/iam/roles/assignable`. Lists roles the **current caller** is allowed to assign. If you're building a "grant this user a role" picker, populate it from `assignable()`, not from `roles.list()` — don't assume every role in the system is one this particular admin may hand out.
+- `blocksClient.iam.resources.features(query?)` — feature/resource flags for the active user context; use this to drive nav items or feature flags that are more granular than a flat permission string.
+- `blocksClient.iam.roles.assignable()` — lists roles the **current caller** is allowed to assign. If you're building a "grant this user a role" picker, populate it from `assignable()`, not from `roles.list()` — don't assume every role in the system is one this particular admin may hand out.
 
 There is also a CLI read path for the same data, useful outside an app (scripting/inspection): `blocks iam roles list/get/assignable` and `blocks iam permissions list/get/by-severity` — see [manage-roles-permissions.md](manage-roles-permissions.md) for the full CLI command reference (it covers both reads and mutations).

@@ -32,6 +32,8 @@ Namespaced commands accept either spaces or colons, e.g. `blocks data schema lis
 - `--project <tenantId>` - use a project tenant for project-scoped commands.
 - `--dry-run` / `--yes` - see Operating Rules below.
 
+Use `blocks --help` (no subcommand) as command ground truth for what exists. Do not probe an individual subcommand with `<command> --help` to check its flags - most subcommands don't recognize `--help` as special and just run their real logic with it as a no-op argument (e.g. `login --help` performs an actual login attempt; `new web <name> --help` runs real arg validation). If you need a subcommand's full flag list, read this guide's section for it or infer from `--dry-run`/error output instead.
+
 ## Operating Rules
 
 - Use `blocks ...` for all supported Blocks OS, IAM, Data, Release, and scaffold operations.
@@ -165,7 +167,7 @@ As with `new web`, `--blocks-api-url` already defaults to `https://api.seliseblo
 
 ## Skills
 
-`skill list [--json]` / `skill show <name> [--json]` / `skill add <name> [--dir <path>]` read this package's bundled copy of `blocks-skills/*/SKILL.md` (the conversational agent-context docs referenced in `BLOCKS_AGENT_GUIDE.md`) - local-only, no cloud calls. `skill add` copies one skill's `SKILL.md` into `<dir>/<name>/SKILL.md` (default `./blocks-skills`) in the current directory, for pulling a single skill into a project outside this monorepo. As with any skill file, verify command names against this guide or `blocks --help` before running them - skills are conversational context, not command ground truth.
+`skill list [--json]` / `skill show <name> [--json]` / `skill add <name> [--dir <path>]` read this package's bundled copy of `blocks-skills/*/SKILL.md` - local-only, no cloud calls. `skill add` copies a skill's **entire directory** (`SKILL.md` plus any supporting files, e.g. `flows/*.md`) into `<dir>/<name>/` (default `./blocks-skills`) in the current directory, for pulling a single skill into a project outside this monorepo. `skill list`'s human-readable output (and the "unknown skill" error from `show`/`add`) both point at the full public skill catalog, in case the locally bundled set is out of date. As with any skill file, verify command names against this guide or `blocks --help` before running them - skills are conversational context, not command ground truth.
 
 ## IAM, MFA, and Auth Admin
 

@@ -4,7 +4,7 @@ This is the write side, and it's legitimate **only in direct response to a human
 
 ## CLI command reference
 
-Registered as `iam:roles:*` / `iam:permissions:*` in `blocks-cli/src/index.ts`. All project-scoped — every command resolves the active project via `selectedProject(flags)` (`blocks use <tenantId>` or an explicit `--project <tenantId>`) and calls `blocksRequest` with `impersonatedProjectAuth: true` — the impersonated-project token, not the account token `iam me` uses.
+All project-scoped — every command resolves the active project (`blocks use <tenantId>` or an explicit `--project <tenantId>`) and runs on an impersonated project token, not the account token `iam me` uses.
 
 ```
 blocks iam roles list [--page] [--page-size] [--search] [--slugs a,b] [--organization-id] [--filter '<json>'] [--json]
@@ -40,14 +40,14 @@ The actual line is not "CLI vs SDK" — it's:
 All from `blocksClient.iam`, per `iam-client.ts`:
 
 - `permissions.create(request)` / `permissions.update(id, request)` — define or edit a permission.
-- `permissions.list(request)` — `POST /iam/v4/iam/permissions`, paged/filtered search.
+- `permissions.list(request)` — paged/filtered search.
 - `permissions.bySeverity()` — permissions grouped by severity, handy for a categorized picker.
 - `permissions.get(id)` — one permission's detail.
 - `roles.create(request)` / `roles.update(request)` — define or edit a role.
 - `roles.list(request)` / `roles.get(id)` — search / fetch one role.
 - `roles.assignPermissions(request)` — attach/detach permissions on a role.
 - `roles.assignable()` — same read method as feature-gating; also useful here to limit which roles this admin's screen lets them touch at all.
-- `resources.groups()` — `GET /iam/v4/iam/resource-groups`, metadata for grouping permissions by resource in the UI (e.g. a permissions picker organized by resource/module).
+- `resources.groups()` — metadata for grouping permissions by resource in the UI (e.g. a permissions picker organized by resource/module).
 
 The SDK deliberately leaves these request bodies as open `Record<string, unknown>` rather than locking you to a fixed shape — confirm exact field names against the portal or a `list()`/`get()` response before hardcoding new ones. Two fields the SDK's own types do pin down: a role's `slug` (`BlocksRole.slug`) is its stable key — use it, not `itemId`, anywhere the API expects a role reference (e.g. `assignPermissions`); a permission's `resource` and `roles[]` (`BlocksPermission`) tell you what it's scoped to and which roles already hold it.
 

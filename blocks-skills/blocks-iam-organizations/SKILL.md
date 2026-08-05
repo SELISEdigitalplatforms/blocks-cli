@@ -7,12 +7,12 @@ description: "Work with organizations (multi-tenant workspaces) via `iam.organiz
 
 Organizations are the tenancy/workspace unit inside a Blocks project. Two equally real surfaces exist for managing them:
 
-- **Inside a Blocks app** — `@seliseblocks/client` SDK calls from app code (`blocksClient` in `src/lib/blocks/client.ts`, from `blocks new web`). Never write `fetch`/`curl` against `api.seliseblocks.com/iam/v4/...`.
+- **Inside a Blocks app** — `@seliseblocks/client` SDK calls from app code (`blocksClient` in `src/lib/blocks/client.ts`, from `blocks new web`). Never write raw `fetch`/`curl` against Blocks APIs.
 - **Outside an app UI** — scripting, one-off inspection, CI, an ops task — the `blocks` CLI has a real, project-scoped command surface for the same operations: `blocks iam organizations list/get/create/update/my/config get/config save` and `blocks iam signup-settings get/save`.
 
 The one thing neither surface papers over as a gap is `auth.switchOrganization` — there is no `blocks iam organizations switch` or similar; switching the *active session's* org context only makes sense from inside the app that owns that session, so it stays SDK-only.
 
-**Prerequisite:** the app is a `blocks new web` scaffold with a project selected. If auth/project state is unknown, run **[blocks-onboarding](../blocks-onboarding/SKILL.md)** first.
+**Prerequisite:** the app is a `blocks new web` scaffold with a project selected. If auth/project state is unknown, run the blocks-onboarding skill first.
 
 ## The platform boundary — read this before writing any admin-CRUD call
 

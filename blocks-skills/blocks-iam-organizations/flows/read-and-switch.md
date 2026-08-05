@@ -4,7 +4,7 @@ These are read-only or scoped to switching the *caller's own* context. No confir
 
 ## `organizations.my()` — the org switcher
 
-`GET /iam/v4/iam/organizations/my`. Returns the signed-in user's own available organizations — the standard source for an org switcher / "pick your workspace" UI. Requires the user to already be authenticated (pair with `useCurrentUser` / `blocksClient.iam.me()` from the onboarding/profile scaffold).
+Returns the signed-in user's own available organizations — the standard source for an org switcher / "pick your workspace" UI. Requires the user to already be authenticated (pair with `useCurrentUser` / `blocksClient.iam.me()` from the onboarding/profile scaffold).
 
 ```ts
 // src/features/organizations/useMyOrganizations.ts
@@ -26,7 +26,7 @@ CLI equivalent: `blocks iam organizations my` (read-only, project-scoped).
 
 ## `auth.switchOrganization(request)` — change active org context
 
-`POST /iam/v4/auth/switch-org`. For a multi-org user, switches which organization the session is scoped to. Pass `{ organizationId, refreshToken }`; the response is a fresh `BlocksAuthResponse` (new tokens for the new org context). **If your app tracks its own session state (stored tokens, an auth context/provider), replace it with this response** — don't just call the endpoint and leave the old tokens in place, or subsequent calls will still act in the old org.
+For a multi-org user, switches which organization the session is scoped to. Pass `{ organizationId, refreshToken }`; the response is a fresh `BlocksAuthResponse` (new tokens for the new org context). **If your app tracks its own session state (stored tokens, an auth context/provider), replace it with this response** — don't just call the endpoint and leave the old tokens in place, or subsequent calls will still act in the old org.
 
 ```ts
 async function switchToOrganization(organizationId: string) {
@@ -42,7 +42,7 @@ This is user-directed (they picked an org in the switcher) so it doesn't need th
 
 ## `signupSettings.get()` — public signup screen
 
-`GET /iam/v4/iam/signup-settings`. Public — no auth required (the SDK still sends `x-blocks-key`). Read this on a public signup page to know the tenant's current signup policy (e.g., whether self-signup or org-creation-from-signup is allowed) before rendering the form.
+Public — no auth required (the SDK still sends `x-blocks-key`). Read this on a public signup page to know the tenant's current signup policy (e.g., whether self-signup or org-creation-from-signup is allowed) before rendering the form.
 
 ```ts
 const settings = await blocksClient.iam.signupSettings.get();
