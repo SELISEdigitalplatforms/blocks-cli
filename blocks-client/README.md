@@ -83,6 +83,38 @@ await blocks.mfa.setMethod({ mfaType: 1 });
 const backupCodes = await blocks.mfa.backupCodes.generate();
 ```
 
+## Mail And Notifications
+
+```ts
+await blocks.mail.send({
+  to: ["user@example.com"],
+  purpose: "welcome",
+  language: "en",
+  subjectDataContext: { firstName: "Ada" }
+});
+
+await blocks.mail.sendToAny({
+  to: ["qa@example.com"],
+  purpose: "welcome",
+  language: "en",
+  isTestMail: true
+});
+
+await blocks.notifier.notify({
+  userIds: ["user-id"],
+  denormalizedPayload: JSON.stringify({ orderId: "123" }),
+  saveDenormalizedPayloadAsAnObject: true
+});
+
+const inbox = await blocks.notifier.getNotifications({ isUnreadOnly: true, page: 1, pageSize: 20 });
+await blocks.notifier.markNotificationAsRead({ id: inbox.notifications[0].id });
+await blocks.notifier.markAllNotificationAsRead();
+```
+
+`mail.send`/`mail.sendToAny` call `/logic/v4/Mail/Send`/`SendToAny`. `notifier.*` calls `/logic/v4/Notifier/*`
+for sending/reading notifications; tenant notification *channel configuration* (`/os/v4/Notification/*`)
+is an admin concern handled by `@seliseblocks/cli-os`'s `notification *` commands, not this SDK.
+
 ## Common Runtime Calls
 
 ```ts
@@ -146,8 +178,10 @@ const selectedKeys = await blocks.localization.keysByNames({
 - `blocks.data`: schema reads, validation reads, GraphQL gateway execution, file/storage helpers, DMS file/folder helpers, runtime collection CRUD.
 - `blocks.localization`: tenant language/module discovery, UILM dictionary loading, selected key lookup, simple `t()` lookup.
 - `blocks.mfa`: tenant MFA policy read/save, TOTP enrollment, OTP generate/resend/verify, method switch, disable, and backup codes.
+- `blocks.mail`: `send`/`sendToAny` transactional email through the tenant's configured mail provider.
+- `blocks.notifier`: `notify`, `getNotifications`, `getUnreadNotificationsBySubscriptionFilter`, `markNotificationAsRead`, `markAllNotificationAsRead`.
 
-Professional class names are exported for advanced typing and adapters: `BlocksAuthenticationClient`, `BlocksIAMClient`, `BlocksDataClient`, `BlocksLocalizationClient`, and `BlocksMfaClient`. `BlocksApiError` is exported for typed error handling - every non-2xx response from `http.request`/`http.external` throws it, exposing `status`, `statusText`, and the parsed `body`:
+Professional class names are exported for advanced typing and adapters: `BlocksAuthenticationClient`, `BlocksIAMClient`, `BlocksDataClient`, `BlocksLocalizationClient`, `BlocksMfaClient`, `BlocksMailClient`, and `BlocksNotifierClient`. `BlocksApiError` is exported for typed error handling - every non-2xx response from `http.request`/`http.external` throws it, exposing `status`, `statusText`, and the parsed `body`:
 
 ```ts
 try {

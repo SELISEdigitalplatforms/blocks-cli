@@ -1,13 +1,13 @@
 ---
 name: blocks-onboarding
-description: "Onboard a user into SELISE Blocks before any other Blocks skill can run, using the blocks CLI — never raw API calls. Detects current state (CLI not installed, not logged in, no project selected) via `blocks auth status --json`. The CLI authenticates itself with no setup — there is nothing to register for the CLI's own login and nothing about how it does so to look up or report; it's just `blocks login`, a device-code flow that prints a verification URL/code, opens the browser, and polls until approved. Closes each gap: install `@seliseblocks/cli-os`, log in with `login`, list/create/select a project with `projects list`/`projects create`/`use`, run `blocks init` for local workspace files, then hand off to `blocks new web` scaffolding. Use whenever a user is new to Blocks, asks how to get started, hits `not_logged_in`/`project_not_selected` from another `blocks` command, or when project/login state is unknown."
+description: "Onboard a user into SELISE Blocks before any other Blocks skill can run, using the `blocks` CLI — never raw API calls. Detects current state (CLI installed?, logged in?, project selected?) via `blocks auth status --json`/`doctor --json` and closes each gap: install, `login` (device-code, no setup needed), list/select a project (`projects create` is currently disabled — new projects come from the portal), `blocks init`, then resolve/create the app's OIDC client via `auth oidc-clients` (no portal needed) before handing off to `blocks new web`. Use when a user is new to Blocks, asks how to get started, or hits `not_logged_in`/`project_not_selected` from another command."
 ---
 
 # Blocks — Onboarding
 
 Every other Blocks skill assumes: the `blocks` CLI is installed, the user is logged in (`login`), and a project is selected (`use`). This skill detects which of those is missing and closes the gap. **Everything here goes through `blocks` — never a raw `fetch`/`curl` against `api.seliseblocks.com`.**
 
-`blocks-cli`'s own [AI_USAGE_GUIDE.md](../../blocks-cli/AI_USAGE_GUIDE.md) is the command-level ground truth (exact flags, defaults, failure codes); this skill is the conversational flow around it — what to ask, what's portal-only, and in what order.
+The CLI's own usage guide (bundled with the `blocks-cli` package) is the command-level ground truth (exact flags, defaults, failure codes); this skill is the conversational flow around it — what to ask, what's portal-only, and in what order.
 
 ## Probe first, ask second
 
@@ -17,7 +17,7 @@ Run `blocks auth status --json` and branch on the result — don't interrogate t
 |---|---|---|
 | command not found | CLI not installed | `npm install -g @seliseblocks/cli-os`, then re-probe |
 | `accountAccessToken`/`accountRefreshToken` both `"missing"` | Never logged in | Step 1 — `login` |
-| logged in, no project selected (check `blocks doctor --json`'s "Project selected" check) | No project selected | Step 2 — list/create/`use` |
+| logged in, no project selected (check `blocks doctor --json`'s "Project selected" check) | No project selected | Step 2 — list/`use` |
 | logged in, project selected | Ready | Confirm the project with the user — always show the full accessible-project list and which one is currently selected, never silently continue on a prior session's selection — then hand off to the skill/task that brought you here |
 
 If anything looks broken rather than simply "not yet done" (unreadable/stale local token storage after a machine migration, Windows profile change, Keychain reset), run `blocks doctor --json` for the fuller diagnostic — it checks Node version, config/token/secret file locations, and token freshness in one pass. If storage itself is unreadable or corrupted, `blocks auth remove <account>` clears cached tokens and stored local credentials (restoring the packaged default account), then re-run `login`.
@@ -42,12 +42,9 @@ Ask **what the user wants to build** and whether they already have a project, ra
 blocks projects list --json
 ```
 
-Always show the full list of accessible projects, and if one already appears selected, say which one — never silently continue on a prior session's selection. If projects exist, confirm which one (and which environment) the user wants; never guess. If none exist, propose a default (one project, one `dev` environment — more environments can be added later) and confirm before creating:
+Always show the full list of accessible projects, and if one already appears selected, say which one — never silently continue on a prior session's selection. If projects exist, confirm which one (and which environment) the user wants; never guess.
 
-```bash
-blocks projects create <name> --env dev --dry-run --json   # show the plan first
-blocks projects create <name> --env dev --yes --json       # only after the user approves
-```
+**`projects create` is currently disabled in this CLI build** (commented out pending a product decision — there is no CLI path to create a new project). If none of the listed projects fit, tell the user a new project must be created from the Blocks portal first; once they confirm it exists, re-run `blocks projects list --json` and continue from here.
 
 Then select it:
 
@@ -64,15 +61,18 @@ blocks use <x-blocks-key>     # reselect the same x-blocks-key to force a fresh 
 
 ## Step 3 — Local workspace + hand off
 
-Run `blocks init` once per project directory to create `blocks.json`, `blocks/data/schemas/`, `blocks/data/rules.json`, `blocks/localization/`, `blocks/release/deploy.json`, and `.env.example` — the later data-gateway, localization, and release skills read/write these. Safe to re-run: it never overwrites files that already exist.
+Run `blocks init` once per project directory to create `blocks.json`, `blocks/data/schemas/`, `blocks/data/rules.json`, and `.env.example` — the later data-gateway skills read/write these. Safe to re-run: it never overwrites files that already exist. (`init` does not create a localization folder or any release-related file — `blocks/localization/` only appears later, lazily, the first time `blocks localization pull` writes to it, and there is no `blocks/release/*` file at all.)
 
 Then route to what the user actually wants:
-- Building a frontend from scratch → `blocks new web <name> --x-blocks-key <tenantId> --app-domain <domain> --blocks-api-url https://api.seliseblocks.com [--client-id <public-oidc-client-id>]`. **This app's own end-user login needs a separate *public* OIDC client**, registered portal-only at `https://os.seliseblocks.com` — see **[blocks-iam-sso-oidc-configuration](../blocks-iam-sso-oidc-configuration/SKILL.md)**. Without `--client-id`, the scaffold still generates but the login page shows a setup notice until one is added.
-- Defining data / CRUD / localization / release on an existing project → hand off to the matching skill; the project is already selected via `blocks use`, so its `flows/` can proceed straight to its own commands.
+- Building a frontend from scratch → resolve the app's public OIDC client first, then scaffold:
+  - `blocks auth oidc-clients list --json` — check whether a client already registered for this project fits. If none fits, create one directly (no portal visit needed): `blocks auth oidc-clients save --client-display-name <appName> --redirect-uris https://<domain>:5173/login/callback --scope "openid profile" --require-pkce --register-as-identity-provider --dry-run --json`, then re-run with `--yes` after showing the dry-run output and getting approval. See the blocks-iam-sso-oidc-configuration skill for the full decision tree and field-level gotchas.
+  - `blocks new web <name> --x-blocks-key <tenantId> --app-domain <domain> --blocks-api-url https://api.seliseblocks.com --client-id <the-resolved-client-id>`. **Always pass `--client-id` and `--app-domain` explicitly** — omitting either drops `new web` into an interactive pick-list prompt with no non-interactive escape (not even to "skip"), which hangs a scripted/agent run with no stdin to answer it.
+- Defining data / CRUD / localization / release on an existing project → hand off to the matching skill; the project is already selected via `blocks use`, so its commands can proceed directly.
 
 ## Gotchas
 
-- **Only one OIDC client matters here, and it's not the CLI's.** The CLI authenticates itself with no setup — nothing to register, nothing portal-only about `blocks login` itself, and nothing about how it does so to look up or mention. The only OIDC client a user registers is the scaffolded app's *public* browser client for its own end-user login (Step 3, `new web --client-id`) — that registration is portal-only and human-driven, same rule as all identity-provider provisioning on this platform. Don't tell a user they need to register anything before `blocks login` will work.
+- **Only one OIDC client matters here, and it's not the CLI's.** The CLI authenticates itself with no setup — nothing to register, nothing portal-only about `blocks login` itself, and nothing about how it does so to look up or mention. The only OIDC client involved is the scaffolded app's *public* browser client for its own end-user login (Step 3) — and that no longer requires the portal either: `blocks auth oidc-clients list`/`save` resolve or create it entirely through the CLI on the project's impersonated token. The portal remains available if the user prefers it, but it's an alternative, not a requirement. Don't tell a user they need to register anything before `blocks login` will work, and don't send them to the portal for the app's OIDC client by default.
+- **`blocks new web` hangs a non-interactive run if `--client-id` or `--app-domain` is omitted** — it drops into an interactive pick-list (even to offer "skip") with no stdin to answer it in an agent-driven session. Always resolve both explicitly first (Step 3) rather than omitting either and hoping for a graceful default.
 - **Never open, read, print, or expose the CLI's local storage files** (its config/token/secret files on disk) or anything inside them — client ids, root tenant id, account names, tokens. Only ever interact with them through `blocks` commands, never by inspecting the files directly. `auth status`/`doctor` only ever report token state (`missing`/`valid`/`expired`), never the value.
-- **Known CLI error codes and fixes** (from the CLI's own error handling): `not_logged_in` → `blocks login`; `refresh_token_rejected` → `blocks login`; unreadable/stale local auth storage → `blocks auth remove <account>` then `blocks login`; `project_not_selected` → `blocks use <x-blocks-key>`; `api_auth_failed` → `blocks auth status --json` then log in again.
-- **`--dry-run` before `--yes`** on every mutating command (`projects create`, `data schema push`/`data rules deploy`, `localization push`, `release deploy`) — this skill's project creation is the first place that pattern shows up; it recurs in every other skill.
+- **Known CLI error codes and fixes** (from the CLI's own error handling): `not_logged_in` → `blocks login`; `refresh_token_rejected` → `blocks login`; unreadable/stale local auth storage → `blocks auth remove <account>` then `blocks login`; `project_not_selected` → `blocks use <x-blocks-key>` (or pass `--project <tenantId>` for a single one-off command); `api_auth_failed` → `blocks auth status --json` then log in again; `impersonation_invalid_client` → not a stale-token problem, the account's OIDC client isn't registered for impersonation — check `blocks auth config get` and have an admin register it, `login`/`deselect`+`use` won't fix this one.
+- **`--dry-run` before `--yes`** on every mutating command (`auth oidc-clients save`, `data schema push`/`data rules deploy`, `localization push`, `release deploy`) — this recurs in every skill that mutates project state.

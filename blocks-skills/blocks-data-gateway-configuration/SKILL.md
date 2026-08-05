@@ -1,13 +1,13 @@
 ---
 name: blocks-data-gateway-configuration
-description: "Configure the data model of a SELISE Blocks project through the blocks CLI — never raw fetch/curl against api.seliseblocks.com. Covers the tenant's data-source configuration (blocks data config get/create/update — check this FIRST, defaults to Blocks-managed storage), validating and pushing schemas (data schema list/pull/push, plus granular data schema get/get-by-name/aggregation/change-logs/delete/fields/info *), deploying data-access policies (data rules pull/deploy, plus single-item data rules policy get/delete), field-level validation rules (data validation list/get/by-schema/by-schema-field/save/delete), and reloading so changes go live (data reload). Use whenever the user wants to define, edit, secure, validate, or reload the DATA MODEL of a Blocks project — 'add a field to my schema', 'push my schema changes', 'set data-access policies', 'add a validation rule to a field', 'reload the schema', 'pull the schemas from the project', 'what database is this project using'. Also clarifies what this skill does NOT cover: mock-data cleanup and cross-project schema export/import have no CLI or SDK support today (portal-only if available at all) — do not invent commands for them. AI-assisted regex field validation is the one exception that goes through the @seliseblocks/client SDK instead of the CLI. This is the admin/config half; for GraphQL CRUD against the resulting schemas from app code, that's a job for @seliseblocks/client directly (not covered by this skill)."
+description: "Configure a SELISE Blocks project's data model via the blocks CLI — never raw fetch/curl against api.seliseblocks.com. Covers data-source config (data config get/create/update), schema authoring and push (data schema list/pull/push, plus granular get/fields/info commands), data-access policies (data rules pull/deploy/policy), field-level validation rules (data validation *), and reloading so changes go live (data reload, or the composed data sync). Use for defining, editing, securing, validating, or reloading a project's DATA MODEL — schema fields, access policies, and validation rules."
 ---
 
 # Blocks Data — Gateway Configuration
 
 The Data schema/rules model of a Blocks project is configured entirely through the `blocks` CLI now — there is no supported reason to hand-roll `fetch`/`curl` calls against `api.seliseblocks.com/data/v4` anymore. The CLI reads and writes local files under `blocks/data/` and talks to the Data service for you.
 
-**Prerequisite:** `blocks init` has been run (creates `blocks/data/schemas/` and `blocks/data/rules.json`) and a project is selected (`blocks use <tenantId>`). If either is missing, or auth state is unknown, run the **[blocks-onboarding](../blocks-onboarding/SKILL.md)** skill first — it covers `auth status` probing, login, and project selection in detail; this skill assumes that's already done.
+**Prerequisite:** `blocks init` has been run (creates `blocks/data/schemas/` and `blocks/data/rules.json`) and a project is selected (`blocks use <tenantId>`). If either is missing, or auth state is unknown, run the blocks-onboarding skill first — it covers `auth status` probing, login, and project selection in detail; this skill assumes that's already done.
 
 ## Check the data-source configuration first
 
@@ -26,6 +26,8 @@ blocks data config create --connection-string "<connection string>" --database-n
 blocks data config update --item-id <id> --connection-string "<new connection string>" --dry-run --json
 blocks data config update --item-id <id> --connection-string "<new connection string>" --yes --json
 ```
+
+`data config update` also takes `--database-name`, `--collection-name-pattern`, and `--collection-name-editable` (boolean) — use these to rename the target database or adjust how collection names are derived/whether they're editable, on an existing configuration (`--item-id` required either way).
 
 Treat `--connection-string` as a secret: never print it back unredacted, and don't log it outside the command's own `--dry-run` preview (which redacts it).
 
@@ -58,12 +60,21 @@ Pulling before editing avoids clobbering schema changes someone else made in the
    ```bash
    blocks data schema push --yes --json
    ```
-   This is mutating — POST for new schemas, PUT for existing ones (`/data/v4/schemas/define` under the hood). Never skip straight to `--yes`.
+   This is mutating — it creates new schemas and updates existing ones in a single call. Never skip straight to `--yes`.
 6. **Reload so it goes live.** Schema/rule edits are staged until reload succeeds — the runtime gateway doesn't see them before this:
    ```bash
    blocks data reload --dry-run --json
    blocks data reload --yes --json
    ```
+
+**Shortcut — recommended default:** steps 3–6 above (validate → schema push → rules deploy → reload) are exactly what `blocks data sync` automates behind a single confirmation:
+
+```bash
+blocks data sync --dry-run --json
+blocks data sync --yes --json
+```
+
+Reach for `data sync` first unless the user specifically wants to inspect or run one step at a time — it's also the only way to *guarantee* the reload actually happens: nothing else in this CLI calls `data reload` automatically, so a bare `schema push` (or `rules deploy`) without a following `data reload` can leave changes staged but not live. Keep the manual step-by-step above for cases where you want to push schema without touching rules, or need to stop and inspect a dry-run at an individual step.
 
 ## Workflow: data-access policies / schema security
 
@@ -78,6 +89,8 @@ blocks data rules deploy --yes --json         # apply, after approval
 blocks data reload --dry-run --json           # then reload so it's live
 blocks data reload --yes --json
 ```
+
+**Shortcut:** `blocks data sync --dry-run --json` then `--yes --json` runs validate → schema push → rules deploy → reload together in one confirmed step (see the schema workflow above for the full explanation) — use it instead of the manual deploy+reload above unless you need to run/inspect these steps individually.
 
 `data rules deploy` applies schema security and data-access policies together — there's no finer-grained CLI split between "field access level" and "policy rule"; both live in `rules.json`.
 
@@ -143,7 +156,7 @@ Two things the old, pre-CLI version of this skill used to handle no longer have 
 - **Mock/sample data cleanup.** There is no `blocks data mock*` command, and the SDK's `data.utilities.mockData()` (in `@seliseblocks/client`) is **read-only** — it inventories mock data, it does not delete it. If a user asks to "wipe the demo data" or "clean up sample records," tell them plainly: this isn't exposed in the current CLI or SDK. Check whether the OS portal (`https://os.seliseblocks.com`) has a Data-section control for it; if not, there's no way to do this today short of deleting real records through generated GraphQL mutations one at a time, which is not the same thing and should not be presented as equivalent.
 - **Schema export/import between projects** (e.g. cloning a dev project's data model into staging). No CLI command and no SDK method exist for this. If a user wants to copy a data model between projects, the honest answer is: not supported by current tooling. Check the OS portal for a manual option; otherwise the only fallback is manually recreating schemas in the target project's `blocks/data/schemas/` and pushing them — which is a manual reconstruction, not a real export/import, and should be described as such.
 
-Don't guess at endpoint paths or reconstruct the old skill's HTTP calls for either of these — that old skill (`blocks-skills/skills/blocks-data-gateway-configuration/`) is retained purely as historical reference and its REST patterns are not the tooling this project uses anymore.
+Don't guess at a raw API call to work around either gap — there is no supported path today, full stop.
 
 ## The one thing that goes through the SDK, not the CLI
 

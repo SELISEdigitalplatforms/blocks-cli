@@ -36,11 +36,11 @@ export type BlocksCliConfig = {
   selectedProject?: BlocksProjectSelection;
 };
 
-const BAD_GATEWAY_OS_URL = "https://api.seliseblocks.com/os/v4";
-const DEFAULT_API_URL = "https://os.seliseblocks.com";
+const BAD_GATEWAY_OS_URL = "https://os.seliseblocks.com";
+const DEFAULT_API_URL = "https://api.seliseblocks.com";
 const DEFAULT_OS_CLIENT_ID = "4a633b13-1108-4fbf-84fd-b196c9dcdee2";
 const DEFAULT_OIDC_URL = "https://iam.seliseblocks.com";
-const DEFAULT_OS_URL = "https://os.seliseblocks.com";
+const DEFAULT_OS_URL = "https://api.seliseblocks.com";
 const DEFAULT_PROFILE_TIMESTAMP = "2026-01-01T00:00:00.000Z";
 const DEFAULT_ROOT_TENANT_ID = "d7e5554c758541db8a18694b64ef423d";
 const DEFAULT_SCOPE = "openid profile offline_access";

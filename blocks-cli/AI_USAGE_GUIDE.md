@@ -32,6 +32,8 @@ Namespaced commands accept either spaces or colons, e.g. `blocks data schema lis
 - `--project <tenantId>` - use a project tenant for project-scoped commands.
 - `--dry-run` / `--yes` - see Operating Rules below.
 
+Use `blocks --help` (no subcommand) as command ground truth for what exists. Do not probe an individual subcommand with `<command> --help` to check its flags - most subcommands don't recognize `--help` as special and just run their real logic with it as a no-op argument (e.g. `login --help` performs an actual login attempt; `new web <name> --help` runs real arg validation). If you need a subcommand's full flag list, read this guide's section for it or infer from `--dry-run`/error output instead.
+
 ## Operating Rules
 
 - Use `blocks ...` for all supported Blocks OS, IAM, Data, Release, and scaffold operations.
@@ -127,9 +129,9 @@ blocks new web <appName> --x-blocks-key <projectTenantId> --app-domain <appDomai
 ```
 
 `new web` also accepts `--blocks-api-url <url>` and `--oidc-url <url>`, same as `sdk client`
-below. `--blocks-api-url` defaults to the OS control-plane API if omitted - pass the runtime
-Data/IAM/Localization gateway URL explicitly (typically `https://api.seliseblocks.com`) for the
-scaffolded app to work at runtime. `--oidc-url` defaults to `https://iam.seliseblocks.com`.
+below. `--blocks-api-url` defaults to `https://api.seliseblocks.com` if omitted - pass a
+different Data/IAM/Localization/OS gateway URL explicitly only if your project uses a
+non-default one. `--oidc-url` defaults to `https://iam.seliseblocks.com`.
 
 Validate the scaffold:
 
@@ -161,11 +163,11 @@ The generated cert script uses the `selfsigned` Node dependency, so it works fro
 blocks sdk client --x-blocks-key <projectTenantId> --app-domain <appDomainOrUrl> --client-id <publicOidcClientId> --blocks-api-url https://api.seliseblocks.com
 ```
 
-As with `new web`, always pass `--blocks-api-url https://api.seliseblocks.com` explicitly - the default is the OS control-plane API, not the runtime gateway the SDK needs. Passing both `--app-domain` and `--client-id` skips the project lookup entirely, so it needs no CLI login at all - useful for a quick, non-interactive check. Omit either one and it resolves from the selected project instead (auto-picks when there's exactly one match, otherwise lists the options and asks you to pass the flag explicitly - it does not prompt or create anything, since this command is read-only). Use `--json` for the resolved values instead of the snippet.
+As with `new web`, `--blocks-api-url` already defaults to `https://api.seliseblocks.com`; only pass it explicitly if your project uses a different gateway URL. Passing both `--app-domain` and `--client-id` skips the project lookup entirely, so it needs no CLI login at all - useful for a quick, non-interactive check. Omit either one and it resolves from the selected project instead (auto-picks when there's exactly one match, otherwise lists the options and asks you to pass the flag explicitly - it does not prompt or create anything, since this command is read-only). Use `--json` for the resolved values instead of the snippet.
 
 ## Skills
 
-`skill list [--json]` / `skill show <name> [--json]` / `skill add <name> [--dir <path>]` read this package's bundled copy of `blocks-skills/*/SKILL.md` (the conversational agent-context docs referenced in `BLOCKS_AGENT_GUIDE.md`) - local-only, no cloud calls. `skill add` copies one skill's `SKILL.md` into `<dir>/<name>/SKILL.md` (default `./blocks-skills`) in the current directory, for pulling a single skill into a project outside this monorepo. As with any skill file, verify command names against this guide or `blocks --help` before running them - skills are conversational context, not command ground truth.
+`skill list [--json]` / `skill show <name> [--json]` / `skill add <name> [--dir <path>]` read this package's bundled copy of `blocks-skills/*/SKILL.md` - local-only, no cloud calls. `skill add` copies a skill's **entire directory** (`SKILL.md` plus any supporting files, e.g. `flows/*.md`) into `<dir>/<name>/` (default `./blocks-skills`) in the current directory, for pulling a single skill into a project outside this monorepo. `skill list`'s human-readable output (and the "unknown skill" error from `show`/`add`) both point at the full public skill catalog, in case the locally bundled set is out of date. As with any skill file, verify command names against this guide or `blocks --help` before running them - skills are conversational context, not command ground truth.
 
 ## IAM, MFA, and Auth Admin
 
@@ -408,6 +410,19 @@ blocks mail mailbox get <messageId> --json
 
 Treat `--account-password` as a secret; the CLI redacts it in `--dry-run` output but the live response is still yours to protect.
 
+Sending mail is a separate surface, `/logic/v4/Mail/Send` and `/logic/v4/Mail/SendToAny` (not `/os/v4`):
+
+```bash
+blocks mail send --to a@example.com,b@example.com --purpose welcome --language en \
+  --subject-data-context '{"firstName":"Ada"}' --dry-run --json
+blocks mail send --to a@example.com --purpose welcome --language en --yes --json
+
+blocks mail sendtoany --to a@example.com --purpose welcome --language en \
+  --is-test-mail --dry-run --json
+```
+
+`--project-key` defaults to the selected project's tenant id; pass it explicitly only to target a different one. `--attachments`/`--subject-data-context`/`--body-data-context` take raw JSON.
+
 ## Notification
 
 Project-scoped notification channel configuration via `/os/v4/Notification/*`:
@@ -421,6 +436,43 @@ blocks notification delete <itemId> --dry-run --json
 ```
 
 `--channel` and `--type` are raw numeric enum values from the Blocks OS API (`NotifierTypes`, `NotificationReceiverTypes`) — the API does not publish names for them.
+
+## Notifier
+
+Real-time/offline notification sends and inbox reads via `/logic/v4/Notifier/*` — distinct from
+`notification` above, which manages channel *configuration*, not sending:
+
+```bash
+blocks notifier notify --user-ids u1,u2 --response-key status --response-value ok --dry-run --json
+blocks notifier notify --roles admin --denormalized-payload '{"orderId":"123"}' \
+  --save-denormalized-payload-as-object --yes --json
+blocks notifier notify --subscription-filters '[{"context":"orders","actionName":"created","value":"*"}]' --yes --json
+
+blocks notifier list --unread-only --page 1 --page-size 20 --json
+blocks notifier unread --user-id <id> --context orders --action-name created --json
+blocks notifier mark-read <notificationId> --dry-run --json
+blocks notifier mark-all-read --dry-run --json
+```
+
+Target `notify` with at least one of `--user-ids`/`--roles`/`--subscription-filters`. `notifier unread`
+sends its filter as query parameters even though swagger documents that endpoint as GET with a JSON
+body, which the Fetch spec forbids — the CLI and SDK both flatten it into the query string instead.
+
+## Secrets
+
+Generic tenant secret storage via `/os/v4/Secrets/*` (e.g. captcha provider config):
+
+```bash
+blocks secrets get captcha --json
+blocks secrets save --secret-key captcha \
+  --key-value-pairs '{"isEnable":"true","provider":"recaptcha","captchaKey":"...","captchaSecret":"..."}' \
+  --dry-run --json
+blocks secrets save --secret-key captcha --item-id <itemId> --key-value-pairs '{...}' --yes --json
+```
+
+`--key-value-pairs` is a flat JSON object of provider-specific fields — its shape depends entirely on
+`--secret-key` (there's no fixed schema across secrets). `save` is an upsert: omit `--item-id` to
+create, pass it to update. Fields that look like secrets/keys are redacted in `--dry-run` output only.
 
 ## Storage
 

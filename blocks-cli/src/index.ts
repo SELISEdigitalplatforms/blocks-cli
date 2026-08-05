@@ -156,6 +156,8 @@ import { mailConfigList } from "./commands/mail/config/list.js";
 import { mailConfigSave } from "./commands/mail/config/save.js";
 import { mailMailboxGet } from "./commands/mail/mailbox/get.js";
 import { mailMailboxList } from "./commands/mail/mailbox/list.js";
+import { mailSend } from "./commands/mail/send.js";
+import { mailSendToAny } from "./commands/mail/sendtoany.js";
 import { mailTemplateClone } from "./commands/mail/template/clone.js";
 import { mailTemplateDelete } from "./commands/mail/template/delete.js";
 import { mailTemplateGet } from "./commands/mail/template/get.js";
@@ -178,6 +180,13 @@ import { notificationDelete } from "./commands/notification/delete.js";
 import { notificationGet } from "./commands/notification/get.js";
 import { notificationList } from "./commands/notification/list.js";
 import { notificationSave } from "./commands/notification/save.js";
+import { notifierList } from "./commands/notifier/list.js";
+import { notifierMarkAllRead } from "./commands/notifier/mark-all-read.js";
+import { notifierMarkRead } from "./commands/notifier/mark-read.js";
+import { notifierNotify } from "./commands/notifier/notify.js";
+import { notifierUnread } from "./commands/notifier/unread.js";
+import { secretsGet } from "./commands/secrets/get.js";
+import { secretsSave } from "./commands/secrets/save.js";
 import { storageConfigDelete } from "./commands/storage/config/delete.js";
 import { storageConfigGet } from "./commands/storage/config/get.js";
 import { storageConfigList } from "./commands/storage/config/list.js";
@@ -342,10 +351,19 @@ const commands: Partial<Record<string, CommandHandler>> = {
   "mail:template:clone": mailTemplateClone,
   "mail:mailbox:list": mailMailboxList,
   "mail:mailbox:get": mailMailboxGet,
+  "mail:send": mailSend,
+  "mail:sendtoany": mailSendToAny,
   "notification:list": notificationList,
   "notification:get": notificationGet,
   "notification:save": notificationSave,
   "notification:delete": notificationDelete,
+  "notifier:notify": notifierNotify,
+  "notifier:list": notifierList,
+  "notifier:unread": notifierUnread,
+  "notifier:mark-read": notifierMarkRead,
+  "notifier:mark-all-read": notifierMarkAllRead,
+  "secrets:get": secretsGet,
+  "secrets:save": secretsSave,
   "storage:config:list": storageConfigList,
   "storage:config:get": storageConfigGet,
   "storage:config:save": storageConfigSave,
@@ -671,6 +689,17 @@ Mail (/os/v4/Mail/* — project-scoped: requires a selected project, impersonate
   blocks mail mailbox list [--page-number] [--page-size] [--status] [--search]
                               [--start-date] [--end-date] [--inbound] [--json]
   blocks mail mailbox get <messageId> [--json]
+  blocks mail send [--to a,b] [--cc a,b] [--bcc a,b] [--reply-to a,b] [--purpose <p>]
+                              [--language <culture>] [--subject-data-context '<json>']
+                              [--body-data-context '<json>'] [--attachments '<json>']
+                              [--send-phone-number-as-email] [--project-key <key>]
+                              [--body '<json>'|--file <path>] [--dry-run] [--yes] [--json]
+    Send an email through the tenant's default mail configuration
+    (/logic/v4/Mail/Send). --project-key defaults to the selected project.
+  blocks mail sendtoany [same flags as mail send, plus --is-test-mail]
+                              [--dry-run] [--yes] [--json]
+    Same as mail send but via /logic/v4/Mail/SendToAny, which lets the mail
+    provider route the send (e.g. mark it --is-test-mail).
 
 Notification (/os/v4/Notification/* — project-scoped: requires a selected project, impersonated project token only):
   blocks notification list [--page] [--page-size] [--sort-by] [--sort-desc] [--filter] [--json]
@@ -680,6 +709,37 @@ Notification (/os/v4/Notification/* — project-scoped: requires a selected proj
                               [--dry-run] [--yes] [--json]
     Pass --update when saving over an existing notification configuration.
   blocks notification delete <itemId> [--dry-run] [--yes] [--json]
+
+Notifier (/logic/v4/Notifier/* — real-time/offline notification sends and inbox reads;
+          project-scoped: requires a selected project, impersonated project token only.
+          Distinct from 'notification' above, which manages notification channel
+          configuration, not sending):
+  blocks notifier notify [--user-ids a,b] [--roles a,b] [--connection-id <id>]
+                              [--subscription-filters '<json>'] [--denormalized-payload <text>]
+                              [--save-denormalized-payload-as-object] [--response-key]
+                              [--response-value] [--content-available] [--configuration-name]
+                              [--body '<json>'|--file <path>] [--dry-run] [--yes] [--json]
+    Push a notification to specific users/roles, or everyone matching a subscription
+    filter. Target with at least one of --user-ids/--roles/--subscription-filters.
+  blocks notifier list [--unread-only] [--page] [--page-size] [--sort-by] [--sort-desc]
+                              [--filter] [--json]
+    List the signed-in user's notifications (GetNotifications). Read-only.
+  blocks notifier unread [--user-id <id>] [--context <c>] [--action-name <a>] [--value <v>]
+                              [--order-by <1|2>] [--json]
+    Read unread notifications matching a subscription filter. Sent as query
+    parameters even though swagger documents this endpoint as GET with a JSON
+    body -- the Fetch spec forbids a body on GET. Read-only.
+  blocks notifier mark-read <id> [--dry-run] [--yes] [--json]
+  blocks notifier mark-all-read [--dry-run] [--yes] [--json]
+
+Secrets (/os/v4/Secrets/* — project-scoped: requires a selected project, impersonated project
+          token only; generic tenant secret storage, e.g. captcha provider config):
+  blocks secrets get <secretKey> [--page-number 0] [--page-size 10] [--json]
+  blocks secrets save --secret-key <key> [--item-id <id>] --key-value-pairs '<json>'
+                              [--body '<json>'|--file <path>] [--dry-run] [--yes] [--json]
+    Upsert: omit --item-id to create, pass it to update. --key-value-pairs is a flat
+    JSON object of provider-specific fields, e.g.
+    --key-value-pairs '{"isEnable":"true","provider":"recaptcha","captchaKey":"...","captchaSecret":"..."}'.
 
 Storage (/os/v4/Storage/* — project-scoped: requires a selected project, impersonated project token only):
   blocks storage config list [--json]
@@ -1034,9 +1094,9 @@ Scaffold:
     name + redirect URI, active, registered as a Blocks OIDC identity
     provider) on the spot, or skip and register one later from the portal or
     'auth oidc-clients save'.
-    --blocks-api-url defaults to the OS API (os.seliseblocks.com) if omitted -
-    pass the runtime Data/IAM/Localization gateway URL explicitly (typically
-    https://api.seliseblocks.com) for the scaffolded app to work at runtime.
+    --blocks-api-url defaults to https://api.seliseblocks.com if omitted -
+    pass a different Data/IAM/Localization/OS gateway URL explicitly only if
+    your project uses a non-default one.
     --oidc-url defaults to https://iam.seliseblocks.com.
 
 Skills:
