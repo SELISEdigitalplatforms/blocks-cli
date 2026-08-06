@@ -21,3 +21,20 @@ coverage/
 .claude
 device-login.pid
 blocks-session-log.md
+# --- open-source baseline: secrets, build output, local agent files ---
+bin/
+obj/
+build/
+out/
+CLAUDE.md
+AGENTS.md
+GEMINI.md
+QWEN.md
+.cursorrules
+.clinerules
+.windsurfrules
+graphify-out/
+results/
+.sonarqube/
+scripts/scan.sh
+*-secrets.json

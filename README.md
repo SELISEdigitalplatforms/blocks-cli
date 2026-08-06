@@ -34,3 +34,13 @@ npm test
 cd ../blocks-client
 npm test
 ```
+
+## Contributing and security
+
+- Contribution conventions and workflow: [CONTRIBUTING.md](CONTRIBUTING.md)
+- Reporting a vulnerability: [SECURITY.md](SECURITY.md)
+- Community standards: [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md)
+
+## License
+
+Released under the MIT License. See [LICENSE](LICENSE).
