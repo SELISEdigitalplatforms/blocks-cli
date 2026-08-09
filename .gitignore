@@ -21,3 +21,18 @@ coverage/
 .claude
 device-login.pid
 blocks-session-log.md
+
+# --- local AI / scan workspace (do not commit) ---
+graphify-out/
+results/
+.sonarqube/
+scripts/scan.sh
+*-secrets.json
+
+# --- AI agent instruction files (do not commit) ---
+CLAUDE.md
+GEMINI.md
+QWEN.md
+.cursorrules
+.clinerules
+.windsurfrules
