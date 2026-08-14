@@ -123,6 +123,8 @@ const orgs = await blocks.iam.organizations.my();
 const features = await blocks.iam.resources.features();
 ```
 
+`iam.organizations.my()` returns the IAM envelope with `organizations`, not `data`.
+
 ```ts
 const schemas = await blocks.data.schemas.list();
 const schemaInfo = await blocks.data.schemas.infoByName("Student");

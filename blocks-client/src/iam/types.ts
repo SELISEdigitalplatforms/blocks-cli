@@ -61,4 +61,6 @@ export type BlocksGetRoleResponse = BlocksQueryResponse<BlocksRole>;
 export type BlocksGetRolesResponse = BlocksQueryListResponse<BlocksRole>;
 export type BlocksGetOrganizationResponse = BlocksQueryResponse<BlocksOrganization>;
 export type BlocksGetOrganizationsResponse = BlocksQueryListResponse<BlocksOrganization>;
-export type BlocksGetMyOrganizationsResponse = BlocksQueryResponse<BlocksOrganization[]>;
+export type BlocksGetMyOrganizationsResponse = BlocksBaseResponse & {
+  organizations?: BlocksOrganization[];
+};

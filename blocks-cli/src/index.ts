@@ -1101,9 +1101,11 @@ Scaffold:
     name + redirect URI, active, registered as a Blocks OIDC identity
     provider) on the spot, or skip and register one later from the portal or
     'auth oidc-clients save'.
-    --blocks-api-url defaults to https://api.seliseblocks.com if omitted -
-    pass a different Data/IAM/Localization/OS gateway URL explicitly only if
-    your project uses a non-default one.
+    If --blocks-api-url is omitted, it is derived from the app domain:
+    https://blocksapi.<registrable-domain> (for example, app domain
+    https://dqrsf.slsblx.com uses https://blocksapi.slsblx.com). Pass a
+    different Data/IAM/Localization/OS gateway URL explicitly only if your
+    project uses a non-default one.
     --oidc-url defaults to https://iam.seliseblocks.com.
 
 Skills:
@@ -1122,10 +1124,11 @@ SDK:
   blocks sdk client [--app-domain <domain>] [--client-id <oidcClientId>]
                     [--x-blocks-key <tenantId>] [--blocks-api-url <url>] [--oidc-url <url>] [--json]
     Read-only: "I want to use the Blocks SDK -- show me the client." Resolves this
-    project's @seliseblocks/client config (same values 'new web' scaffolds with,
-    using the selected project unless --x-blocks-key overrides it, and the
-    project's registered domain/OIDC client when --app-domain/--client-id are
-    omitted) and prints a ready-to-paste createBlocksClient(...) snippet.
+    project's @seliseblocks/client config using the selected project unless
+    --x-blocks-key overrides it, and the project's registered domain/OIDC client
+    when --app-domain/--client-id are omitted. Its API URL defaults to
+    https://api.seliseblocks.com unless --blocks-api-url is passed.
+    Prints a ready-to-paste createBlocksClient(...) snippet.
     Passing both --app-domain and --client-id skips the project lookup entirely
     (no login required). Never writes a file; to scaffold a new app use 'new web'.
 `);

@@ -389,6 +389,132 @@ test("rich JSON payload commands let scalar flags override body fields without d
   assert.equal(output.request.validations.length, 2);
 });
 
+test("iam roles list sends zero-based backend page and omits empty sort", async () => {
+  const { cwd, configDir } = await makeWorkspace();
+  await writeProjectAuth(configDir);
+  const requests = [];
+  const server = await startJsonServer((request, body) => {
+    requests.push({ body, method: request.method, url: request.url });
+    return { data: [], totalCount: 0 };
+  });
+
+  try {
+    const result = await runAsync([
+      "iam:roles:list",
+      "--page", "1",
+      "--page-size", "10",
+      "--api-url", server.url,
+      "--json"
+    ], { cwd, env: testEnv(configDir, { BLOCKS_SECRET_STORE: "file" }) });
+
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(requests[0].url, "/iam/v4/iam/roles");
+    assert.equal(requests[0].body.page, 0);
+    assert.equal(requests[0].body.pageSize, 10);
+    assert.ok(!("sort" in requests[0].body));
+  } finally {
+    await new Promise((resolveClose) => server.close(resolveClose));
+  }
+});
+
+test("iam permissions list sends sort only with a property", async () => {
+  const { cwd, configDir } = await makeWorkspace();
+  await writeProjectAuth(configDir);
+  const requests = [];
+  const server = await startJsonServer((request, body) => {
+    requests.push({ body, method: request.method, url: request.url });
+    return { data: [], totalCount: 0 };
+  });
+
+  try {
+    const result = await runAsync([
+      "iam:permissions:list",
+      "--sort-by", "Name",
+      "--sort-desc",
+      "--api-url", server.url,
+      "--json"
+    ], { cwd, env: testEnv(configDir, { BLOCKS_SECRET_STORE: "file" }) });
+
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(requests[0].url, "/iam/v4/iam/permissions");
+    assert.equal(requests[0].body.page, 0);
+    assert.deepEqual(requests[0].body.sort, { isDescending: true, property: "Name" });
+  } finally {
+    await new Promise((resolveClose) => server.close(resolveClose));
+  }
+});
+
+test("iam roles assign-permissions resolves resource strings and sends organizationId", async () => {
+  const { cwd, configDir } = await makeWorkspace();
+  await writeProjectAuth(configDir);
+  const requests = [];
+  const server = await startJsonServer((request, body) => {
+    requests.push({ body, method: request.method, url: request.url });
+    if (request.url === "/iam/v4/iam/permissions") {
+      return {
+        data: [
+          { itemId: "perm-add-id", resource: "orders::read" },
+          { itemId: "perm-remove-id", resource: "orders::delete" }
+        ]
+      };
+    }
+    return { isSuccess: true, success: true };
+  });
+
+  try {
+    const result = await runAsync([
+      "iam:roles:assign-permissions",
+      "manager",
+      "--add-permissions", "orders::read,existing-id",
+      "--remove-permissions", "orders::delete",
+      "--organization-id", "org-1",
+      "--api-url", server.url,
+      "--yes",
+      "--json"
+    ], { cwd, env: testEnv(configDir, { BLOCKS_SECRET_STORE: "file" }) });
+
+    assert.equal(result.status, 0, result.stderr);
+    assert.deepEqual(requests.map((item) => item.url), [
+      "/iam/v4/iam/permissions",
+      "/iam/v4/iam/permissions",
+      "/iam/v4/iam/roles/assign-permissions"
+    ]);
+    assert.deepEqual(requests[2].body, {
+      addPermissions: ["perm-add-id", "existing-id"],
+      organizationId: "org-1",
+      removePermissions: ["perm-remove-id"],
+      slug: "manager"
+    });
+  } finally {
+    await new Promise((resolveClose) => server.close(resolveClose));
+  }
+});
+
+test("data schema aggregation rejects page zero before network calls", async () => {
+  const { cwd, configDir } = await makeWorkspace();
+  await writeProjectAuth(configDir);
+  const requests = [];
+  const server = await startJsonServer((request, body) => {
+    requests.push({ body, method: request.method, url: request.url });
+    return { data: {} };
+  });
+
+  try {
+    const result = run([
+      "data:schema:aggregation",
+      "--page", "0",
+      "--api-url", server.url,
+      "--json"
+    ], { cwd, env: testEnv(configDir, { BLOCKS_SECRET_STORE: "file" }) });
+
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /--page must be greater than or equal to 1/);
+    assert.deepEqual(requests, []);
+  } finally {
+    await new Promise((resolveClose) => server.close(resolveClose));
+  }
+});
+
 test("notifier notify dry-run parses comma lists and JSON array flags", async () => {
   const { cwd, configDir } = await makeWorkspace();
   const env = testEnv(configDir, { BLOCKS_SECRET_STORE: "file" });
@@ -766,13 +892,13 @@ test("init uses centralized default API URL", async () => {
   assert.match(envExample, /^VITE_BLOCKS_API_URL=https:\/\/api\.seliseblocks\.com$/m);
 });
 
-test("new web uses centralized default URLs when no API/OIDC overrides are passed", async () => {
+test("new web derives the default API URL from the app domain when no API override is passed", async () => {
   const { cwd, configDir } = await makeWorkspace();
 
   const result = run([
     "new", "web", "dev-app",
     "--x-blocks-key", "dev-project-key",
-    "--app-domain", "https://dev-app.example.test",
+    "--app-domain", "https://dqrsf.slsblx.com",
     "--client-id", "dev-client-id"
   ], {
     cwd,
@@ -781,8 +907,27 @@ test("new web uses centralized default URLs when no API/OIDC overrides are passe
 
   assert.equal(result.status, 0, result.stderr);
   const envFile = await readFile(join(cwd, "dev-app", ".env"), "utf8");
-  assert.match(envFile, /^VITE_BLOCKS_API_URL=https:\/\/api\.seliseblocks\.com$/m);
+  assert.match(envFile, /^VITE_BLOCKS_API_URL=https:\/\/blocksapi\.slsblx\.com$/m);
   assert.match(envFile, /^VITE_BLOCKS_OIDC_URL=https:\/\/iam\.seliseblocks\.com$/m);
+});
+
+test("new web preserves an explicit blocks API URL override", async () => {
+  const { cwd, configDir } = await makeWorkspace();
+
+  const result = run([
+    "new", "web", "override-app",
+    "--x-blocks-key", "dev-project-key",
+    "--app-domain", "https://dqrsf.slsblx.com",
+    "--blocks-api-url", "https://api.override.example.test",
+    "--client-id", "dev-client-id"
+  ], {
+    cwd,
+    env: testEnv(configDir, { BLOCKS_SECRET_STORE: "file" })
+  });
+
+  assert.equal(result.status, 0, result.stderr);
+  const envFile = await readFile(join(cwd, "override-app", ".env"), "utf8");
+  assert.match(envFile, /^VITE_BLOCKS_API_URL=https:\/\/api\.override\.example\.test$/m);
 });
 
 test("json mode emits structured auth errors", async () => {
@@ -976,6 +1121,46 @@ test("sdk:client prints the resolved config and snippet without writing any file
   assert.deepEqual(entries, [], "sdk:client must not write any files");
 });
 
+test("sdk:client keeps the centralized default API URL when no API override is passed", async () => {
+  const { cwd, configDir } = await makeWorkspace();
+  const env = testEnv(configDir, { BLOCKS_SECRET_STORE: "file" });
+
+  const result = run([
+    "sdk:client",
+    "--x-blocks-key", "sdk-test-tenant",
+    "--app-domain", "https://dqrsf.slsblx.com",
+    "--client-id", "sdk-test-client",
+    "--json"
+  ], { cwd, env });
+
+  assert.equal(result.status, 0, result.stderr);
+  assert.deepEqual(JSON.parse(result.stdout), {
+    apiUrl: "https://api.seliseblocks.com",
+    appDomain: "https://dqrsf.slsblx.com",
+    notes: [],
+    oidcClientId: "sdk-test-client",
+    oidcUrl: "https://iam.seliseblocks.com",
+    xBlocksKey: "sdk-test-tenant"
+  });
+});
+
+test("sdk:client preserves an explicit blocks API URL override", async () => {
+  const { cwd, configDir } = await makeWorkspace();
+  const env = testEnv(configDir, { BLOCKS_SECRET_STORE: "file" });
+
+  const result = run([
+    "sdk:client",
+    "--x-blocks-key", "sdk-test-tenant",
+    "--app-domain", "https://dqrsf.slsblx.com",
+    "--client-id", "sdk-test-client",
+    "--blocks-api-url", "https://api.override.example.test",
+    "--json"
+  ], { cwd, env });
+
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(JSON.parse(result.stdout).apiUrl, "https://api.override.example.test");
+});
+
 async function makeWorkspace() {
   const base = await mkdtemp(join(tmpdir(), "blocks-cli-test-"));
   const cwd = join(base, "workspace");
@@ -987,6 +1172,42 @@ async function makeWorkspace() {
 
 async function writeConfig(configDir, config) {
   await writeFile(join(configDir, "config.json"), `${JSON.stringify(config, null, 2)}\n`);
+}
+
+async function writeProjectAuth(configDir) {
+  await writeConfig(configDir, {
+    accounts: {
+      default: {
+        apiUrl: "https://api.example.test",
+        clientId: "client-id",
+        oidcUrl: "https://iam.example.test",
+        rootTenantId: "root-tenant"
+      }
+    },
+    selectedProject: { tenantId: "project-tenant" }
+  });
+  await writeFile(join(configDir, "tokens.json"), `${JSON.stringify({
+    accounts: {
+      default: {
+        account: {
+          accessToken: fakeJwt({ tenant_id: "root-tenant" }),
+          accountTenant: "root-tenant",
+          expiresAt: new Date(Date.now() + 3_600_000).toISOString(),
+          refreshToken: "account-refresh-token",
+          tokenType: "Bearer"
+        },
+        projects: {
+          "project-tenant": {
+            accessToken: fakeJwt({ tenant_id: "project-tenant" }),
+            accountTenant: "root-tenant",
+            expiresAt: new Date(Date.now() + 3_600_000).toISOString(),
+            refreshToken: "project-refresh-token",
+            tokenType: "Bearer"
+          }
+        }
+      }
+    }
+  }, null, 2)}\n`);
 }
 
 async function writeSecretStore(configDir, store) {
