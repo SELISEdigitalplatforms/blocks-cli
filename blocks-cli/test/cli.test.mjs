@@ -281,6 +281,8 @@ test("scaffolded web app depends on @seliseblocks/client and has no custom Block
   const pkg = JSON.parse(await readFile(join(appDir, "package.json"), "utf8"));
   assert.ok(pkg.dependencies["@seliseblocks/client"], "expected a @seliseblocks/client dependency");
   assert.ok(pkg.devDependencies.selfsigned, "expected generated cert script to work without openssl");
+  assert.equal(pkg.scripts["build:dev"], "vite build --mode dev && node scripts/write-release-env.mjs dev");
+  assert.equal(pkg.scripts["build:prod"], "vite build --mode prod && node scripts/write-release-env.mjs prod");
 
   const files = await collectFiles(join(appDir, "src"));
   const contents = await Promise.all(files.map((file) => readFile(file, "utf8")));
@@ -306,6 +308,54 @@ test("scaffolded web app depends on @seliseblocks/client and has no custom Block
   assert.doesNotMatch(envFile, /VITE_BLOCKS_OIDC_CLIENT_SECRET/);
   assert.match(envFile, /^VITE_BLOCKS_OIDC_URL=https:\/\/iam\.seliseblocks\.com$/m);
   assert.match(envFile, /^VITE_BLOCKS_DEV_HOST=demo\.example\.test$/m);
+
+  const gitignore = await readFile(join(appDir, ".gitignore"), "utf8");
+  assert.match(gitignore, /^\.env$/m);
+  assert.match(gitignore, /^env\.\*$/m);
+
+  const dockerfile = await readFile(join(appDir, "Dockerfile"), "utf8");
+  assert.match(dockerfile, /FROM node:22-alpine AS builder/);
+  assert.match(dockerfile, /if \[ -f package-lock\.json \]; then npm ci; else npm install; fi/);
+  assert.match(dockerfile, /ARG ci_build=dev/);
+  assert.match(dockerfile, /ARG VITE_BLOCKS_API_URL/);
+  assert.match(dockerfile, /ARG VITE_BLOCKS_X_BLOCKS_KEY/);
+  assert.match(dockerfile, /ARG VITE_BLOCKS_OIDC_CLIENT_ID/);
+  assert.match(dockerfile, /ENV VITE_BLOCKS_API_URL=\$\{VITE_BLOCKS_API_URL\}/);
+  assert.doesNotMatch(dockerfile, /cp \.env\.example \.env/);
+  assert.match(dockerfile, /npx vite build --mode "\$\{ci_build\}"/);
+  assert.match(dockerfile, /node scripts\/write-release-env\.mjs "\$\{ci_build\}"/);
+  assert.match(dockerfile, /nginxinc\/nginx-unprivileged:1\.29-alpine/);
+
+  const nginx = await readFile(join(appDir, "nginx.conf"), "utf8");
+  assert.match(nginx, /listen 8080;/);
+  assert.match(nginx, /try_files \$uri \$uri\/ \/index\.html;/);
+
+  const envWriter = runNodeScript(["scripts/write-release-env.mjs", "dev"], { cwd: appDir, env });
+  assert.equal(envWriter.status, 0, envWriter.stderr);
+  const releaseEnv = await readFile(join(appDir, "dist", "env.dev"), "utf8");
+  assert.match(releaseEnv, /^VITE_BLOCKS_API_URL=https:\/\/blocksapi\.example\.test$/m);
+  assert.match(releaseEnv, /^VITE_BLOCKS_PROJECT_KEY=test-tenant-key$/m);
+  assert.match(releaseEnv, /^VITE_BLOCKS_X_BLOCKS_KEY=test-tenant-key$/m);
+  assert.match(releaseEnv, /^VITE_BLOCKS_REDIRECT_URI=https:\/\/demo\.example\.test\/login\/callback$/m);
+  assert.match(releaseEnv, /^VITE_BLOCKS_HOSTED_LOGIN=true$/m);
+  assert.doesNotMatch(releaseEnv, /^VITE_.*(SECRET|PTOK|JWT|TOKEN)=/m);
+
+  const injectedEnvWriter = runNodeScript(["scripts/write-release-env.mjs", "prod"], {
+    cwd: appDir,
+    env: {
+      ...env,
+      VITE_BLOCKS_API_URL: "https://release-api.example.test",
+      VITE_BLOCKS_APP_DOMAIN: "https://release.example.test",
+      VITE_BLOCKS_OIDC_CLIENT_ID: "release-client-id",
+      VITE_BLOCKS_X_BLOCKS_KEY: "release-tenant-key"
+    }
+  });
+  assert.equal(injectedEnvWriter.status, 0, injectedEnvWriter.stderr);
+  const injectedReleaseEnv = await readFile(join(appDir, "dist", "env.prod"), "utf8");
+  assert.match(injectedReleaseEnv, /^VITE_BLOCKS_API_URL=https:\/\/release-api\.example\.test$/m);
+  assert.match(injectedReleaseEnv, /^VITE_BLOCKS_PROJECT_KEY=release-tenant-key$/m);
+  assert.match(injectedReleaseEnv, /^VITE_BLOCKS_OIDC_CLIENT_ID=release-client-id$/m);
+  assert.match(injectedReleaseEnv, /^VITE_BLOCKS_REDIRECT_URI=https:\/\/release\.example\.test\/login\/callback$/m);
 
   await assert.rejects(() => readFile(join(appDir, "src/lib/blocks/http.ts"), "utf8"), /ENOENT/, "the generic Blocks fetch wrapper file should not be generated");
 
@@ -1271,6 +1321,15 @@ function fakeJwt(payload) {
 
 function run(args, { cwd, env }) {
   return spawnSync(process.execPath, [bin, ...args], {
+    cwd,
+    encoding: "utf8",
+    env,
+    timeout: 20_000
+  });
+}
+
+function runNodeScript(args, { cwd, env }) {
+  return spawnSync(process.execPath, args, {
     cwd,
     encoding: "utf8",
     env,
