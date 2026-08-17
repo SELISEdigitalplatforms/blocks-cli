@@ -21,12 +21,16 @@ export type TenantAssetResponse = {
   };
 };
 
-// Project metadata (Project/Gets, Project/GetAsset) always uses the account
-// token, never the impersonated project token -- these endpoints operate at
-// the account/tenant-group level, above any single project's own API surface.
+// Project metadata (Project/Gets, Project/GetAsset) is authorized at the
+// account/tenant-group level, above any single project's own API surface --
+// but the platform's permission check rebuilds to the root tenant while
+// impersonating, and the underlying query filters by user id rather than
+// tenant, so the impersonated project session works here too. Prefer it when
+// a project is selected (avoids an extra account-session refresh mid-project
+// work); fall back to the account token when nothing is selected yet.
 export async function listProjectGroups(flags: Record<string, string | boolean>): Promise<ProjectGroupRecord[]> {
   return blocksRequest<ProjectGroupRecord[]>("/os/v4/Project/Gets", {
-    accountAuth: true,
+    preferImpersonatedProjectAuth: true,
     query: { page: 0, pageSize: 100, tenantGroupId: "" },
     ...requestContext(flags)
   });
@@ -64,7 +68,7 @@ export async function getProjectAssets(
   flags: Record<string, string | boolean>
 ): Promise<TenantAssetResponse> {
   return blocksRequest<TenantAssetResponse>("/os/v4/Project/GetAsset", {
-    accountAuth: true,
+    preferImpersonatedProjectAuth: true,
     query: { page: 0, pageSize: 100, tenantGroupId },
     ...requestContext(flags)
   });

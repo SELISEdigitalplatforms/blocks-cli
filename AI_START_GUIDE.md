@@ -8,7 +8,7 @@ Identify which job the user is asking for:
 
 | User situation | Start here | Why |
 |---|---|---|
-| New user, unknown login/project/app state | `blocks skill show blocks-onboarding` | Detects CLI install, login, project selection, `blocks init`, OIDC client, and app scaffold gaps. |
+| New user, unknown login/project/app state | Install/probe first, then `blocks skill show blocks-onboarding` | Do not run onboarding until the CLI exists; then detect login, project selection, `blocks init`, OIDC client, and app scaffold gaps. |
 | Building or changing a Blocks application | `blocks skill list`, then `blocks skill show <relevant-skill>` | Skills own the conversational workflow for app work. |
 | Writing frontend app code with the SDK | `blocks-client/AI_USAGE_GUIDE.md` plus the relevant skill | The client guide owns SDK rules and method map; skills own task flow. |
 | Running CLI/admin/project operations | `blocks-cli/AI_USAGE_GUIDE.md` plus the relevant skill | The CLI guide owns exact flags, command behavior, and failure handling. |
@@ -22,6 +22,21 @@ Install the CLI globally where the agent or developer will run terminal operatio
 ```bash
 npm install -g @seliseblocks/cli-os@latest
 blocks --version
+```
+
+Do not install the global CLI automatically. If `blocks --version` fails with "not recognized" or "command not found", ask the user whether to install it:
+
+```bash
+npm install -g @seliseblocks/cli-os@latest
+```
+
+If the task is maintaining this monorepo instead of operating on a user Blocks app, do not require the global CLI. Use the source checkout after installing/building dependencies:
+
+```bash
+cd blocks-cli
+npm install
+npm run build
+node bin/run.js --version
 ```
 
 Install or update the SDK inside a user application:
@@ -42,13 +57,15 @@ blocks doctor --json
 blocks skill list --json
 ```
 
+If `blocks` is missing, stop the probe and ask before installing the global package. Do not claim the onboarding skill is runnable until the CLI exists.
+
 Do not read local CLI storage files directly. If auth or project state is broken, use CLI commands such as `blocks login`, `blocks auth remove <account>`, `blocks projects list --json`, and `blocks use <tenantId>`.
 
 ## Start From Common Positions
 
 ### I have nothing installed
 
-Read `blocks-cli/AI_USAGE_GUIDE.md`, install the CLI with the command above, verify `blocks --version`, then run:
+Read `blocks-cli/AI_USAGE_GUIDE.md`, ask the user before installing the CLI with the command above, verify `blocks --version`, then run:
 
 ```bash
 blocks skill show blocks-onboarding

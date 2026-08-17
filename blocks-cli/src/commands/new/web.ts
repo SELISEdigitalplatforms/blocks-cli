@@ -2,6 +2,7 @@ import { parseFlags, stringFlag } from "../../lib/args.js";
 import { blocksRequest } from "../../lib/api.js";
 import { confirmMutation } from "../../lib/confirm.js";
 import { defaults, readConfig, writeConfig } from "../../lib/config.js";
+import { apiUrlFromAppDomain } from "../../lib/domains.js";
 import { CliActionableError } from "../../lib/errors.js";
 import { findProjectByTenantId, ProjectRecord } from "../../lib/project-info.js";
 import { promptText, selectFromList } from "../../lib/prompt.js";
@@ -18,9 +19,9 @@ export async function newWeb(argv: string[]): Promise<void> {
   const explicitAppDomain = stringFlag(flags, "app-domain");
   const project = explicitAppDomain ? {} : (await findProjectByTenantId(tenantId, flags)).project;
 
-  const apiUrl = stringFlag(flags, "blocks-api-url", { defaultValue: defaults().apiUrl });
   const oidcUrl = stringFlag(flags, "oidc-url", { defaultValue: defaults().oidcUrl });
   const appDomain = await resolveAppDomain(project, flags);
+  const apiUrl = stringFlag(flags, "blocks-api-url") || apiUrlFromAppDomain(appDomain);
   const oidcClientId = await resolveOidcClientId(tenantId, appDomain, name, flags);
 
   await scaffoldWebProject({

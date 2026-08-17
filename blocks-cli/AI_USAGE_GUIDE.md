@@ -129,9 +129,9 @@ blocks new web <appName> --x-blocks-key <projectTenantId> --app-domain <appDomai
 ```
 
 `new web` also accepts `--blocks-api-url <url>` and `--oidc-url <url>`, same as `sdk client`
-below. `--blocks-api-url` defaults to `https://api.seliseblocks.com` if omitted - pass a
-different Data/IAM/Localization/OS gateway URL explicitly only if your project uses a
-non-default one. `--oidc-url` defaults to `https://iam.seliseblocks.com`.
+below. When `--blocks-api-url` is omitted, the scaffold derives it from the app domain as
+`https://blocksapi.<registrable-domain>`; for example `https://dqrsf.slsblx.com` becomes
+`https://blocksapi.slsblx.com`. Pass `--blocks-api-url` only when targeting a non-default Blocks gateway. `--oidc-url` defaults to `https://iam.seliseblocks.com`.
 
 Validate the scaffold:
 
@@ -163,7 +163,7 @@ The generated cert script uses the `selfsigned` Node dependency, so it works fro
 blocks sdk client --x-blocks-key <projectTenantId> --app-domain <appDomainOrUrl> --client-id <publicOidcClientId> --blocks-api-url https://api.seliseblocks.com
 ```
 
-As with `new web`, `--blocks-api-url` already defaults to `https://api.seliseblocks.com`; only pass it explicitly if your project uses a different gateway URL. Passing both `--app-domain` and `--client-id` skips the project lookup entirely, so it needs no CLI login at all - useful for a quick, non-interactive check. Omit either one and it resolves from the selected project instead (auto-picks when there's exactly one match, otherwise lists the options and asks you to pass the flag explicitly - it does not prompt or create anything, since this command is read-only). Use `--json` for the resolved values instead of the snippet.
+Unlike `new web`, `sdk client` keeps `--blocks-api-url` defaulted to `https://api.seliseblocks.com`; only pass it explicitly if your project uses a different gateway URL. Passing both `--app-domain` and `--client-id` skips the project lookup entirely, so it needs no CLI login at all - useful for a quick, non-interactive check. Omit either one and it resolves from the selected project instead (auto-picks when there's exactly one match, otherwise lists the options and asks you to pass the flag explicitly - it does not prompt or create anything, since this command is read-only). Use `--json` for the resolved values instead of the snippet.
 
 ## Skills
 
@@ -182,7 +182,7 @@ Every other command below is project-scoped: it requires a project already selec
 Command families (run `blocks --help` for the full flag reference on each):
 
 - `iam users *`, `iam email available` - list/get/create/update/activate/deactivate, access grant/revoke, existence and email-availability checks.
-- `iam roles *` - list/get/create/update, assign-permissions, assignable.
+- `iam roles *` - list/get/create/update, assign-permissions, assignable. `assign-permissions` accepts permission resource strings and resolves them to itemIds before sending IAM's id-based mutation.
 - `iam permissions *` - list/get/create/update, by-severity.
 - `iam resources *` - resource groups and feature flags (read-only).
 - `iam organizations *` - list/get/create/update, `my`, and organization config get/save.

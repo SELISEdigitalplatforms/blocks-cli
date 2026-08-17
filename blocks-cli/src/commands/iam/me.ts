@@ -5,8 +5,11 @@ import { parseCommand } from "../../lib/workspace.js";
 
 export async function iamMe(argv: string[] = []): Promise<void> {
   const { flags } = parseCommand(argv);
+  // The server resets to the root tenant's identity for this endpoint
+  // regardless of which token calls it, so the impersonated project session
+  // works fine here too -- prefer it when a project is selected.
   const me = await blocksRequest<unknown>("/iam/v4/iam/me", {
-    accountAuth: true,
+    preferImpersonatedProjectAuth: true,
     ...requestContext(flags)
   });
 

@@ -512,7 +512,9 @@ Auth:
     Device-code login. Prints a verification URL and user code, opens the
     browser to the verification page when possible so you only need to click
     approve, then polls until the device is authorized; stores account access
-    and refresh tokens and auto-refreshes later.
+    and refresh tokens and auto-refreshes later. If a project was previously
+    selected, re-impersonates it automatically; otherwise lists projects and
+    prompts you to run 'blocks use <tenantId>'.
 
   blocks auth status [--json]
     Show only whether account/project access and refresh tokens are missing,
@@ -530,8 +532,9 @@ Auth:
 
 Projects:
   blocks projects list [--json]
-    List accessible Blocks projects via /os/v4/Project/Gets using the account
-    token. Read-only.
+    List accessible Blocks projects via /os/v4/Project/Gets. Uses the
+    impersonated project session when a project is selected, otherwise the
+    account token. Read-only.
 
   blocks projects get [tenantId] [--deployment] [--json]
     Read one project from Project/Gets. Uses selected project when tenantId is
@@ -540,20 +543,24 @@ Projects:
     to resolve its target. Read-only.
 
   blocks use <project-tenant-id>
-    Save the selected project tenant globally and in blocks.json when present.
-    Does not call cloud APIs.
+    Save the selected project tenant globally and in blocks.json when present,
+    then immediately impersonate it. If a different project was selected,
+    stops that impersonation first to reclaim a fresh account refresh token
+    before starting the new one.
 
   blocks deselect
-    Clear the selected project tenant (globally and in blocks.json) and drop
-    its cached impersonation token. Use this to recover when an impersonated
-    project token has expired or failed, then run 'blocks use <tenantId>'
-    again to reselect and re-impersonate.
+    Stop the active impersonation (restoring a fresh account refresh token),
+    then clear the selected project tenant (globally and in blocks.json) and
+    drop its cached impersonation token. Run 'blocks use <tenantId>' again to
+    reselect and re-impersonate.
 
 IAM:
   blocks iam me [--json]
-    Read the current user from IAM using the account token (bootstrapping/CLI
-    operator identity, not a project resource). Every other iam * command below
-    is project-scoped: it requires a selected project and calls IAM using an
+    Read the current user from IAM (bootstrapping/CLI operator identity, not
+    a project resource). Uses the impersonated project session when a project
+    is selected, otherwise the account token -- the server always resolves
+    this to the root identity either way. Every other iam * command below is
+    project-scoped: it requires a selected project and calls IAM using an
     impersonated project token only, never the account token.
 
   Users (/iam/v4/iam/users*):
@@ -1094,9 +1101,11 @@ Scaffold:
     name + redirect URI, active, registered as a Blocks OIDC identity
     provider) on the spot, or skip and register one later from the portal or
     'auth oidc-clients save'.
-    --blocks-api-url defaults to https://api.seliseblocks.com if omitted -
-    pass a different Data/IAM/Localization/OS gateway URL explicitly only if
-    your project uses a non-default one.
+    If --blocks-api-url is omitted, it is derived from the app domain:
+    https://blocksapi.<registrable-domain> (for example, app domain
+    https://dqrsf.slsblx.com uses https://blocksapi.slsblx.com). Pass a
+    different Data/IAM/Localization/OS gateway URL explicitly only if your
+    project uses a non-default one.
     --oidc-url defaults to https://iam.seliseblocks.com.
 
 Skills:
@@ -1115,10 +1124,11 @@ SDK:
   blocks sdk client [--app-domain <domain>] [--client-id <oidcClientId>]
                     [--x-blocks-key <tenantId>] [--blocks-api-url <url>] [--oidc-url <url>] [--json]
     Read-only: "I want to use the Blocks SDK -- show me the client." Resolves this
-    project's @seliseblocks/client config (same values 'new web' scaffolds with,
-    using the selected project unless --x-blocks-key overrides it, and the
-    project's registered domain/OIDC client when --app-domain/--client-id are
-    omitted) and prints a ready-to-paste createBlocksClient(...) snippet.
+    project's @seliseblocks/client config using the selected project unless
+    --x-blocks-key overrides it, and the project's registered domain/OIDC client
+    when --app-domain/--client-id are omitted. Its API URL defaults to
+    https://api.seliseblocks.com unless --blocks-api-url is passed.
+    Prints a ready-to-paste createBlocksClient(...) snippet.
     Passing both --app-domain and --client-id skips the project lookup entirely
     (no login required). Never writes a file; to scaffold a new app use 'new web'.
 `);

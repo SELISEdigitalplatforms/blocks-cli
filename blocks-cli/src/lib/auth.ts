@@ -290,6 +290,62 @@ export async function getImpersonatedProjectSession(accountOverride?: string, te
   return projectSessionFromToken(name, tenantId, next.store.accounts[name]!.projects![tenantId], account.accountTenant);
 }
 
+// Ends the active project impersonation and restores a fresh, refreshable
+// account-level session. The IAM server revokes the account refresh token the
+// moment it's used to start an impersonation (see impersonateProject) and
+// only ever hands back a project-scoped one in exchange -- calling
+// '/impersonation/stop' is the only way to get a new account-level refresh
+// token back. No-ops if no project is selected or nothing was ever
+// impersonated for it.
+export async function stopProjectImpersonation(accountOverride?: string, tenantOverride?: string): Promise<void> {
+  const config = await readConfig();
+  const { name, profile } = getAccountProfile(config, accountOverride);
+  const tenantId = tenantOverride ?? config.selectedProject?.tenantId;
+  if (!tenantId) return;
+
+  const store = await readTokenStore();
+  if (!store.accounts[name]?.projects?.[tenantId]?.refreshToken) return;
+
+  // The stop endpoint requires a currently-valid bearer token to authenticate
+  // the call, so refresh the project session first if it's expiring.
+  const project = await getImpersonatedProjectSession(name, tenantId);
+  const beforeStop = await readTokenStore();
+  const projectToken = beforeStop.accounts[name]?.projects?.[tenantId];
+  if (!projectToken?.refreshToken) return;
+
+  const refreshed = await postStopImpersonation(profile.apiUrl, project.accessToken, project.accountTenant, projectToken.refreshToken);
+
+  const latestConfig = await readConfig();
+  const latestStore = await readTokenStore();
+  const next = applyAccountToken(latestConfig, latestStore, name, profile.clientId, refreshed);
+  const { [tenantId]: _removed, ...remainingProjects } = next.store.accounts[name]?.projects ?? {};
+  next.store.accounts[name] = {
+    ...next.store.accounts[name],
+    projects: remainingProjects
+  };
+
+  await writeConfig(next.config);
+  await writeTokenStore(next.store);
+}
+
+async function postStopImpersonation(apiUrl: string, accessToken: string, accountTenant: string, refreshToken: string): Promise<TokenResponse> {
+  const response = await fetch(new URL("/iam/v4/auth/impersonation/stop", apiUrl), {
+    body: JSON.stringify({ refresh_token: refreshToken }),
+    headers: {
+      Accept: "application/json",
+      Authorization: `Bearer ${accessToken}`,
+      "Content-Type": "application/json",
+      "x-blocks-key": accountTenant
+    },
+    method: "POST"
+  });
+
+  const data = parseJson(await response.text()) as TokenResponse;
+  if (response.ok && !data.error) return data;
+
+  throw new Error(data.error_description ?? data.error ?? `Stop impersonation failed with HTTP ${response.status}`);
+}
+
 export async function revokeCurrentSession(accountOverride?: string): Promise<void> {
   const config = await readConfig();
   const store = await readTokenStore();
