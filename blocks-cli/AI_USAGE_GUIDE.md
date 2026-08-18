@@ -280,13 +280,13 @@ It validates first and hard-fails with no API calls made if schemas or the rules
 - `data schema info list`/`save`/`update` + `data schema fields` - a two-step alternative to `schema push` (create/update schema metadata, then add/update field definitions separately). Prefer the file-oriented `schema push` workflow for normal authoring; use these only for a targeted metadata or field-only change without touching the local schema JSON.
 - `data rules policy get`/`delete` - read or delete one data-access policy without a full `rules pull`/edit/`rules deploy` round-trip.
 - `data validation list`/`get`/`by-schema`/`by-schema-field`/`save`/`delete` - field-level validation rules. No file-oriented workflow exists for these (no local JSON file to pull/push). `save` is an upsert (omit `--item-id` to create, pass it to update) and requires a `validations` array passed via `--body`/`--file` - there's no scalar flag for it, e.g. `--body '{"validations":[{"type":1,"value":"^[0-9]+$","isActive":true}]}'`.
-- `data files *` - DMS/storage: `get`/`get-many`/`info` (read), `presigned-upload-url` + `upload-to-url` (cloud storage, two calls) or `upload-to-local-storage` (one call, local storage), `update-additional-info`, `delete`, `dms-list`/`dms-upload` (folder browsing / registering an uploaded file into a folder), `create-folder`/`delete-folder`.
+- `data files *` - permission-aware storage object tree: upload/download, directory CRUD/move, cursor list/search, versions, copy/move/rename, trash/restore/purge, shared objects, and access policies/inheritance.
 
 Same rules as everywhere else: `--dry-run` before any mutating command, then `--yes` only after explicit approval.
 
 **`--file` means two different things depending on the command.** Everywhere else in this CLI (`--body '<json>'`/`--file <path.json>`), `--file` is a JSON payload file read by `jsonBodyFlag`. On the `data files *` upload commands (`upload-to-url`, `upload-to-local-storage`), `--file` is instead the local binary file to read and upload - there is no JSON payload involved. Don't conflate the two: passing a JSON path to `data files upload-to-local-storage --file` uploads the JSON text as the file's bytes, it does not set a request body.
 
-**Prefer the composed `data files upload` over the manual steps below.** It runs presign → PUT → dms-upload for you (or the one-call local-storage path with `--local-storage`), so the file is both stored and visible in DMS afterward - no copy-pasting `uploadUrl`/`fileId` between commands:
+**Prefer the composed `data files upload` over the manual steps below.** For cloud storage it creates the file/version metadata and PUTs the bytes; for local storage it performs one multipart call. Either path creates the visible object directly—there is no DMS registration step:
 
 ```bash
 blocks data files upload --file ./invoice.pdf --access-modifier Public --dry-run --json
@@ -297,7 +297,8 @@ blocks data files upload --file ./invoice.pdf --local-storage --yes --json   # l
 Manual cloud-storage upload, if you need the intermediate steps for some reason (two calls):
 
 ```bash
-blocks data files presigned-upload-url --name invoice.pdf --access-modifier Public --json
+blocks data files presigned-upload-url --name invoice.pdf --access-modifier Public --dry-run --json
+blocks data files presigned-upload-url --name invoice.pdf --access-modifier Public --yes --json
 # take the returned uploadUrl and fileId, then:
 blocks data files upload-to-url --url "<uploadUrl>" --file ./invoice.pdf --content-type application/pdf --dry-run --json
 blocks data files upload-to-url --url "<uploadUrl>" --file ./invoice.pdf --content-type application/pdf --yes --json
@@ -310,11 +311,15 @@ blocks data files upload-to-local-storage --file ./invoice.pdf --access-modifier
 blocks data files upload-to-local-storage --file ./invoice.pdf --access-modifier Public --yes --json
 ```
 
-Either manual upload path only stores the bytes - it does not make the file appear in a DMS folder. Register it afterward if the user needs that (the composed `data files upload` above already does this step for you):
+Browse the resulting object tree with cursor pagination. Deletion defaults to trash:
 
 ```bash
-blocks data files dms-upload --file-storage-id <fileId> --artifact-name invoice.pdf --dry-run --json
-blocks data files dms-upload --file-storage-id <fileId> --artifact-name invoice.pdf --yes --json
+blocks data files list --parent-id <directoryId> --limit 50 --json
+blocks data files search invoice --directory-id <directoryId> --json
+blocks data files delete <fileId> --dry-run --json
+blocks data files delete <fileId> --yes --json
+blocks data files trash --json
+blocks data files restore <fileId> --dry-run --json
 ```
 
 ## Localization

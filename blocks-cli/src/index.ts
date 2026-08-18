@@ -31,11 +31,7 @@ import { dataValidationDelete } from "./commands/data/validation/delete.js";
 import { dataValidationGet } from "./commands/data/validation/get.js";
 import { dataValidationList } from "./commands/data/validation/list.js";
 import { dataValidationSave } from "./commands/data/validation/save.js";
-import { dataFilesCreateFolder } from "./commands/data/files/create-folder.js";
 import { dataFilesDelete } from "./commands/data/files/delete.js";
-import { dataFilesDeleteFolder } from "./commands/data/files/delete-folder.js";
-import { dataFilesDmsList } from "./commands/data/files/dms-list.js";
-import { dataFilesDmsUpload } from "./commands/data/files/dms-upload.js";
 import { dataFilesGet } from "./commands/data/files/get.js";
 import { dataFilesGetMany } from "./commands/data/files/get-many.js";
 import { dataFilesInfo } from "./commands/data/files/info.js";
@@ -44,6 +40,31 @@ import { dataFilesUpdateAdditionalInfo } from "./commands/data/files/update-addi
 import { dataFilesUpload } from "./commands/data/files/upload.js";
 import { dataFilesUploadToLocalStorage } from "./commands/data/files/upload-to-local-storage.js";
 import { dataFilesUploadToUrl } from "./commands/data/files/upload-to-url.js";
+import {
+  dataFilesAccessGrant,
+  dataFilesAccessList,
+  dataFilesAccessResolve,
+  dataFilesAccessRevoke,
+  dataFilesAccessUpdate,
+  dataFilesCopy,
+  dataFilesCreateVersion,
+  dataFilesDirectoryCreate,
+  dataFilesDirectoryDelete,
+  dataFilesDirectoryGet,
+  dataFilesDirectoryMove,
+  dataFilesDirectoryUpdate,
+  dataFilesInheritance,
+  dataFilesList,
+  dataFilesMove,
+  dataFilesPurge,
+  dataFilesRename,
+  dataFilesRestore,
+  dataFilesSearch,
+  dataFilesShare,
+  dataFilesShared,
+  dataFilesTrash,
+  dataFilesVersions
+} from "./commands/data/files/object-tree.js";
 import { iamMe } from "./commands/iam/me.js";
 import { init } from "./commands/init.js";
 import { localizationAssistantTranslationSuggestion } from "./commands/localization/assistant/translation-suggestion.js";
@@ -246,10 +267,29 @@ const commands: Partial<Record<string, CommandHandler>> = {
   "data:files:upload-to-local-storage": dataFilesUploadToLocalStorage,
   "data:files:update-additional-info": dataFilesUpdateAdditionalInfo,
   "data:files:delete": dataFilesDelete,
-  "data:files:dms-list": dataFilesDmsList,
-  "data:files:dms-upload": dataFilesDmsUpload,
-  "data:files:create-folder": dataFilesCreateFolder,
-  "data:files:delete-folder": dataFilesDeleteFolder,
+  "data:files:list": dataFilesList,
+  "data:files:search": dataFilesSearch,
+  "data:files:trash": dataFilesTrash,
+  "data:files:shared": dataFilesShared,
+  "data:files:restore": dataFilesRestore,
+  "data:files:purge": dataFilesPurge,
+  "data:files:directory-create": dataFilesDirectoryCreate,
+  "data:files:directory-get": dataFilesDirectoryGet,
+  "data:files:directory-update": dataFilesDirectoryUpdate,
+  "data:files:directory-delete": dataFilesDirectoryDelete,
+  "data:files:directory-move": dataFilesDirectoryMove,
+  "data:files:versions": dataFilesVersions,
+  "data:files:create-version": dataFilesCreateVersion,
+  "data:files:copy": dataFilesCopy,
+  "data:files:move": dataFilesMove,
+  "data:files:rename": dataFilesRename,
+  "data:files:access-list": dataFilesAccessList,
+  "data:files:access-grant": dataFilesAccessGrant,
+  "data:files:access-update": dataFilesAccessUpdate,
+  "data:files:access-revoke": dataFilesAccessRevoke,
+  "data:files:access-resolve": dataFilesAccessResolve,
+  "data:files:inheritance": dataFilesInheritance,
+  "data:files:share": dataFilesShare,
   "localization:validate": localizationValidate,
   "localization:push": localizationPush,
   "localization:pull": localizationPull,
@@ -902,26 +942,22 @@ Data:
       Upsert: omit --item-id to create, pass it to update.
     blocks data validation delete <validationId> [--dry-run] [--yes] [--json]
 
-  Files / DMS (/data/v4/Files/* - storage and document management; no SDK required, but see
-                the blocks-data-storage skill if writing this into app code instead of scripting it):
+  Storage object tree (files, directories, discovery, trash, versions, and access):
     blocks data files get <fileId> [--version] [--configuration-name] [--json]
     blocks data files get-many <fileId...>|--file-ids a,b [--configuration-name] [--json]
     blocks data files info [--name] [--tenant-id] [--page] [--page-size] [--sort-by]
                               [--sort-desc] [--json]
-    blocks data files upload --file <localPath> [--name] [--parent-id] [--tags]
+    blocks data files upload --file <localPath> [--name] [--item-id] [--parent-id] [--tags]
                               [--access-modifier Public|Private] [--content-type]
                               [--configuration-name] [--module-name <1-11>] [--local-storage]
                               [--dry-run] [--yes] [--json]
-      Composed flow: presigned-upload-url -> PUT the file -> dms-upload, threading the
-      returned uploadUrl/fileId automatically (content-type is inferred from the file
-      extension if omitted). Pass --local-storage to use the one-call
-      upload-to-local-storage path instead, for local-storage-backed projects.
-    blocks data files presigned-upload-url --name <fileName> [--parent-directory-id]
+      Cloud: create file/version metadata, then PUT bytes to the returned URL. Local:
+      one multipart request. The file appears in the object tree without registration.
+    blocks data files presigned-upload-url --name <fileName> [--item-id] [--parent-directory-id]
                               [--access-modifier Public|Private] [--configuration-name]
                               [--module-name <1-11>] [--meta-data] [--tags]
-                              [--body '<json>'|--file <path>] [--json]
-      Cloud-storage upload, step 1 of 2. Returns an uploadUrl and fileId; PUT the bytes next
-      with data files upload-to-url.
+                              [--body '<json>'|--file <path>] [--dry-run] [--yes] [--json]
+      Mutating cloud step 1: creates metadata/version and returns uploadUrl/fileId.
     blocks data files upload-to-url --url <presignedUrl> --file <localPath>
                               --content-type <type> [--blob-type BlockBlob] [--no-blob-type-header]
                               [--dry-run] [--yes] [--json]
@@ -934,18 +970,44 @@ Data:
     blocks data files update-additional-info <itemId> --additional-properties '<json>'
                               [--dry-run] [--yes] [--json]
     blocks data files delete <fileId> [--configuration-name] [--event-queue-name]
+                              [--permanent]
                               [--dry-run] [--yes] [--json]
-    blocks data files dms-list [--parent-id] [--search] [--configuration-name] [--take]
-                              [--skip] [--json]
-      Combined folder+file listing for a DMS parent ("" = root).
-    blocks data files dms-upload --file-storage-id <id> --artifact-name <name>
-                              [--parent-id] [--tags a,b] [--body '<json>'|--file <path>]
+      Defaults to moving the file to trash; --permanent removes bytes and metadata.
+    blocks data files list [--parent-id] [--module-name <1-11>] [--type directory|file]
+                              [--search] [--cursor] [--limit 1-200] [--json]
+    blocks data files search <query> [--directory-id] [--type directory|file]
+                              [--cursor] [--limit 1-200] [--json]
+    blocks data files trash|shared [--type directory|file] [--cursor] [--limit] [--json]
+    blocks data files restore <resourceId> [--dry-run] [--yes] [--json]
+    blocks data files purge <resourceId> [--dry-run] [--yes] [--json]
+    blocks data files directory-create <name> [--parent-id] [--module-name]
+                              [--description] [--allowed-extensions pdf,docx]
                               [--dry-run] [--yes] [--json]
-      Registers an uploaded file (fileId from presigned-upload-url/upload-to-local-storage)
-      so it appears in a DMS folder. Upload alone does not make a file visible in a folder.
-    blocks data files create-folder <name> [--parent-id] [--description] [--tags a,b]
-                              [--configuration-name] [--dry-run] [--yes] [--json]
-    blocks data files delete-folder <folderId> [--configuration-name]
+    blocks data files directory-get <directoryId> [--json]
+    blocks data files directory-update <directoryId> [--name] [--description]
+                              [--dry-run] [--yes] [--json]
+    blocks data files directory-delete <directoryId> [--permanent]
+                              [--dry-run] [--yes] [--json]
+    blocks data files directory-move <directoryId> [--target-directory-id]
+                              [--dry-run] [--yes] [--json]
+    blocks data files versions <fileId> [--cursor] [--limit 1-100] [--json]
+    blocks data files create-version <fileId> [--configuration-name]
+                              [--dry-run] [--yes] [--json]
+    blocks data files copy <fileId> --target-directory-id <id> [--copy-access-policies]
+                              [--dry-run] [--yes] [--json]
+    blocks data files move <fileId> --target-directory-id <id> [--dry-run] [--yes] [--json]
+    blocks data files rename <fileId> --name <name> [--dry-run] [--yes] [--json]
+    blocks data files access-list|access-resolve <resourceId> [--json]
+    blocks data files access-grant <resourceId> --resource-type Directory|File
+                              --principal-type User|Role|Everyone|Organization
+                              [--principal-id] --permission View|Download|Edit|Delete|Manage|Owner
+                              [--effect Allow|Deny] [--priority] [--expires-at]
+                              [--dry-run] [--yes] [--json]
+    blocks data files access-update <resourceId> --policy-id <id> <same policy flags>
+    blocks data files access-revoke <resourceId> --policy-id <id> [--dry-run] [--yes] [--json]
+    blocks data files inheritance <resourceId> --enabled=true|false [--dry-run] [--yes] [--json]
+    blocks data files share <resourceId> --resource-type <type> --principal-type <type>
+                              [--principal-id] --permission <permission> [--expires-at]
                               [--dry-run] [--yes] [--json]
 
 Localization:

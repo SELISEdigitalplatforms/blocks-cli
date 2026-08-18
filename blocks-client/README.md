@@ -153,11 +153,15 @@ await blocks.data.files.uploadToUrl({
   contentType: file.type
 });
 
-const items = await blocks.data.dms.list({
-  configurationName: "default",
-  parentId: "root",
-  skip: 0,
-  take: 20
+const items = await blocks.data.objects.list({
+  parentDirectoryId: "root",
+  limit: 20
+});
+
+const directory = await blocks.data.directories.create({
+  name: "Contracts",
+  parentDirectoryId: "root",
+  allowedFileExtensions: ["pdf", "docx"]
 });
 ```
 
@@ -177,7 +181,7 @@ const selectedKeys = await blocks.localization.keysByNames({
 - `blocks.auth.idp`: hosted IdP initiate, browser redirect, callback, UI config.
 - `blocks.auth.oidc`: refresh-token and client-credentials token endpoint helpers.
 - `blocks.iam`: current user, users, roles, permissions, resources, organizations, signup settings (`blocks.iam.signupSettings`).
-- `blocks.data`: schema reads, validation reads, GraphQL gateway execution, file/storage helpers, DMS file/folder helpers, runtime collection CRUD.
+- `blocks.data`: schema reads, validation reads, GraphQL gateway execution, file/directory/object-tree storage helpers, and runtime collection CRUD.
 - `blocks.localization`: tenant language/module discovery, UILM dictionary loading, selected key lookup, simple `t()` lookup.
 - `blocks.mfa`: tenant MFA policy read/save, TOTP enrollment, OTP generate/resend/verify, method switch, disable, and backup codes.
 - `blocks.mail`: `send`/`sendToAny` transactional email through the tenant's configured mail provider.
