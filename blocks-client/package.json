@@ -1,6 +1,6 @@
 {
   "name": "@seliseblocks/client",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "description": "Framework-neutral TypeScript client SDK for SELISE Blocks frontend applications.",
   "license": "MIT",
   "type": "module",

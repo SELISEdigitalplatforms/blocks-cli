@@ -1,6 +1,6 @@
 {
   "name": "@seliseblocks/cli-os",
-  "version": "0.2.2",
+  "version": "0.2.3",
   "description": "CLI for SELISE Blocks project setup and configuration.",
   "license": "MIT",
   "type": "module",
