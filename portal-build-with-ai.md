@@ -107,6 +107,7 @@ first, show the user the output, then re-run with `--yes` once they approve:
 ```bash
 blocks auth oidc-clients save \
   --client-display-name <appName> \
+  --client-type public \
   --redirect-uris https://{{APP_HOST}}:5173/login/callback \
   --scope "openid profile" \
   --require-pkce \
@@ -114,8 +115,16 @@ blocks auth oidc-clients save \
   --dry-run --json
 ```
 
-Public PKCE client only. A create response can contain a `client_secret` shown
-once - never print, log, or commit it, and never put a secret in frontend code.
+`--client-type public` is required, not cosmetic: IAM derives
+`tokenEndpointAuthMethod` from it, so omitting it stores a browser client as
+confidential and lets it ask for the `client_credentials` grant. A create
+response can contain a `client_secret` shown once - never print, log, or commit
+it, and never put a secret in frontend code.
+
+`--register-as-identity-provider` also creates the linked identity provider the
+hosted-login flow authenticates against - that part is automatic, nothing else
+to run. If login later redirects nowhere, check that provider with
+`blocks auth idp list --json` before assuming the client is wrong.
 
 ### 5a. New app - scaffold it with the CLI
 

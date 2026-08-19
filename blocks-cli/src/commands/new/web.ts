@@ -164,8 +164,12 @@ async function createOidcClientInteractively(
   const displayName = (await promptText(`OIDC client display name [${appName}]: `)) || appName;
   const redirectUri = (await promptText(`Redirect URI [${defaultRedirect}]: `)) || defaultRedirect;
 
+  // clientType drives IAM's tokenEndpointAuthMethod: omitting it stores this browser
+  // app as confidential ("client_secret_post") and lets it request client_credentials.
+  // The scaffold only ever produces a PKCE SPA, so it is always "public".
   const body = {
     clientDisplayName: displayName,
+    clientType: "public",
     isActive: true,
     redirectUris: [redirectUri],
     registerAsIdentityProvider: true,

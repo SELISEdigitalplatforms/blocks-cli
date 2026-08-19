@@ -805,12 +805,24 @@ Auth Admin (/iam/v4/auth/identity-providers*, /config, /client-credentials, /oid
   blocks auth idp create --provider <p> --provider-type <t> --protocol <proto>
                               --client-id <id> [--client-secret] [--display-name] [--issuer]
                               [--scope] [--redirect-uris a,b] [--active]
+                              [--authorization-url] [--token-url] [--user-info-url]
+                              [--jwks-uri] [--well-known-url] [--response-type]
+                              [--grant-types a,b] [--require-pkce]
+                              [--token-endpoint-auth-method] [--initial-roles a,b]
+                              [--initial-permissions a,b] [--icon]
                               [--body '<json>'|--file <path>] [--dry-run] [--yes] [--json]
-    Rich provider configs (JWKS, private keys, initial roles, etc.) go in --body/--file;
-    the flags above cover the common OAuth/OIDC fields.
+    Apple-specific fields (teamId, keyId, privateKey, appleAudience) go in --body/--file
+    so no private key lands in shell history.
+    IAM's create endpoint stores issuer/jwksUri/wellKnownUrl but drops
+    authorizationUrl/tokenUrl/userInfoUrl -- set those with 'idp update' afterward.
   blocks auth idp update <id> [same flags as create, all optional] [--dry-run] [--yes] [--json]
     provider/providerType/protocol/clientId are immutable: omit them, or echo the
     existing values exactly if you also pass --body/--file.
+    The only endpoint that persists authorizationUrl/tokenUrl/userInfoUrl -- create accepts
+    and drops them, and update never re-runs discovery, so values set here stick. Use it to
+    repair a provider whose authorizationUrl came back null: '/idp/initiate' builds its
+    redirect from that field, so hosted login goes nowhere without it. Read the endpoint
+    values from the tenant's discovery document rather than composing them by hand.
   blocks auth idp delete <id> [--dry-run] [--yes] [--json]
     Irreversible; also deletes the related OIDC client registration.
   blocks auth idp status <id> --active|--active=false [--dry-run] [--yes] [--json]
@@ -847,6 +859,14 @@ Auth Admin (/iam/v4/auth/identity-providers*, /config, /client-credentials, /oid
                               [--body '<json>'|--file <path>] [--dry-run] [--yes] [--json]
     Upsert: omit --item-id to register a new client, pass it to update an existing one.
     The response's client_secret is shown once and is not retrievable again afterward.
+    --client-type is not optional in practice: IAM derives tokenEndpointAuthMethod from it,
+    so omitting it stores a browser/SPA client as confidential ("client_secret_post") and
+    lets it request the client_credentials grant. Pass --client-type public for any
+    PKCE/browser client.
+    --register-as-identity-provider creates the linked identity provider in the same call.
+    Its authorize/token/userinfo/jwks/issuer values are filled from the discovery document
+    at --external-discovery-endpoint; with no discovery endpoint they are left null and the
+    provider's scope is replaced with "openid profile email". Verify with 'auth idp list'.
   blocks auth oidc-clients delete <clientId> [--dry-run] [--yes] [--json]
     Irreversible; revokes all tokens issued to the client.
   blocks auth oidc-clients rotate-secret <clientId> [--dry-run] [--yes] [--json]
