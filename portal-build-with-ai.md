@@ -59,23 +59,29 @@ scaffolding. Never assume a scope silently and start generating.
 The app name and the feature work are the only open questions. The project key
 and domain above are settled - do not ask the user for those.
 
-### 2. Check the CLI
+### 2. Check the CLI version
 
 ```bash
 blocks --version
+npm view @seliseblocks/cli-os version
 ```
 
-If it is missing, ask the user before installing anything globally:
+Run both - installed versus published. Never skip the second one.
 
-```bash
-npm install -g @seliseblocks/cli-os@latest
-```
+- Not installed - ask the user first, then
+  `npm install -g @seliseblocks/cli-os@latest`.
+- Installed older than published - stop, name both versions, recommend the
+  update, and ask before running the same command. Re-check `blocks --version`
+  after.
+- Never install or update without approval. If they decline, say which version
+  they are on: a missing command or flag later is probably that gap.
 
 ### 3. Log in and select this project
 
 ```bash
 blocks login
 blocks auth status --json
+blocks projects list --json
 blocks use {{X_BLOCKS_KEY}}
 blocks projects get --json
 ```
@@ -84,7 +90,10 @@ blocks projects get --json
 code and opens the browser. There is nothing to register and no client id or
 secret to collect for it. Run it yourself so you can read the printed code,
 then verify with `auth status --json` rather than assuming it worked.
-Show the user which project is selected before mutating anything.
+
+After every login, show the user the `projects list` output and ask which
+project to use - {{X_BLOCKS_KEY}} is the expected answer. Run `blocks use` on
+what they pick, and confirm the selection before mutating anything.
 
 ### 4. Resolve the public OIDC client
 
@@ -199,3 +208,9 @@ It creates `blocks.json`, `blocks/data/schemas/`, `blocks/data/rules.json` and
 - Known fixes: `not_logged_in` -> `blocks login`; `project_not_selected` ->
   `blocks use {{X_BLOCKS_KEY}}`; a stuck project token -> `blocks deselect` then
   `blocks use {{X_BLOCKS_KEY}}`.
+- Any token error those do not clear (`auth_repair_required`, `api_auth_failed`,
+  or the same auth failure twice): start over with `blocks logout`, then
+  `blocks login`, then `blocks projects list` - show the list, ask which project,
+  and `blocks use <tenantId>`. Never loop on the failing command.
+- An unknown command or unrecognized flag means an outdated CLI before anything
+  else - re-check step 2 before working around it.
