@@ -8,7 +8,7 @@ This is the AI entry point for the repository.
 
 1. Understand the user's objective.
 2. If the task involves building or modifying a Blocks application (not this monorepo's own source), run `blocks skill list` and pull the relevant skill(s) with `blocks skill show <name>` / `blocks skill add <name>` - start with `blocks-onboarding` if project/login state is unknown. Skills are the ground truth for CLI/SDK usage; don't duplicate that flow here.
-3. If the starting point is unclear, read `AI_START_GUIDE.md` before choosing a package guide or skill.
+3. If the starting point is unclear, read `docs/AI_START_GUIDE.md` before choosing a package guide or skill.
 4. Read the relevant package `AI_USAGE_GUIDE.md` when the task touches a package's own behavior in depth.
 5. Inspect the existing implementation before making changes.
 6. Make the smallest correct change.
@@ -34,11 +34,10 @@ Two different jobs land here, and the rules below apply only to the second one:
 ## Monorepo-only meta-rules (apply regardless of which job above)
 
 * Never open, read, print, or otherwise expose the CLI's local storage files (its config/token/secret files on disk, wherever `blocks doctor --json` says they live) or anything inside them - client ids, root tenant id, account names, tokens. Only ever interact with them through `blocks` commands.
-* After the workspace is confirmed, create or update `blocks-session-log.md` outside the generated project folder, and update it throughout the workflow with goal, cwd, phase, command, key output, decision, and next step; if file writing is unavailable, keep the same log in chat as `Session log`.
 
 ## Documentation Order
 
-1. `AI_START_GUIDE.md` - the routing guide when the agent can start from any state.
+1. `docs/AI_START_GUIDE.md` - the routing guide when the agent can start from any state.
 2. `blocks-skills/` (via `blocks skill list`/`show`/`add`) - the ground truth for CLI/SDK usage flow.
 3. `<package>/AI_USAGE_GUIDE.md` - exact flags, defaults, and failure codes for one package.
 4. Source code - only when maintaining the CLI/SDK packages themselves (see above).

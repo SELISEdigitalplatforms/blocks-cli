@@ -9,7 +9,7 @@ import { parseCommand, selectedProject } from "../../../lib/workspace.js";
 /** Upsert: omit --item-id to register a new OIDC client, pass it to update an existing one. */
 export async function authOidcClientsSave(argv: string[]): Promise<void> {
   const { flags } = parseCommand(argv);
-  const body = {
+  const overrides = {
     ...(await jsonBodyFlag(flags)),
     ...compact({
       allowedMfaMethods: listFlag(flags, "allowed-mfa-methods")?.map(Number),
@@ -38,13 +38,30 @@ export async function authOidcClientsSave(argv: string[]): Promise<void> {
     })
   };
 
+  const projectKey = await selectedProject(flags);
+  const itemId = typeof overrides.itemId === "string" ? overrides.itemId : undefined;
+
+  // Saving an existing client (itemId set) replaces the whole client document
+  // rather than merging -- the portal's own Edit dialog always resubmits every
+  // field, including ones this command wasn't asked to change. Fetch the
+  // current client first so unmentioned fields (redirectUris, scope, PKCE, ...)
+  // survive instead of being reset to defaults. A new client (no itemId) has
+  // no prior state to merge.
+  const current = itemId
+    ? await blocksRequest<Record<string, unknown>>(`/iam/v4/oidc-clients/${encodeURIComponent(itemId)}`, {
+        impersonatedProjectAuth: true,
+        ...requestContext(flags),
+        projectTenantId: projectKey
+      })
+    : {};
+  const body = { ...current, ...overrides };
+
   if (booleanFlag(flags, "dry-run")) {
     writeOutput({ dryRun: true, endpoint: "/iam/v4/oidc-clients", request: redactSecret(body) }, flags);
     return;
   }
 
   await confirmMutation(flags, `Save OIDC client '${body.clientDisplayName ?? body.itemId ?? "(new)"}'. The response's client secret is shown once.`);
-  const projectKey = await selectedProject(flags);
   const result = await blocksRequest<unknown>("/iam/v4/oidc-clients", {
     body,
     impersonatedProjectAuth: true,

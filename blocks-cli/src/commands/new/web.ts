@@ -24,6 +24,15 @@ export async function newWeb(argv: string[]): Promise<void> {
   const apiUrl = stringFlag(flags, "blocks-api-url") || apiUrlFromAppDomain(appDomain);
   const oidcClientId = await resolveOidcClientId(tenantId, appDomain, name, flags);
 
+  if (oidcClientId) {
+    try {
+      await ensureOidcLoginEnabled(tenantId, oidcUrl, flags);
+    } catch (error) {
+      console.warn(`Warning: could not confirm/enable OIDC login on this project's AuthController config: ${(error as Error).message}`);
+      console.warn("Enable it manually: 'blocks auth:config:save --oidc-enabled --project " + tenantId + "', or in the Blocks portal under IAM > Auth Config.");
+    }
+  }
+
   await scaffoldWebProject({
     apiUrl,
     appDomain,
@@ -143,6 +152,47 @@ async function listOidcClientSummaries(tenantId: string, flags: Record<string, s
   return summaries;
 }
 
+// Creating/selecting an OIDC client is not enough for the hosted login flow to
+// work: AuthController separately gates the whole OIDC/IdP path behind
+// isOidcEnabled on the tenant's auth config, off by default. Without this,
+// scaffolded apps 404/error on login until someone flips it manually in the
+// portal (IAM > Auth Config), so check-and-enable it here as part of setup.
+// POST /auth/config replaces the whole config document rather than merging
+// (confirmed against the portal's own save call, which always resends every
+// field) -- sending just `{ isOidcEnabled: true }` would reset every other
+// AuthController setting for this tenant, so the fetched config is spread
+// back in full with only that one field overridden.
+//
+// Turning isOidcEnabled on isn't a single independent flag either: the
+// activation-link flow keys off accountActivationPath, which has to point at
+// the OIDC variant ("oidc/activate/") once OIDC is on, or activation emails
+// break. accountActionBaseUrl (the host those links are built against) has
+// no safe cross-environment default, but this project's own IAM host is
+// already known here as `oidcUrl`, so it's used whenever the tenant doesn't
+// already have one set.
+async function ensureOidcLoginEnabled(tenantId: string, oidcUrl: string, flags: Record<string, string | boolean>): Promise<void> {
+  const config = await blocksRequest<Record<string, unknown>>("/iam/v4/auth/config", {
+    impersonatedProjectAuth: true,
+    projectTenantId: tenantId,
+    ...requestContext(flags)
+  });
+
+  if (config.isOidcEnabled) return;
+
+  await confirmMutation(flags, "Enable OIDC login on this project's AuthController configuration.");
+  await blocksRequest<unknown>("/iam/v4/auth/config", {
+    body: {
+      ...config,
+      accountActionBaseUrl: config.accountActionBaseUrl || oidcUrl,
+      accountActivationPath: "oidc/activate/",
+      isOidcEnabled: true
+    },
+    impersonatedProjectAuth: true,
+    projectTenantId: tenantId,
+    ...requestContext(flags)
+  });
+}
+
 function normalizeList(raw: unknown): unknown[] {
   if (Array.isArray(raw)) return raw;
   if (raw && typeof raw === "object") {
@@ -167,10 +217,15 @@ async function createOidcClientInteractively(
   // clientType drives IAM's tokenEndpointAuthMethod: omitting it stores this browser
   // app as confidential ("client_secret_post") and lets it request client_credentials.
   // The scaffold only ever produces a PKCE SPA, so it is always "public".
+  // isAutoRedirect: the scaffolded login page's startLogin() already navigates
+  // straight to the provider via window.location.assign -- without this flag IAM
+  // shows an interstitial "continue" click on the hosted login page instead of
+  // redirecting immediately, which is dead weight for a flow the SPA already drives.
   const body = {
     clientDisplayName: displayName,
     clientType: "public",
     isActive: true,
+    isAutoRedirect: true,
     redirectUris: [redirectUri],
     registerAsIdentityProvider: true,
     requirePkce: true,

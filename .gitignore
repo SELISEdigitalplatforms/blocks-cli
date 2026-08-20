@@ -20,4 +20,3 @@ coverage/
 .nyc_output/
 .claude
 device-login.pid
-blocks-session-log.md
