@@ -2,7 +2,7 @@
 
 Framework-neutral TypeScript SDK for SELISE Blocks frontend and app-runtime code.
 
-`@seliseblocks/client` gives consumer apps a small, typed wrapper around the Blocks APIs they normally call at runtime: Auth/IAM, Data, Localization, and shared HTTP configuration. Detailed `what / why / how` descriptions are kept on the SDK functions themselves so editors and generated typings show the guidance where developers use the API.
+[`@seliseblocks/client`](https://www.npmjs.com/package/@seliseblocks/client) gives consumer apps a small, typed wrapper around the Blocks APIs they normally call at runtime: Auth/IAM, Data, Localization, and shared HTTP configuration. Detailed `what / why / how` descriptions are kept on the SDK functions themselves so editors and generated typings show the guidance where developers use the API.
 
 Admin/control-plane work belongs in `@seliseblocks/cli-os`: project setup, schema/rules deploy, release deploy, and AI/admin terminal workflows.
 

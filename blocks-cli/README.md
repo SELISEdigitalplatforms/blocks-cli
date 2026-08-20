@@ -2,7 +2,7 @@
 
 CLI for SELISE Blocks Cloud.
 
-- Package: `@seliseblocks/cli-os`
+- Package: [`@seliseblocks/cli-os`](https://www.npmjs.com/package/@seliseblocks/cli-os)
 - Binary: `blocks`
 
 ## Setup
