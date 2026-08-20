@@ -512,6 +512,84 @@ test("sends credentials so IAM's httpOnly session cookie reaches Blocks API and 
   assert.equal(calls[2].credentials, undefined, "external() must not leak Blocks session credentials to third-party URLs");
 });
 
+test("retries once with a fresh token when onUnauthorized recovers from a 401", async () => {
+  const authHeaders = [];
+  const blocks = createBlocksClient({
+    apiUrl: "https://api.seliseblocks.com/",
+    accessToken: () => "stale-token",
+    fetch: async (url, init) => {
+      const auth = new Headers(init?.headers).get("authorization");
+      authHeaders.push(auth);
+      if (auth === "Bearer stale-token") return jsonResponse({ message: "unauthorized" }, 401);
+      return jsonResponse({ ok: true });
+    },
+    onUnauthorized: async () => "fresh-token",
+    xBlocksKey: "tenant-1"
+  });
+
+  const response = await blocks.http.request("/iam/v4/iam/me");
+  assert.deepEqual(response, { ok: true });
+  assert.deepEqual(authHeaders, ["Bearer stale-token", "Bearer fresh-token"]);
+});
+
+test("does not retry when onUnauthorized cannot recover, and leaves the 401 to throw", async () => {
+  let onUnauthorizedCalls = 0;
+  let fetchCalls = 0;
+  const blocks = createBlocksClient({
+    apiUrl: "https://api.seliseblocks.com/",
+    accessToken: () => "dead-token",
+    fetch: async () => {
+      fetchCalls += 1;
+      return jsonResponse({ message: "unauthorized" }, 401);
+    },
+    onUnauthorized: async () => {
+      onUnauthorizedCalls += 1;
+      return undefined;
+    },
+    xBlocksKey: "tenant-1"
+  });
+
+  await assert.rejects(() => blocks.http.request("/iam/v4/iam/me"), /Blocks API 401/);
+  assert.equal(fetchCalls, 1, "no retry attempted without a fresh token");
+  assert.equal(onUnauthorizedCalls, 1);
+});
+
+test("an onUnauthorized that dedupes itself resolves one refresh for concurrent 401s, not one each", async () => {
+  // The SDK never dedupes calls to onUnauthorized on its own -- that's the app's
+  // responsibility (mirroring the scaffold's forceRefreshAccessToken, which guards
+  // refreshAccessToken() behind a shared refreshInFlight promise). This proves that
+  // pattern actually resolves one refresh for a burst of concurrent 401s.
+  let onUnauthorizedCalls = 0;
+  let refreshInFlight;
+  const blocks = createBlocksClient({
+    apiUrl: "https://api.seliseblocks.com/",
+    accessToken: () => "stale-token",
+    fetch: async (url, init) => {
+      const auth = new Headers(init?.headers).get("authorization");
+      if (auth === "Bearer stale-token") return jsonResponse({ message: "unauthorized" }, 401);
+      return jsonResponse({ ok: true, auth });
+    },
+    onUnauthorized: () => {
+      if (!refreshInFlight) {
+        onUnauthorizedCalls += 1;
+        refreshInFlight = new Promise((resolve) => setTimeout(() => resolve("fresh-token"), 5))
+          .finally(() => { refreshInFlight = undefined; });
+      }
+      return refreshInFlight;
+    },
+    xBlocksKey: "tenant-1"
+  });
+
+  const responses = await Promise.all([
+    blocks.http.request("/iam/v4/iam/me"),
+    blocks.http.request("/iam/v4/iam/me"),
+    blocks.http.request("/iam/v4/iam/me")
+  ]);
+
+  assert.equal(onUnauthorizedCalls, 1, "three concurrent 401s should resolve one refresh, not one each");
+  assert.deepEqual(responses.map((r) => r.auth), ["Bearer fresh-token", "Bearer fresh-token", "Bearer fresh-token"]);
+});
+
 function jsonResponse(body, status = 200) {
   return new Response(JSON.stringify(body), {
     headers: { "content-type": "application/json" },
