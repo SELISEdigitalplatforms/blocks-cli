@@ -8,8 +8,8 @@ SELISE Blocks provides a CLI for project setup and administration, a framework-n
 
 | Package | npm | Source | Purpose |
 |---|---|---|---|
-| `@seliseblocks/cli-os` | [npm](https://www.npmjs.com/package/@seliseblocks/cli-os) | [`blocks-cli`](blocks-cli/README.md) | Terminal/admin/AI control plane for auth, projects, scaffolding, Data configuration, Release operations, IAM, MFA, Auth, Mail, Notification, Storage, and bundled skills. |
-| `@seliseblocks/client` | [npm](https://www.npmjs.com/package/@seliseblocks/client) | [`blocks-client`](blocks-client/README.md) | Framework-neutral TypeScript SDK for frontend/runtime access to Auth, IAM, Data, Localization, Mail, MFA, and Notifier APIs. |
+| [`@seliseblocks/cli-os`](https://www.npmjs.com/package/@seliseblocks/cli-os) | [npm](https://www.npmjs.com/package/@seliseblocks/cli-os) | [`blocks-cli`](blocks-cli/README.md) | Terminal/admin/AI control plane for auth, projects, scaffolding, Data configuration, Release operations, IAM, MFA, Auth, Mail, Notification, Storage, and bundled skills. |
+| [`@seliseblocks/client`](https://www.npmjs.com/package/@seliseblocks/client) | [npm](https://www.npmjs.com/package/@seliseblocks/client) | [`blocks-client`](blocks-client/README.md) | Framework-neutral TypeScript SDK for frontend/runtime access to Auth, IAM, Data, Localization, Mail, MFA, and Notifier APIs. |
 
 ## Repository Structure
 
