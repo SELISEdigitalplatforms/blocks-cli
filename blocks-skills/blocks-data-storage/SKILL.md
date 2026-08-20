@@ -1,161 +1,253 @@
 ---
 name: blocks-data-storage
-description: "Store and serve files on a SELISE Blocks project: presigned/local-storage upload, download, folder browsing, tags/metadata, and delete, via the blocks CLI ('data files *') for admin/scripting or the @seliseblocks/client SDK ('data.files'/'data.dms') for in-app upload/download flows. Use for prompts like upload a file and get a download link, attach an image to a record, create a folder, let users download a file, tag or delete an uploaded file. Separate from the data model — schemas/records live in blocks-data-gateway-configuration/-crud; this covers files/DMS only, implementation-mode, SDK-driven."
+description: "Build file and document-management features on SELISE Blocks Data: upload/download, directory trees, cursor-paginated browsing and search, file versions, rename/move/copy, soft delete/trash/restore, sharing, access policies, and inheritance. Use for attachments, file browsers, folders, shared files, permissions, or version history. Use 'blocks data files *' for terminal/admin work and @seliseblocks/client data.files/data.directories/data.objects for app code."
 ---
 
-# Blocks Data — Storage (Files / DMS)
+# Blocks Data — Storage
 
-Storage is DMS (document management system). Two ways to reach it, pick based on what the user is actually doing:
+Treat storage as one permission-aware object tree containing **directories** and **files**. Uploading a new file now creates the file object in that tree; there is no second DMS registration step.
 
-- **`blocks data files *` (CLI)** — admin tasks, one-off scripts, or anything the user is doing from a terminal/agent context rather than inside a running app.
-- **`@seliseblocks/client`'s `data.files` / `data.dms` namespaces (SDK)** — wiring upload/download/browse into actual app code (a React component, a form submit handler).
+Use:
 
-Both surfaces do the same work; which one to use is about *where the code runs*, not a capability gap — unlike some other Data resources, this one has full CLI coverage.
+- **`blocks data files *`** for supported terminal/admin operations.
+- **`@seliseblocks/client`** for app code. Use the shared `blocksClient` created by blocks-onboarding.
+- **blocks-storage-configuration** only to manage the named provider configuration used by `configurationName`.
 
-**Prerequisite:** a project is selected (`blocks use <tenantId>`). For the SDK path, a frontend also needs to be scaffolded. If login/project state is unknown, or there's no app to write SDK code into yet, run the blocks-onboarding skill first — it gets `blocks new web` scaffolding in place (React 18 + TypeScript + Vite + Tailwind + Radix + TanStack Query + a single `@seliseblocks/client` instance). The SDK examples below assume that scaffold's shared client, conventionally exported as `blocksClient` from `src/lib/blocks/client.ts`.
+Select a project first with `blocks use <tenantId>`. If login/project state or the shared client setup is unknown, use blocks-onboarding before this skill.
 
-```ts
-import { blocksClient } from "../lib/blocks/client";
-const { files, dms } = blocksClient.data;
-```
+Store the returned `fileId` in a Data record when attaching a file to domain data. Use blocks-data-gateway-crud for the record mutation.
 
-Store a file here and keep its returned `fileId` in a schema field (see the blocks-data-gateway-crud skill) to associate it with a record.
+## Choose the surface
 
-## CLI quick reference
+The current CLI and SDK follow the backend's file, directory, and object resource groups.
 
 ```bash
-# Cloud storage (pre-signed URL), two steps
-blocks data files presigned-upload-url --name invoice.pdf --access-modifier Public --json
-blocks data files upload-to-url --url "<uploadUrl from above>" --file ./invoice.pdf --content-type application/pdf --yes --json
-
-# Local storage, one step
-blocks data files upload-to-local-storage --file ./invoice.pdf --access-modifier Public --yes --json
-
-# Register the uploaded file in a DMS folder (upload alone doesn't do this)
-blocks data files dms-upload --file-storage-id <fileId> --artifact-name invoice.pdf --yes --json
-
-# Read it back
-blocks data files dms-list --parent-id "" --json
-blocks data files get <fileId> --json
-
-# Folders, metadata, cleanup
-blocks data files create-folder Invoices --yes --json
-blocks data files update-additional-info <fileId> --additional-properties '{"status":"reviewed"}' --yes --json
-blocks data files delete <fileId> --yes --json
+blocks --version
+blocks data files --help
 ```
 
-Same two upload paths as the SDK section below (pick based on the project's storage backend, not per-call), same `--dry-run`-before-`--yes` discipline as every other `blocks` mutation.
+- Use `blocks data files *` for terminal/admin work and inspect `blocks --help` for exact flags.
+- Use `blocksClient.data.files` for bytes, metadata, versions, and file operations.
+- Use `blocksClient.data.directories` for directory create/get/update/delete/move.
+- Use `blocksClient.data.objects` for browse/search/trash/shared/restore/share/access/inheritance.
 
-**Shortcut:** `blocks data files upload --file ./invoice.pdf --yes --json` composes the manual sequence above into one command — presign + PUT + `dms.uploadFiles` registration for cloud storage, or add `--local-storage` for the one-step local-storage path (uploads only, no DMS registration in that case). Same relationship as `data sync` is to the manual schema/rules/reload sequence elsewhere in this skill pack: reach for the manual steps when you need to inspect or reuse an intermediate result (e.g. the presigned URL itself), reach for `upload` when you just want the file stored.
+Legacy `data.dms.*`, `dms-upload`, `dms-list`, `create-folder`, and `delete-folder` wrappers are retired. Uploads need no registration call.
 
-## Two upload paths — pick one per deployment
+## Upload a new file
 
-A project's storage is backed by either cloud object storage (Azure Blob, S3, etc.) or local storage on the Blocks Data host. Which one applies is a property of the project's storage configuration, not something the frontend chooses per call — but the SDK exposes a distinct method for each:
+Choose one path from the project's storage configuration.
 
-| Deployment | Call sequence |
+| Provider category | Sequence |
 |---|---|
-| **Cloud storage** (pre-signed URL) | `files.presignedUploadUrl(...)` → `files.uploadToUrl(...)` |
-| **Local storage** | `files.uploadToLocalStorage(...)` (one call, no presign step) |
+| Cloud object storage | request a pre-signed URL, then PUT the bytes to it |
+| Local/SFTP storage | send one authenticated multipart upload |
 
-Both are followed by the same registration step, `dms.uploadFiles(...)`, if the file needs to show up in a DMS folder.
+Both paths create the file object and initial version directly. Do not call `dms-upload` afterward.
 
-**Where that configuration lives:** `blocks storage config get/list/save/delete` (a separate top-level command group, not `data files`) reads/writes the named storage configuration itself — host, port, credentials, region/endpoint or connection string, and strategy — i.e. which provider a given `configurationName` points at, cloud or local. This skill only covers *using* that config name when uploading; managing the config's own fields is out of scope here — see the blocks-storage-configuration skill.
+### Cloud upload from the CLI
 
-## Step 1a (cloud) — get a pre-signed upload URL
+Prefer the composed command. It previews and confirms both metadata creation and the provider PUT:
 
-```ts
-const presign = await files.presignedUploadUrl({
-  name: "invoice.pdf",
-  contentType: "application/pdf",
-  configurationName: "Default",       // example only — confirm the storage config name for this project
-  moduleName: 3,                      // example only — confirm the module value expected by this project
-  parentDirectoryId: "",              // required — "" for root, or a folder id; never omit/null
-  accessModifier: "Public"            // "Public" (readable without auth) or "Private"
-});
+```bash
+blocks data files upload --file ./invoice.pdf --parent-id <directoryId> \
+  --configuration-name Default --access-modifier Private --dry-run --json
+blocks data files upload --file ./invoice.pdf --parent-id <directoryId> \
+  --configuration-name Default --access-modifier Private --yes --json
 ```
 
-It returns the pre-signed `uploadUrl` plus a `fileId` you'll need for the next steps — the method's return type is `Promise<unknown>`, so read the exact response shape at runtime rather than assuming a typed contract. Note `contentType` in this request is not forwarded to the presign call itself (the normalizer drops it); pass it again to `uploadToUrl` below so the PUT gets the right `Content-Type` header. Treat `configurationName` and `moduleName` values as project-specific unless the tenant's storage configuration says otherwise.
+Use the two explicit commands only when the intermediate upload URL is required:
 
-## Step 1b (cloud) — PUT the binary to that URL
+```bash
+blocks data files presigned-upload-url \
+  --name invoice.pdf \
+  --parent-directory-id <directoryId> \
+  --configuration-name Default \
+  --access-modifier Private \
+  --dry-run --json
+blocks data files presigned-upload-url \
+  --name invoice.pdf \
+  --parent-directory-id <directoryId> \
+  --configuration-name Default \
+  --access-modifier Private \
+  --yes --json
 
-```ts
-await files.uploadToUrl({
-  url: presign.uploadUrl,
-  body: fileBlob,              // Blob | ArrayBuffer | ArrayBufferView | ReadableStream
-  contentType: "application/pdf"
-});
+blocks data files upload-to-url \
+  --url "<uploadUrl>" \
+  --file ./invoice.pdf \
+  --content-type application/pdf \
+  --dry-run --json
+blocks data files upload-to-url \
+  --url "<uploadUrl>" \
+  --file ./invoice.pdf \
+  --content-type application/pdf \
+  --yes --json
 ```
 
-This is the one call in the whole skill that is **provider-direct, not a Blocks API call** — it sends **no `x-blocks-key` and no bearer token**. It PUTs straight to the storage provider's pre-signed URL. If you don't set your own `x-ms-blob-type` header, the SDK adds `x-ms-blob-type: Blockblob` for you (Azure's block-blob upload header); verify that this matches the storage provider and signed-URL policy for the project rather than assuming every provider ignores extra headers.
+The presign response contains `uploadUrl`, `fileId`, and `isSuccess`. The first call creates the file metadata/version; the PUT fills its object-storage key. Handle PUT failure explicitly because it can leave metadata for missing bytes.
 
-## Step 1 (local storage) — the one-call alternative
+When `parentDirectoryId` is empty, the cloud upload resolves `moduleName` to that module's default directory. The backend default is module value `8` (`Default_Construct`), but pass the intended module or a concrete directory id instead of relying on that default.
 
-For local-storage-backed deployments, skip the presign/PUT pair entirely and upload straight through Blocks Data:
+### Cloud upload from app code
 
 ```ts
-await files.uploadToLocalStorage({
+const presign = await blocksClient.data.files.presignedUploadUrl({
   name: "invoice.pdf",
-  file: fileBlob,               // Blob | File
+  parentDirectoryId: directoryId,
   configurationName: "Default",
-  parentDirectoryId: "",
-  accessModifier: "Public",
-  tags: ["invoice", "2026"]
+  accessModifier: "Private",
+  tags: "invoice,2026",
+});
+
+if (!presign || typeof presign !== "object") {
+  throw new Error("Unexpected upload response");
+}
+
+const result = presign as {
+  uploadUrl: string;
+  fileId: string;
+  isSuccess: boolean;
+  errors?: Record<string, string>;
+};
+
+if (!result.isSuccess) throw new Error(JSON.stringify(result.errors));
+
+await blocksClient.data.files.uploadToUrl({
+  url: result.uploadUrl,
+  body: file,
+  contentType: file.type || "application/octet-stream",
 });
 ```
 
-The SDK builds a multipart `FormData` body for you (`File`, `Name`, `ItemId`, `MetaData`, `ParentDirectoryId`, `Tags`, `AccessModifier`, `ConfigurationName`, `AdditionalProperties[key]`) and sends it as a normal authenticated Blocks API call (`x-blocks-key` + bearer, unlike the pre-signed PUT above).
+`uploadToUrl` is provider-direct and sends no bearer token or `x-blocks-key`. The SDK adds Azure's `x-ms-blob-type: Blockblob` header unless overridden; ensure that header matches the signed provider policy.
 
-## Step 2 — register the file in a DMS folder
+### Local-storage upload
 
-Neither upload path above makes a file appear in a document folder by itself — that's a separate registration call:
+```bash
+blocks data files upload-to-local-storage \
+  --file ./invoice.pdf \
+  --parent-directory-id <directoryId> \
+  --configuration-name Default \
+  --access-modifier Private \
+  --dry-run --json
+blocks data files upload-to-local-storage \
+  --file ./invoice.pdf \
+  --parent-directory-id <directoryId> \
+  --configuration-name Default \
+  --access-modifier Private \
+  --yes --json
+```
 
 ```ts
-await dms.uploadFiles({
-  upload: [{
-    fileStorageId: presign.fileId,   // the fileId from presignedUploadUrl (or the equivalent id from uploadToLocalStorage's response)
-    artifactName: "invoice.pdf",
-    parentId: "",                    // "" for root, or a folder id
-    tags: ["invoice"]
-  }]
+const uploaded = await blocksClient.data.files.uploadToLocalStorage({
+  name: file.name,
+  file,
+  parentDirectoryId: directoryId,
+  configurationName: "Default",
+  accessModifier: "Private",
+  tags: ["invoice", "2026"],
 });
 ```
 
-Despite the method's name suggesting a binary upload, this is the DMS *registration* call — the bytes are already stored by Step 1a/1b or Step 1. `upload` is an array, so multiple files can be registered into folders in one call.
+This call creates the file object and uploads version 1 in one request. Unlike cloud presign, an empty local `parentDirectoryId` stays at the top level; it is not resolved through `moduleName`.
 
-## Step 3 — read it back
+## Add a file version
 
-```ts
-const folder = await dms.list({ parentId: "", take: 20 });
-const meta = await files.get(presign.fileId, { configurationName: "Default" });
+Supplying an existing `itemId` to either upload flow creates another version after the caller passes the file's Edit check. For cloud storage, the dedicated command/method returns another pre-signed URL:
+
+```bash
+blocks data files versions <fileId> --limit 25 --json
+blocks data files create-version <fileId> --configuration-name Default --dry-run --json
+blocks data files create-version <fileId> --configuration-name Default --yes --json
 ```
 
-`dms.list` returns the combined folder+file listing for a `parentId` (`""` = root), with `searchKey`/`skip`/`take` for search and paging. The same endpoint is also reachable as `files.listFolder(...)` — they're identical calls, `dms.list` is the more discoverable name for folder-browsing UI. `files.get` confirms a specific upload landed: a successful response with a non-null `url` (download link) and matching `name`/size means the file is stored.
+```ts
+const history = await blocksClient.data.files.versions({ fileId, limit: 25 });
+const next = await blocksClient.data.files.createVersion({ fileId, configurationName: "Default" });
+```
 
-## Other file operations
+Version history is newest-first and cursor-paginated. Use the returned opaque `nextCursor`; the current backend uses the last version number internally, but callers must not construct cursors. Limits are 1–100, default 25.
 
-- **`files.getMany({ fileIds, configurationName })`** — batch read instead of one `files.get` per attachment.
-- **`files.info({ page, pageSize, sort, filter })`** — paged file metadata/listing for storage-browser UIs; unlike `presignedUploadUrl`, the SDK does not remap these field names to PascalCase — pass exactly what your app builds.
-- **`files.updateAdditionalInfo({ itemId, additionalProperties })`** — attach searchable metadata to an uploaded file, e.g. a business reference or workflow status.
-- **`files.delete({ fileId, configurationName?, eventQueueName? })`** — delete a file.
-- **`dms.createFolder({ artifactName, parentId?, configurationName? })`** / **`dms.deleteFolder({ folderId, configurationName? })`** — DMS folder management.
+## Read and download
+
+```bash
+blocks data files get <fileId> --configuration-name Default --json
+blocks data files get <fileId> --version <versionNo> --configuration-name Default --json
+blocks data files get-many <fileId...> --configuration-name Default --json
+```
+
+```ts
+const file = await blocksClient.data.files.get(fileId, {
+  configurationName: "Default",
+  version: 2,
+});
+```
+
+The response includes a download URL plus metadata. Download requires the caller's Download permission. Access-denied reads may deliberately look like missing resources so clients cannot probe hidden object ids.
+
+## Directory and object workflows
+
+For browsing, directories, search, move/copy/rename, trash, sharing, and ACL behavior, read [flows/object-management.md](flows/object-management.md).
+
+## Update custom metadata
+
+```bash
+blocks data files update-additional-info <fileId> \
+  --additional-properties '{"status":"reviewed"}' \
+  --dry-run --json
+blocks data files update-additional-info <fileId> \
+  --additional-properties '{"status":"reviewed"}' \
+  --yes --json
+```
+
+This updates `additionalProperties`; it does not rename, move, tag, or version the file.
+
+## Delete safely
+
+Deletion now distinguishes trash from permanent removal:
+
+- `permanent: false` archives the file or directory so it can be restored.
+- `permanent: true` removes it for good.
+- The backend default is **`true`** when `permanent` is omitted.
+
+The CLI defaults to safe soft deletion. Add `--permanent` only after explicit approval.
+
+```bash
+blocks data files delete <fileId> --dry-run --json
+blocks data files delete <fileId> --yes --json
+blocks data files delete <fileId> --permanent --dry-run --json
+```
+
+In app code, send the choice explicitly: `blocksClient.data.files.delete({ fileId, permanent: false })`.
+
+## Permission model
+
+Every storage request passes two checks:
+
+1. The endpoint permission permits that class of action.
+2. The object ACL permits the action on that specific file/directory.
+
+Capabilities are ordered: `View`, `Download`, `Edit`, `Delete`, `Manage`, `Owner`. Higher capabilities imply lower ones. Directory children inherit ancestor access while `inheritsParentAccess` is true. New files inherit from their directory.
+
+Do not infer permission from a visible button or endpoint grant. Render actions from each object's returned `permissions` flags and still handle 403/404 races.
 
 ## Gotchas
 
-- **Terminal/admin task → CLI (`data files *`); app code → SDK.** Both exist and both are fully supported; don't default to writing a throwaway script against the SDK for something the CLI already does in one command, and don't reach for `blocks` from inside a React component.
-- **`--module-name` / `moduleName` and `--parent-directory-id` / `parentDirectoryId` on the presigned-upload-url call** — optional in the CLI/SDK types, but the underlying endpoint may require them for a given project/storage setup. Confirm the expected module value with the project's storage configuration, and always send a `parentDirectoryId` value (`""` for root) when the endpoint requires a parent folder value — the CLI command defaults it to `""` automatically if you omit `--parent-directory-id`.
-- **The pre-signed PUT is the one call with no Blocks auth.** `uploadToUrl` sends no `x-blocks-key` and no bearer token by design — everything else in this skill (`presignedUploadUrl`, `uploadToLocalStorage`, `dms.*`, `files.get`/`getMany`/`info`/`delete`) is a normal authenticated Blocks API call.
-- **Upload ≠ visible in a folder.** `uploadToUrl`/`uploadToLocalStorage` only gets the bytes stored; call `dms.uploadFiles` afterward if the file needs to appear under a DMS folder.
-- **Most file/DMS methods return `Promise<unknown>`.** The SDK doesn't hand you a typed response for this surface — check the actual JSON shape at runtime (e.g. log the presign response once) rather than assuming field names beyond what's documented here.
-- **`accessModifier`** is `"Public"` (readable without auth) or `"Private"` — decide per file, not per project.
-- Don't confuse this with the data model: a file's `fileId` is just a string you store in a schema field via **blocks-data-gateway-crud**; this skill never touches schemas.
+- Upload now creates the visible file object; legacy DMS registration is wrong and may fail after the bytes were successfully PUT.
+- Cloud presign creates metadata before the provider PUT. Treat the two steps as a recoverable workflow and surface partial failure.
+- A name must contain an allowed extension. Directories may restrict extensions.
+- Names are unique within a directory. File move/copy can fail on a name conflict or extension policy.
+- `Private` is the safe default. Use `Public` only when unauthenticated download is intended.
+- `configurationName` selects an existing provider record; it does not configure storage.
+- Most legacy file SDK methods return `Promise<unknown>`; validate responses at the boundary.
+- Never send Blocks auth headers to a pre-signed provider URL.
+- Never use a raw API call to work around a missing CLI/SDK wrapper; update the client surface first.
 
-## Example trigger prompts
+## Example triggers
 
-- "Upload a PDF and get a download link." → CLI (`data files presigned-upload-url` + `upload-to-url`, or `upload-to-local-storage`) for a one-off; SDK if it's a feature in the app.
-- "Attach an image to this record." (upload via CLI or SDK, then store the `fileId` via blocks-data-gateway-crud)
-- "Let users download this file from the app." → SDK, this is in-app behavior.
-- "Create a folder and list its contents." → `data files create-folder` + `data files dms-list`.
-- "Get a presigned upload URL for a cloud storage upload." → `data files presigned-upload-url`.
-- "This deployment uses local storage — how do I upload a file?" → `data files upload-to-local-storage`.
-- "Tag this uploaded file with a status so it's searchable later." → `data files update-additional-info`.
-- "Delete this file / delete this folder." → `data files delete` / `data files delete-folder`.
+- "Upload this PDF into the Contracts folder."
+- "Build a file browser with folders and search."
+- "Show files shared with the current user."
+- "Move this file to trash and let users restore it."
+- "Add version history and upload a replacement version."
+- "Share this directory with a role and let its children inherit access."
+- "Move, copy, or rename a file."

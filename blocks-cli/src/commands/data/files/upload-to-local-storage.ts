@@ -18,7 +18,7 @@ export async function dataFilesUploadToLocalStorage(argv: string[]): Promise<voi
   const additionalPropertiesRaw = stringFlag(flags, "additional-properties");
 
   if (booleanFlag(flags, "dry-run")) {
-    writeOutput({ dryRun: true, endpoint: "/data/v4/Files/UploadFileToLocalStorage", name, request: { file: filePath } }, flags);
+    writeOutput({ dryRun: true, endpoint: "/data/v4/files/upload-file-to-local-storage", name, request: { file: filePath } }, flags);
     return;
   }
 
@@ -45,7 +45,7 @@ export async function dataFilesUploadToLocalStorage(argv: string[]): Promise<voi
   }
 
   const projectKey = await selectedProject(flags);
-  const result = await blocksRequest<unknown>("/data/v4/Files/UploadFileToLocalStorage", {
+  const result = await blocksRequest<unknown>("/data/v4/files/upload-file-to-local-storage", {
     body: form,
     impersonatedProjectAuth: true,
     ...requestContext(flags),

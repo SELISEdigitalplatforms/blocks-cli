@@ -9,7 +9,7 @@ export async function dataFilesGet(argv: string[]): Promise<void> {
   const fileId = args[0] || stringFlag(flags, "file-id", { required: true });
   const projectKey = await selectedProject(flags);
 
-  const result = await blocksRequest<unknown>("/data/v4/Files/GetFile", {
+  const result = await blocksRequest<unknown>("/data/v4/files/get-file", {
     impersonatedProjectAuth: true,
     ...requestContext(flags),
     projectTenantId: projectKey,

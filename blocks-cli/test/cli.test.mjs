@@ -622,7 +622,7 @@ test("secret-bearing command dry-runs redact secrets while preserving typed fiel
   assert.doesNotMatch(result.stdout, /super-secret/);
 });
 
-test("composed data file upload dry-run plans presign, provider PUT, and DMS registration", async () => {
+test("composed data file upload dry-run plans metadata creation and provider PUT", async () => {
   const { cwd, configDir } = await makeWorkspace();
   const env = testEnv(configDir, { BLOCKS_SECRET_STORE: "file" });
 
@@ -641,9 +641,8 @@ test("composed data file upload dry-run plans presign, provider PUT, and DMS reg
   const output = JSON.parse(result.stdout);
   assert.equal(output.dryRun, true);
   assert.deepEqual(output.steps.map((step) => step.endpoint), [
-    "/data/v4/Files/GetPreSignedUrlForUpload",
-    "PUT <uploadUrl>",
-    "/data/v4/Files/UploadFile"
+    "/data/v4/files/get-pre-signed-url-for-upload",
+    "PUT <uploadUrl>"
   ]);
   assert.deepEqual(output.steps[0].body, {
     accessModifier: "Public",
@@ -653,6 +652,43 @@ test("composed data file upload dry-run plans presign, provider PUT, and DMS reg
     tags: "finance,2026"
   });
   assert.equal(output.steps[1].contentType, "application/pdf");
+});
+
+test("current storage commands dry-run object-tree mutations with safe delete defaults", async () => {
+  const { cwd, configDir } = await makeWorkspace();
+  const env = testEnv(configDir, { BLOCKS_SECRET_STORE: "file" });
+
+  const softDelete = run(["data", "files", "delete", "file-1", "--dry-run", "--json"], { cwd, env });
+  assert.equal(softDelete.status, 0, softDelete.stderr);
+  assert.deepEqual(JSON.parse(softDelete.stdout), {
+    dryRun: true,
+    endpoint: "/data/v4/files/delete-file",
+    request: { fileId: "file-1", permanent: false }
+  });
+
+  const directory = run([
+    "data", "files", "directory-create", "Contracts",
+    "--parent-id", "dir-1",
+    "--allowed-extensions", "pdf,docx",
+    "--dry-run", "--json"
+  ], { cwd, env });
+  assert.equal(directory.status, 0, directory.stderr);
+  assert.deepEqual(JSON.parse(directory.stdout).request, {
+    allowedFileExtensions: ["pdf", "docx"],
+    name: "Contracts",
+    parentDirectoryId: "dir-1"
+  });
+
+  const access = run([
+    "data", "files", "access-grant", "dir-1",
+    "--resource-type", "Directory",
+    "--principal-type", "Role",
+    "--principal-id", "editors",
+    "--permission", "Edit",
+    "--dry-run", "--json"
+  ], { cwd, env });
+  assert.equal(access.status, 0, access.stderr);
+  assert.equal(JSON.parse(access.stdout).endpoint, "/data/v4/objects/grant-access");
 });
 
 test("localization validate accepts nested i18n JSON and reports flattened key count", async () => {

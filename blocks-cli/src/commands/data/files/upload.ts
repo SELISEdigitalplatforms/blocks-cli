@@ -3,7 +3,7 @@ import { basename, extname } from "node:path";
 import { booleanFlag, optionalIntegerFlag, stringFlag } from "../../../lib/args.js";
 import { blocksRequest } from "../../../lib/api.js";
 import { confirmMutation } from "../../../lib/confirm.js";
-import { compact, listFlag } from "../../../lib/json-flag.js";
+import { compact } from "../../../lib/json-flag.js";
 import { writeOutput } from "../../../lib/output.js";
 import { requestContext } from "../../../lib/request-context.js";
 import { parseCommand, selectedProject } from "../../../lib/workspace.js";
@@ -27,10 +27,8 @@ const CONTENT_TYPES: Record<string, string> = {
 };
 
 /**
- * Composed upload: give it a local file, it runs the right sequence of API calls itself --
- * presign + PUT + DMS-register for cloud storage (--local-storage for the single-call
- * local-storage path) -- instead of you chaining presigned-upload-url/upload-to-url/dms-upload
- * (or upload-to-local-storage) by hand.
+ * Composed upload: create the file/version metadata and PUT cloud bytes, or use the
+ * one-call local-storage path. The upload is immediately part of the object tree.
  */
 export async function dataFilesUpload(argv: string[]): Promise<void> {
   const { flags } = parseCommand(argv);
@@ -49,7 +47,7 @@ async function uploadToLocalStorage(filePath: string, name: string, flags: Recor
   const parentDirectoryId = stringFlag(flags, "parent-id") || stringFlag(flags, "parent-directory-id");
 
   if (booleanFlag(flags, "dry-run")) {
-    writeOutput({ dryRun: true, endpoint: "/data/v4/Files/UploadFileToLocalStorage", file: filePath, name }, flags);
+    writeOutput({ dryRun: true, endpoint: "/data/v4/files/upload-file-to-local-storage", file: filePath, name }, flags);
     return;
   }
 
@@ -59,6 +57,8 @@ async function uploadToLocalStorage(filePath: string, name: string, flags: Recor
   form.set("Name", name);
   if (parentDirectoryId) form.set("ParentDirectoryId", parentDirectoryId);
 
+  const itemId = stringFlag(flags, "item-id");
+  if (itemId) form.set("ItemId", itemId);
   const tags = stringFlag(flags, "tags");
   if (tags) form.set("Tags", tags);
   const accessModifier = stringFlag(flags, "access-modifier");
@@ -67,7 +67,7 @@ async function uploadToLocalStorage(filePath: string, name: string, flags: Recor
   if (configurationName) form.set("ConfigurationName", configurationName);
 
   const projectKey = await selectedProject(flags);
-  const result = await blocksRequest<unknown>("/data/v4/Files/UploadFileToLocalStorage", {
+  const result = await blocksRequest<unknown>("/data/v4/files/upload-file-to-local-storage", {
     body: form,
     impersonatedProjectAuth: true,
     ...requestContext(flags),
@@ -84,6 +84,7 @@ async function uploadViaPresignedUrl(filePath: string, name: string, flags: Reco
   const presignBody = compact({
     accessModifier: stringFlag(flags, "access-modifier") || undefined,
     configurationName: stringFlag(flags, "configuration-name") || undefined,
+    itemId: stringFlag(flags, "item-id") || undefined,
     metaData: stringFlag(flags, "meta-data") || undefined,
     moduleName: optionalIntegerFlag(flags, "module-name"),
     name,
@@ -96,9 +97,8 @@ async function uploadViaPresignedUrl(filePath: string, name: string, flags: Reco
       {
         dryRun: true,
         steps: [
-          { body: presignBody, endpoint: "/data/v4/Files/GetPreSignedUrlForUpload" },
-          { contentType, endpoint: "PUT <uploadUrl>", file: filePath },
-          { endpoint: "/data/v4/Files/UploadFile" }
+          { body: presignBody, endpoint: "/data/v4/files/get-pre-signed-url-for-upload" },
+          { contentType, endpoint: "PUT <uploadUrl>", file: filePath }
         ]
       },
       flags
@@ -106,10 +106,10 @@ async function uploadViaPresignedUrl(filePath: string, name: string, flags: Reco
     return;
   }
 
-  await confirmMutation(flags, `Upload '${filePath}' as '${name}' (presign + PUT + DMS register).`);
+  await confirmMutation(flags, `Upload '${filePath}' as '${name}' (create metadata + PUT bytes).`);
   const projectKey = await selectedProject(flags);
 
-  const presigned = await blocksRequest<Record<string, unknown>>("/data/v4/Files/GetPreSignedUrlForUpload", {
+  const presigned = await blocksRequest<Record<string, unknown>>("/data/v4/files/get-pre-signed-url-for-upload", {
     body: presignBody,
     impersonatedProjectAuth: true,
     ...requestContext(flags),
@@ -137,23 +137,7 @@ async function uploadViaPresignedUrl(filePath: string, name: string, flags: Reco
     throw new Error(`Upload PUT ${putResponse.status} ${putResponse.statusText}: ${await putResponse.text().catch(() => "")}`);
   }
 
-  const registered = await blocksRequest<unknown>("/data/v4/Files/UploadFile", {
-    body: {
-      upload: [
-        compact({
-          artifactName: name,
-          fileStorageId: fileId,
-          parentId: parentDirectoryId || undefined,
-          tags: listFlag(flags, "tags")
-        })
-      ]
-    },
-    impersonatedProjectAuth: true,
-    ...requestContext(flags),
-    projectTenantId: projectKey
-  });
-
-  writeOutput({ fileId, registered, uploadUrl }, flags);
+  writeOutput({ fileId, uploadUrl, uploaded: true }, flags);
 }
 
 function firstString(record: Record<string, unknown>, keys: string[]): string | undefined {

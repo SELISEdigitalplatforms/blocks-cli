@@ -16,7 +16,7 @@ export async function dataFilesGetMany(argv: string[]): Promise<void> {
   });
 
   const projectKey = await selectedProject(flags);
-  const result = await blocksRequest<unknown>("/data/v4/Files/GetFiles", {
+  const result = await blocksRequest<unknown>("/data/v4/files/get-files", {
     body,
     impersonatedProjectAuth: true,
     ...requestContext(flags),

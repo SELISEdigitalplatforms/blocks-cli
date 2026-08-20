@@ -1,13 +1,13 @@
 ---
 name: blocks-storage-configuration
-description: "Configure which storage provider (Azure Blob, S3, or local disk) backs a SELISE Blocks project's files: named configurations with host, port, credentials, region/endpoint or connection string, and strategy, via the blocks CLI ('storage config get/list/save/delete'), project-scoped with an impersonated project token. CLI-only admin surface, no SDK equivalent. Use for set up a storage provider, list/inspect storage configs, rotate storage credentials, switch to local storage, delete a config. Uploading/downloading files once configured is blocks-data-storage's job."
+description: "Configure which storage provider (Azure Blob, S3-compatible object storage, or local/SFTP storage) backs a SELISE Blocks project's file object tree: named configurations with host, port, credentials, region/endpoint or connection string, and strategy, via the blocks CLI ('storage config get/list/save/delete'). CLI-only, project-scoped admin surface. Use to create, inspect, rotate, switch, or delete provider configurations; file/directory/object operations belong to blocks-data-storage."
 ---
 
 # Blocks Storage — Configuration
 
-This skill manages the **storage configuration record itself** — which cloud provider (or local disk) a named configuration points at, and the connection details needed to reach it. It does not upload, download, or browse files; that's a separate, project-scoped runtime concern handled by the sibling blocks-data-storage skill (`blocks data files *` CLI, or the SDK's `data.files`/`data.dms` at runtime).
+This skill manages the **storage configuration record itself** — which cloud provider (or local/SFTP storage) a named configuration points at, and the connection details needed to reach it. It does not upload, download, browse, share, version, move, or trash objects; those runtime concerns belong to blocks-data-storage.
 
-**CLI-only, no SDK path.** There is no `@seliseblocks/client` method for reading or writing a storage configuration's own fields — the SDK's role in this area starts *after* a configuration exists (it takes a `configurationName` and uploads/downloads against whatever that config points at). If a user wants to set up, inspect, or change a storage provider, that's this skill's `blocks storage config *` commands; if they want to move bytes, hand off to blocks-data-storage.
+**CLI-only, no SDK path.** There is no `@seliseblocks/client` method for reading or writing a storage configuration's own fields. Runtime storage calls select an existing record by `configurationName`. If the user wants to manipulate a file/directory or its access policies, hand off to blocks-data-storage.
 
 **Prerequisite:** a project is selected (`blocks use <tenantId>`). If login/project state is unknown, run the blocks-onboarding skill first.
 
@@ -78,7 +78,7 @@ blocks storage config delete Default --yes --json
 
 - **`get`/`list` are not redacted.** Only `save --dry-run`'s own preview output redacts `accessKey`/`connectionString`/`password`/`secretKey`. If a `get`/`list` response ever echoes credential fields back, treat that output as sensitive — don't paste it into logs, tickets, or chat verbatim.
 - **`save` is upsert, not separate create/update commands.** Whether a call creates or updates is determined by whether `--item-id` is present, not by a different command name.
-- **This is provider configuration, not file operations.** `blocks storage config *` never touches an actual file's bytes. For "upload a file," "get a download link," "list a folder" — that's **blocks-data-storage** (`blocks data files *` or the SDK), using a `configurationName` that a `storage config` record already defines.
+- **This is provider configuration, not object management.** `blocks storage config *` never touches file bytes, directory hierarchy, versions, trash, sharing, or ACLs. Those belong to **blocks-data-storage**, using a `configurationName` that a storage config already defines.
 - **No positional-or-flag ambiguity trap:** `get`/`delete` accept the configuration name as either the first positional argument or `--name`; only one is required, not both.
 - **Impersonated project token only.** Like `secrets *` and `data config *`, none of these four commands run against the account token — a project must be selected first (`blocks use <tenantId>`).
 
