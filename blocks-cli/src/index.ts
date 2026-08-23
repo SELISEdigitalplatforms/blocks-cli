@@ -877,25 +877,32 @@ Data:
     Validate local blocks/data/schemas/*.json and blocks/data/rules.json before
     pushing. Local-only.
 
-  blocks data schema list [--json]
+  blocks data schema list [--page <n>] [--page-size <n>] [--json]
     List project schemas via /data/v4/schemas using an impersonated project
-    token. Read-only.
+    token. Read-only. Page defaults are 1/100; fails clearly on an unexpected
+    response shape instead of treating it as an empty list.
 
   blocks data schema pull [--json]
-    Download project schemas into blocks/data/schemas/*.json. Writes local files
-    only.
+    Download every project schema (paging through all of them) into
+    blocks/data/schemas/*.json. Strips the API id, project identifiers, and
+    platform-managed fields so the file is portable and re-pushable as-is.
+    Writes local files only.
 
   blocks data schema push [--dry-run] [--yes] [--json]
-    Create or update project schemas via /data/v4/schemas/define. Mutating;
-    uses POST for create and PUT for update.
+    Create or update project schemas via /data/v4/schemas/define. Mutating.
+    Looks up the destination project's schema by name -- never trusts a local
+    id/itemId, which may belong to another project -- and uses PUT with the
+    destination id when found, POST otherwise. Warns when a local id is
+    ignored; fails clearly instead of treating an empty response as success.
 
   blocks data rules pull [--json]
-    Download data-access policies into blocks/data/rules.json. Writes local
-    files only.
+    Download data-access policies into blocks/data/rules.json in the CLI's
+    portable format (schemaName, no itemId/schemaId). Writes local files only.
 
   blocks data rules deploy [--dry-run] [--yes] [--json]
     Apply schema security and data-access policies. Mutating; supports dry-run
-    and confirmation.
+    and confirmation. Resolves each policy's destination schema id and any
+    existing policy id by name -- never reuses a source-project id.
 
   blocks data reload [--dry-run] [--yes] [--json]
     Reload Data schema configuration so staged schema/rule changes become live.
@@ -920,6 +927,9 @@ Data:
 
   Raw Schema API (/data/v4/schemas* - beyond the file-oriented list/pull/push above):
     blocks data schema get <id> [--json]
+      Non-JSON output also prints the schema's exact GraphQL operation names --
+      generated names are naive string concatenation, not English
+      pluralization (e.g. Company -> getCompanys/Companys, not Companies).
     blocks data schema get-by-name <schemaName> [--json]
       Full field-level detail by collection name (info-by-name).
     blocks data schema aggregation [--keyword] [--schema-name] [--collection-name]

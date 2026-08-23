@@ -204,8 +204,8 @@ Validation rules are authored and saved separately via `blocks data validation s
 ## Gotchas
 
 - Pass schema name, not collection name: `Product`, not `Products`.
-- Generated query names pluralize by appending `s`: `getProducts`.
-- Generated mutation names stay singular: `insertProduct`, `updateProduct`, `deleteProduct`.
+- Generated query names pluralize by naive concatenation -- literally appending `s`, not English pluralization: `getProducts`, but `Company` -> `getCompanys`, not `getCompanies`. Never guess a pluralized name; read it from the schema's `querySchema` field (via `data.schemas.get`/`getByName` or `blocks data schema get <id>`) and use `get${querySchema}`.
+- Generated mutation names stay singular: `insertProduct`, `updateProduct`, `deleteProduct`. Bulk variants follow the same pattern but are not listed in `mutationSchemas`: `insertManyProduct`, `updateManyProduct`, `deleteManyProduct`.
 - Dynamic item selections use schema field names such as `ItemId`, `name`, `price`.
 - Mutation response fields are lower camel case: `acknowledged`, `itemId`, `message`, `totalImpactedData`.
 - If GraphQL says the field does not exist, the schema probably has not been created or reloaded.
