@@ -97,10 +97,17 @@ export function toPortableSchema(raw: Record<string, unknown>): SchemaDocument {
  * request DTOs expect `schemaName` -- field names are mapped explicitly rather than
  * spreading the response, and the source project's `itemId`/`schemaId` are dropped
  * since they are meaningless in a different destination project.
+ *
+ * `entityName` has been observed coming back as an empty string against a live
+ * project (the backend appears not to populate it), so `fallbackSchemaName` --
+ * the name the policy was queried by -- is used whenever the response doesn't
+ * supply a usable one.
  */
-export function toPortablePolicy(raw: Record<string, unknown>): PortablePolicy {
+export function toPortablePolicy(raw: Record<string, unknown>, fallbackSchemaName?: string): PortablePolicy {
+  const entityName = typeof raw.entityName === "string" && raw.entityName ? raw.entityName : undefined;
+  const rawSchemaName = typeof raw.schemaName === "string" && raw.schemaName ? raw.schemaName : undefined;
   const policy: PortablePolicy = {
-    schemaName: String(raw.entityName ?? raw.schemaName ?? ""),
+    schemaName: entityName ?? rawSchemaName ?? fallbackSchemaName ?? "",
     policyName: String(raw.policyName ?? "")
   };
   if (typeof raw.policyDescription === "string") policy.policyDescription = raw.policyDescription;

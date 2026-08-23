@@ -898,6 +898,52 @@ test("rules pull stores the policy list from response.data in the CLI's portable
   }
 });
 
+test("rules pull falls back to the queried schema name when the API's entityName comes back empty", async () => {
+  // Observed against a live project: policy/get returns entityName: "" instead of
+  // the schema name, so pull must not silently drop the schema association.
+  const { cwd, configDir } = await makeWorkspace();
+  await writeProjectAuth(configDir);
+
+  const server = await startJsonServer((request) => {
+    const path = request.url.split("?")[0];
+    if (path === "/data/v4/schemas" && request.method === "GET") {
+      return { data: { items: [{ collectionName: "sb_AcceptanceTests", id: "schema-id", schemaName: "AcceptanceTest", schemaType: 1 }], totalCount: 1 }, isSuccess: true };
+    }
+    if (path === "/data/v4/data-access/policy/get" && request.method === "GET") {
+      return {
+        data: [{
+          entityName: "",
+          fieldNames: [],
+          isAllowPolicy: true,
+          itemId: "policy-1",
+          operation: 0,
+          policyDescription: "",
+          policyName: "OwnerOnlyRead",
+          policyType: 0,
+          priority: 0,
+          ruleGroup: { logicalOperator: 0, nestedGroups: [], rules: [] },
+          schemaId: "schema-id"
+        }],
+        isSuccess: true
+      };
+    }
+    return rawResponse(500);
+  });
+
+  try {
+    const result = await runAsync(["data:rules:pull", "--api-url", server.url, "--json"], {
+      cwd,
+      env: testEnv(configDir, { BLOCKS_SECRET_STORE: "file" })
+    });
+
+    assert.equal(result.status, 0, result.stderr);
+    const written = JSON.parse(await readFile(join(cwd, "blocks", "data", "rules.json"), "utf8"));
+    assert.equal(written.policies[0].schemaName, "AcceptanceTest");
+  } finally {
+    await new Promise((resolveClose) => server.close(resolveClose));
+  }
+});
+
 test("rules deploy resolves the destination schema id by name instead of reusing a source-project id", async () => {
   const { cwd, configDir } = await makeWorkspace();
   await writeProjectAuth(configDir);

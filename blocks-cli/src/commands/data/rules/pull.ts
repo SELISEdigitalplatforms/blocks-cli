@@ -27,7 +27,7 @@ export async function dataRulesPull(argv: string[]): Promise<void> {
       query: { schemaName }
     });
     for (const item of unwrapDataArray(response, "data access policy")) {
-      policies.push(toPortablePolicy(item));
+      policies.push(toPortablePolicy(item, schemaName));
     }
   }
 
