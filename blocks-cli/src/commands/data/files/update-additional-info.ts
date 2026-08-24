@@ -13,13 +13,13 @@ export async function dataFilesUpdateAdditionalInfo(argv: string[]): Promise<voi
   const body = { additionalProperties, itemId };
 
   if (booleanFlag(flags, "dry-run")) {
-    writeOutput({ dryRun: true, endpoint: "/data/v4/Files/UpdateFileAdditionalInfo", request: body }, flags);
+    writeOutput({ dryRun: true, endpoint: "/data/v4/files/update-file-additional-info", request: body }, flags);
     return;
   }
 
   await confirmMutation(flags, `Update additional info for file '${itemId}'.`);
   const projectKey = await selectedProject(flags);
-  const result = await blocksRequest<unknown>("/data/v4/Files/UpdateFileAdditionalInfo", {
+  const result = await blocksRequest<unknown>("/data/v4/files/update-file-additional-info", {
     body,
     impersonatedProjectAuth: true,
     ...requestContext(flags),

@@ -14,28 +14,42 @@ export class BlocksHttpClient {
 
   async request<T>(path: string, options: BlocksRequestOptions = {}): Promise<T> {
     const url = buildUrl(this.config.apiUrl, path, options.query);
-    const headers = new Headers(options.headers);
     const rawBody = isBodyInit(options.body) ? options.body : undefined;
-    headers.set("Accept", "application/json");
-    headers.set("x-blocks-key", this.config.xBlocksKey);
 
-    if (options.body !== undefined && !rawBody && !headers.has("Content-Type")) {
-      headers.set("Content-Type", "application/json");
+    const send = async (accessTokenOverride?: string): Promise<Response> => {
+      const headers = new Headers(options.headers);
+      headers.set("Accept", "application/json");
+      headers.set("x-blocks-key", this.config.xBlocksKey);
+
+      if (options.body !== undefined && !rawBody && !headers.has("Content-Type")) {
+        headers.set("Content-Type", "application/json");
+      }
+
+      if (options.auth !== false) {
+        const token = accessTokenOverride ?? options.accessToken ?? await this.auth.accessToken();
+        if (token) headers.set("Authorization", `Bearer ${token}`);
+      }
+
+      return this.fetchImpl(url, {
+        body: rawBody ?? (options.body === undefined ? undefined : JSON.stringify(options.body)),
+        // IAM's hosted IdP flow sets the session as a Secure, httpOnly cookie by default;
+        // without this the browser never sends it back on subsequent Blocks API calls.
+        credentials: "include",
+        headers,
+        method: options.method ?? (options.body === undefined ? "GET" : "POST")
+      });
+    };
+
+    let response = await send();
+
+    // A 401 on a token the caller supplied directly (options.accessToken) is the
+    // caller's problem to resolve, not ours. Otherwise, give the app one chance to
+    // recover through its own onUnauthorized hook (expected to dedupe concurrent
+    // callers behind a single refresh) and retry exactly once with what it returns.
+    if (response.status === 401 && options.auth !== false && options.accessToken === undefined && this.config.onUnauthorized) {
+      const freshToken = await this.config.onUnauthorized();
+      if (freshToken) response = await send(freshToken);
     }
-
-    if (options.auth !== false) {
-      const token = options.accessToken ?? await this.auth.accessToken();
-      if (token) headers.set("Authorization", `Bearer ${token}`);
-    }
-
-    const response = await this.fetchImpl(url, {
-      body: rawBody ?? (options.body === undefined ? undefined : JSON.stringify(options.body)),
-      // IAM's hosted IdP flow sets the session as a Secure, httpOnly cookie by default;
-      // without this the browser never sends it back on subsequent Blocks API calls.
-      credentials: "include",
-      headers,
-      method: options.method ?? (options.body === undefined ? "GET" : "POST")
-    });
 
     const body = await parseBody(response);
     if (!response.ok) throw new BlocksApiError(response.status, response.statusText, body);

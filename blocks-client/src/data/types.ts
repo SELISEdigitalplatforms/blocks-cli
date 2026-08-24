@@ -117,11 +117,7 @@ export type BlocksFileDeleteRequest = Record<string, unknown> & {
   configurationName?: string;
   eventQueueName?: string;
   fileId: string;
-};
-
-export type BlocksFolderDeleteRequest = Record<string, unknown> & {
-  configurationName?: string;
-  folderId: string;
+  permanent: boolean;
 };
 
 export type BlocksFileUpdateAdditionalInfoRequest = Record<string, unknown> & {
@@ -148,42 +144,152 @@ export type BlocksUploadToUrlRequest = {
   url: string;
 };
 
-export type BlocksDmsListRequest = Record<string, unknown> & {
-  configurationName?: string;
-  moduleName?: string;
-  parentId?: string;
-  searchKey?: string;
-  skip?: number;
-  take?: number;
+export type BlocksStorageObjectType = "directory" | "file";
+export type BlocksStorageResourceType = "Directory" | "File";
+export type BlocksStoragePrincipalType = "User" | "Role" | "Everyone" | "Organization";
+export type BlocksStoragePermission = "View" | "Download" | "Edit" | "Delete" | "Manage" | "Owner";
+export type BlocksStorageEffect = "Allow" | "Deny";
+
+export type BlocksStoragePermissionFlags = {
+  canDelete: boolean;
+  canDownload: boolean;
+  canEdit: boolean;
+  canManage: boolean;
+  canOwner: boolean;
+  canView: boolean;
 };
 
-export type BlocksDmsMetaDataValue = {
-  type: string;
-  value: string;
+export type BlocksStorageObject = {
+  childDirectoryCount?: number;
+  childFileCount?: number;
+  contentType?: string;
+  createdBy?: string;
+  createdDate: string;
+  currentVersion?: number;
+  extension?: string;
+  isDefault: boolean;
+  itemId: string;
+  lastUpdatedDate: string;
+  name: string;
+  parentDirectoryId?: string;
+  permissions: BlocksStoragePermissionFlags;
+  sizeInBytes: number;
+  type: BlocksStorageObjectType;
 };
 
-export type BlocksDmsUploadItem = Record<string, unknown> & {
-  artifactName?: string;
+export type BlocksStorageObjectsResponse = {
+  hasMore: boolean;
+  items: BlocksStorageObject[];
+  nextCursor?: string;
+  totalChildCount: number;
+};
+
+export type BlocksStorageObjectListRequest = {
+  cursor?: string;
+  limit?: number;
+  moduleName?: number;
+  parentDirectoryId?: string;
+  search?: string;
+  type?: BlocksStorageObjectType;
+};
+
+export type BlocksStorageObjectSearchRequest = {
+  cursor?: string;
+  directoryId?: string;
+  limit?: number;
+  query: string;
+  type?: BlocksStorageObjectType;
+};
+
+export type BlocksStorageObjectPageRequest = {
+  cursor?: string;
+  limit?: number;
+  type?: BlocksStorageObjectType;
+};
+
+export type BlocksDirectoryCreateRequest = {
+  allowedFileExtensions?: string[];
   configurationName?: string;
   description?: string;
-  fileStorageId: string;
-  metaData?: Record<string, BlocksDmsMetaDataValue>;
-  organizationId?: string;
-  parentId?: string;
-  tags?: string[];
+  moduleName?: number;
+  name: string;
+  parentDirectoryId?: string;
 };
 
-export type BlocksDmsUploadRequest = Record<string, unknown> & {
-  upload: BlocksDmsUploadItem[];
-};
-
-export type BlocksDmsCreateFolderRequest = Record<string, unknown> & {
-  artifactName: string;
-  configurationName?: string;
+export type BlocksDirectoryUpdateRequest = {
   description?: string;
-  fileStorageId?: string;
-  metaData?: Record<string, BlocksDmsMetaDataValue>;
-  organizationId?: string;
-  parentId?: string;
-  tags?: string[];
+  directoryId: string;
+  name?: string;
+};
+
+export type BlocksDirectoryDeleteRequest = {
+  directoryId: string;
+  permanent: boolean;
+};
+
+export type BlocksDirectoryMoveRequest = {
+  directoryId: string;
+  targetDirectoryId?: string;
+};
+
+export type BlocksFileVersionsRequest = {
+  cursor?: string;
+  fileId: string;
+  limit?: number;
+};
+
+export type BlocksFileCreateVersionRequest = {
+  configurationName?: string;
+  fileId: string;
+};
+
+export type BlocksFileCopyRequest = {
+  copyAccessPolicies?: boolean;
+  fileId: string;
+  targetDirectoryId: string;
+};
+
+export type BlocksFileMoveRequest = {
+  fileId: string;
+  targetDirectoryId: string;
+};
+
+export type BlocksFileRenameRequest = {
+  fileId: string;
+  name: string;
+};
+
+export type BlocksStorageResourceRequest = {
+  resourceId: string;
+};
+
+export type BlocksStorageAccessPolicyRequest = {
+  effect?: BlocksStorageEffect;
+  expiresAt?: string;
+  permission: BlocksStoragePermission;
+  policyItemId?: string;
+  principalId?: string;
+  principalType: BlocksStoragePrincipalType;
+  priority?: number;
+  resourceId: string;
+  resourceType: BlocksStorageResourceType;
+};
+
+export type BlocksStorageRevokeAccessRequest = {
+  policyItemId: string;
+  resourceId: string;
+};
+
+export type BlocksStorageToggleInheritanceRequest = {
+  inheritsParentAccess: boolean;
+  resourceId: string;
+};
+
+export type BlocksStorageShareRequest = {
+  expiresAt?: string;
+  permission: BlocksStoragePermission;
+  principalId?: string;
+  principalType: BlocksStoragePrincipalType;
+  resourceId: string;
+  resourceType: BlocksStorageResourceType;
 };

@@ -100,7 +100,8 @@ Data:
 - `blocks.data.collection("Name").list/get/create/update/delete`
 - `blocks.data.graphql(...)`
 - `blocks.data.files.*` for file/storage helpers
-- `blocks.data.dms.*` for DMS file/folder helpers
+- `blocks.data.directories.*` for directory create/get/update/delete/move
+- `blocks.data.objects.*` for browse/search/trash/shared/restore/share/access/inheritance
 - `blocks.data.utilities.*` for runtime utility helpers
 
 Localization:

@@ -9,19 +9,20 @@ import { parseCommand, selectedProject } from "../../../lib/workspace.js";
 export async function dataFilesDelete(argv: string[]): Promise<void> {
   const { args, flags } = parseCommand(argv);
   const fileId = args[0] || stringFlag(flags, "file-id", { required: true });
-  const body = { fileId, ...compact({
+  const permanent = booleanFlag(flags, "permanent");
+  const body = { fileId, permanent, ...compact({
     configurationName: stringFlag(flags, "configuration-name") || undefined,
     eventQueueName: stringFlag(flags, "event-queue-name") || undefined
   }) };
 
   if (booleanFlag(flags, "dry-run")) {
-    writeOutput({ dryRun: true, endpoint: "/data/v4/Files/DeleteFile", request: body }, flags);
+    writeOutput({ dryRun: true, endpoint: "/data/v4/files/delete-file", request: body }, flags);
     return;
   }
 
-  await confirmMutation(flags, `Delete file '${fileId}'.`);
+  await confirmMutation(flags, `${permanent ? "Permanently delete" : "Move"} file '${fileId}'${permanent ? "" : " to trash"}.`);
   const projectKey = await selectedProject(flags);
-  const result = await blocksRequest<unknown>("/data/v4/Files/DeleteFile", {
+  const result = await blocksRequest<unknown>("/data/v4/files/delete-file", {
     body,
     impersonatedProjectAuth: true,
     ...requestContext(flags),

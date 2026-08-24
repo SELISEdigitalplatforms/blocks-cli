@@ -7,6 +7,8 @@ import { parseCommand, selectedProject } from "../../../lib/workspace.js";
 export async function dataSchemaAggregation(argv: string[]): Promise<void> {
   const { flags } = parseCommand(argv);
   const projectKey = await selectedProject(flags);
+  const page = integerFlag(flags, "page", 1);
+  if (page < 1) throw new Error("--page must be greater than or equal to 1");
 
   const result = await blocksRequest<unknown>("/data/v4/schemas/aggregation", {
     impersonatedProjectAuth: true,
@@ -15,7 +17,7 @@ export async function dataSchemaAggregation(argv: string[]): Promise<void> {
     query: {
       CollectionName: stringFlag(flags, "collection-name") || undefined,
       Keyword: stringFlag(flags, "keyword") || undefined,
-      PageNo: integerFlag(flags, "page", 1),
+      PageNo: page,
       PageSize: integerFlag(flags, "page-size", 100),
       ProjectKey: projectKey,
       SchemaName: stringFlag(flags, "schema-name") || undefined,

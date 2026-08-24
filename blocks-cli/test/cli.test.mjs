@@ -281,6 +281,8 @@ test("scaffolded web app depends on @seliseblocks/client and has no custom Block
   const pkg = JSON.parse(await readFile(join(appDir, "package.json"), "utf8"));
   assert.ok(pkg.dependencies["@seliseblocks/client"], "expected a @seliseblocks/client dependency");
   assert.ok(pkg.devDependencies.selfsigned, "expected generated cert script to work without openssl");
+  assert.equal(pkg.scripts["build:dev"], "vite build --mode dev && node scripts/write-release-env.mjs dev");
+  assert.equal(pkg.scripts["build:prod"], "vite build --mode prod && node scripts/write-release-env.mjs prod");
 
   const files = await collectFiles(join(appDir, "src"));
   const contents = await Promise.all(files.map((file) => readFile(file, "utf8")));
@@ -306,6 +308,54 @@ test("scaffolded web app depends on @seliseblocks/client and has no custom Block
   assert.doesNotMatch(envFile, /VITE_BLOCKS_OIDC_CLIENT_SECRET/);
   assert.match(envFile, /^VITE_BLOCKS_OIDC_URL=https:\/\/iam\.seliseblocks\.com$/m);
   assert.match(envFile, /^VITE_BLOCKS_DEV_HOST=demo\.example\.test$/m);
+
+  const gitignore = await readFile(join(appDir, ".gitignore"), "utf8");
+  assert.match(gitignore, /^\.env$/m);
+  assert.match(gitignore, /^env\.\*$/m);
+
+  const dockerfile = await readFile(join(appDir, "Dockerfile"), "utf8");
+  assert.match(dockerfile, /FROM node:22-alpine AS builder/);
+  assert.match(dockerfile, /if \[ -f package-lock\.json \]; then npm ci; else npm install; fi/);
+  assert.match(dockerfile, /ARG ci_build=dev/);
+  assert.match(dockerfile, /ARG VITE_BLOCKS_API_URL/);
+  assert.match(dockerfile, /ARG VITE_BLOCKS_X_BLOCKS_KEY/);
+  assert.match(dockerfile, /ARG VITE_BLOCKS_OIDC_CLIENT_ID/);
+  assert.match(dockerfile, /ENV VITE_BLOCKS_API_URL=\$\{VITE_BLOCKS_API_URL\}/);
+  assert.doesNotMatch(dockerfile, /cp \.env\.example \.env/);
+  assert.match(dockerfile, /npx vite build --mode "\$\{ci_build\}"/);
+  assert.match(dockerfile, /node scripts\/write-release-env\.mjs "\$\{ci_build\}"/);
+  assert.match(dockerfile, /nginxinc\/nginx-unprivileged:1\.29-alpine/);
+
+  const nginx = await readFile(join(appDir, "nginx.conf"), "utf8");
+  assert.match(nginx, /listen 8080;/);
+  assert.match(nginx, /try_files \$uri \$uri\/ \/index\.html;/);
+
+  const envWriter = runNodeScript(["scripts/write-release-env.mjs", "dev"], { cwd: appDir, env });
+  assert.equal(envWriter.status, 0, envWriter.stderr);
+  const releaseEnv = await readFile(join(appDir, "dist", "env.dev"), "utf8");
+  assert.match(releaseEnv, /^VITE_BLOCKS_API_URL=https:\/\/blocksapi\.example\.test$/m);
+  assert.match(releaseEnv, /^VITE_BLOCKS_PROJECT_KEY=test-tenant-key$/m);
+  assert.match(releaseEnv, /^VITE_BLOCKS_X_BLOCKS_KEY=test-tenant-key$/m);
+  assert.match(releaseEnv, /^VITE_BLOCKS_REDIRECT_URI=https:\/\/demo\.example\.test\/login\/callback$/m);
+  assert.match(releaseEnv, /^VITE_BLOCKS_HOSTED_LOGIN=true$/m);
+  assert.doesNotMatch(releaseEnv, /^VITE_.*(SECRET|PTOK|JWT|TOKEN)=/m);
+
+  const injectedEnvWriter = runNodeScript(["scripts/write-release-env.mjs", "prod"], {
+    cwd: appDir,
+    env: {
+      ...env,
+      VITE_BLOCKS_API_URL: "https://release-api.example.test",
+      VITE_BLOCKS_APP_DOMAIN: "https://release.example.test",
+      VITE_BLOCKS_OIDC_CLIENT_ID: "release-client-id",
+      VITE_BLOCKS_X_BLOCKS_KEY: "release-tenant-key"
+    }
+  });
+  assert.equal(injectedEnvWriter.status, 0, injectedEnvWriter.stderr);
+  const injectedReleaseEnv = await readFile(join(appDir, "dist", "env.prod"), "utf8");
+  assert.match(injectedReleaseEnv, /^VITE_BLOCKS_API_URL=https:\/\/release-api\.example\.test$/m);
+  assert.match(injectedReleaseEnv, /^VITE_BLOCKS_PROJECT_KEY=release-tenant-key$/m);
+  assert.match(injectedReleaseEnv, /^VITE_BLOCKS_OIDC_CLIENT_ID=release-client-id$/m);
+  assert.match(injectedReleaseEnv, /^VITE_BLOCKS_REDIRECT_URI=https:\/\/release\.example\.test\/login\/callback$/m);
 
   await assert.rejects(() => readFile(join(appDir, "src/lib/blocks/http.ts"), "utf8"), /ENOENT/, "the generic Blocks fetch wrapper file should not be generated");
 
@@ -389,6 +439,632 @@ test("rich JSON payload commands let scalar flags override body fields without d
   assert.equal(output.request.validations.length, 2);
 });
 
+test("iam roles list sends zero-based backend page and omits empty sort", async () => {
+  const { cwd, configDir } = await makeWorkspace();
+  await writeProjectAuth(configDir);
+  const requests = [];
+  const server = await startJsonServer((request, body) => {
+    requests.push({ body, method: request.method, url: request.url });
+    return { data: [], totalCount: 0 };
+  });
+
+  try {
+    const result = await runAsync([
+      "iam:roles:list",
+      "--page", "1",
+      "--page-size", "10",
+      "--api-url", server.url,
+      "--json"
+    ], { cwd, env: testEnv(configDir, { BLOCKS_SECRET_STORE: "file" }) });
+
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(requests[0].url, "/iam/v4/iam/roles");
+    assert.equal(requests[0].body.page, 0);
+    assert.equal(requests[0].body.pageSize, 10);
+    assert.ok(!("sort" in requests[0].body));
+  } finally {
+    await new Promise((resolveClose) => server.close(resolveClose));
+  }
+});
+
+test("iam permissions list sends sort only with a property", async () => {
+  const { cwd, configDir } = await makeWorkspace();
+  await writeProjectAuth(configDir);
+  const requests = [];
+  const server = await startJsonServer((request, body) => {
+    requests.push({ body, method: request.method, url: request.url });
+    return { data: [], totalCount: 0 };
+  });
+
+  try {
+    const result = await runAsync([
+      "iam:permissions:list",
+      "--sort-by", "Name",
+      "--sort-desc",
+      "--api-url", server.url,
+      "--json"
+    ], { cwd, env: testEnv(configDir, { BLOCKS_SECRET_STORE: "file" }) });
+
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(requests[0].url, "/iam/v4/iam/permissions");
+    assert.equal(requests[0].body.page, 0);
+    assert.deepEqual(requests[0].body.sort, { isDescending: true, property: "Name" });
+  } finally {
+    await new Promise((resolveClose) => server.close(resolveClose));
+  }
+});
+
+test("iam roles assign-permissions resolves resource strings and sends organizationId", async () => {
+  const { cwd, configDir } = await makeWorkspace();
+  await writeProjectAuth(configDir);
+  const requests = [];
+  const server = await startJsonServer((request, body) => {
+    requests.push({ body, method: request.method, url: request.url });
+    if (request.url === "/iam/v4/iam/permissions") {
+      return {
+        data: [
+          { itemId: "perm-add-id", resource: "orders::read" },
+          { itemId: "perm-remove-id", resource: "orders::delete" }
+        ]
+      };
+    }
+    return { isSuccess: true, success: true };
+  });
+
+  try {
+    const result = await runAsync([
+      "iam:roles:assign-permissions",
+      "manager",
+      "--add-permissions", "orders::read,existing-id",
+      "--remove-permissions", "orders::delete",
+      "--organization-id", "org-1",
+      "--api-url", server.url,
+      "--yes",
+      "--json"
+    ], { cwd, env: testEnv(configDir, { BLOCKS_SECRET_STORE: "file" }) });
+
+    assert.equal(result.status, 0, result.stderr);
+    assert.deepEqual(requests.map((item) => item.url), [
+      "/iam/v4/iam/permissions",
+      "/iam/v4/iam/permissions",
+      "/iam/v4/iam/roles/assign-permissions"
+    ]);
+    assert.deepEqual(requests[2].body, {
+      addPermissions: ["perm-add-id", "existing-id"],
+      organizationId: "org-1",
+      removePermissions: ["perm-remove-id"],
+      slug: "manager"
+    });
+  } finally {
+    await new Promise((resolveClose) => server.close(resolveClose));
+  }
+});
+
+test("data schema aggregation rejects page zero before network calls", async () => {
+  const { cwd, configDir } = await makeWorkspace();
+  await writeProjectAuth(configDir);
+  const requests = [];
+  const server = await startJsonServer((request, body) => {
+    requests.push({ body, method: request.method, url: request.url });
+    return { data: {} };
+  });
+
+  try {
+    const result = run([
+      "data:schema:aggregation",
+      "--page", "0",
+      "--api-url", server.url,
+      "--json"
+    ], { cwd, env: testEnv(configDir, { BLOCKS_SECRET_STORE: "file" }) });
+
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /--page must be greater than or equal to 1/);
+    assert.deepEqual(requests, []);
+  } finally {
+    await new Promise((resolveClose) => server.close(resolveClose));
+  }
+});
+
+test("schema push ignores a foreign local id and creates via POST when no destination schema exists", async () => {
+  const { cwd, configDir } = await makeWorkspace();
+  await writeProjectAuth(configDir);
+  await mkdir(join(cwd, "blocks", "data", "schemas"), { recursive: true });
+  await writeFile(join(cwd, "blocks", "data", "schemas", "Company.json"), `${JSON.stringify({
+    collectionName: "sb_Companys",
+    fields: [{ name: "Name", type: "String" }],
+    itemId: "foreign-project-id",
+    schemaName: "Company",
+    schemaType: 1
+  }, null, 2)}\n`);
+
+  const requests = [];
+  const server = await startJsonServer((request, body) => {
+    const path = request.url.split("?")[0];
+    requests.push({ body, method: request.method, url: request.url });
+    if (path === "/data/v4/schemas" && request.method === "GET") {
+      return { data: { items: [], totalCount: 0 }, isSuccess: true };
+    }
+    if (path === "/data/v4/schemas/define" && request.method === "POST") {
+      return { data: { acknowledged: true, itemId: "new-id" }, isSuccess: true };
+    }
+    return rawResponse(500, { errorMessage: `Unexpected ${request.method} ${path}` });
+  });
+
+  try {
+    const result = await runAsync(["data:schema:push", "--yes", "--api-url", server.url, "--json"], {
+      cwd,
+      env: testEnv(configDir, { BLOCKS_SECRET_STORE: "file" })
+    });
+
+    assert.equal(result.status, 0, result.stderr);
+    const output = JSON.parse(result.stdout);
+    assert.equal(output.results.length, 1);
+    assert.ok(output.warnings?.[0]?.includes("ignoring local id"), JSON.stringify(output));
+
+    const defineRequest = requests.find((item) => item.url.startsWith("/data/v4/schemas/define"));
+    assert.equal(defineRequest.method, "POST");
+    assert.equal(defineRequest.body.itemId, undefined);
+    assert.equal(defineRequest.body.id, undefined);
+    assert.equal(defineRequest.body.schemaName, "Company");
+  } finally {
+    await new Promise((resolveClose) => server.close(resolveClose));
+  }
+});
+
+test("schema push uses the destination project's own id and PUT when a schema with that name already exists", async () => {
+  const { cwd, configDir } = await makeWorkspace();
+  await writeProjectAuth(configDir);
+  await mkdir(join(cwd, "blocks", "data", "schemas"), { recursive: true });
+  await writeFile(join(cwd, "blocks", "data", "schemas", "Company.json"), `${JSON.stringify({
+    collectionName: "sb_Companys",
+    fields: [{ name: "Name", type: "String" }],
+    itemId: "foreign-project-id",
+    schemaName: "Company",
+    schemaType: 1
+  }, null, 2)}\n`);
+
+  const requests = [];
+  const server = await startJsonServer((request, body) => {
+    const path = request.url.split("?")[0];
+    requests.push({ body, method: request.method, url: request.url });
+    if (path === "/data/v4/schemas" && request.method === "GET") {
+      return { data: { items: [{ id: "destination-id", schemaName: "Company" }], totalCount: 1 }, isSuccess: true };
+    }
+    if (path === "/data/v4/schemas/define" && request.method === "PUT") {
+      return { data: { acknowledged: true, itemId: "destination-id" }, isSuccess: true };
+    }
+    return rawResponse(500, { errorMessage: `Unexpected ${request.method} ${path}` });
+  });
+
+  try {
+    const result = await runAsync(["data:schema:push", "--yes", "--api-url", server.url, "--json"], {
+      cwd,
+      env: testEnv(configDir, { BLOCKS_SECRET_STORE: "file" })
+    });
+
+    assert.equal(result.status, 0, result.stderr);
+    const output = JSON.parse(result.stdout);
+    assert.equal(output.warnings, undefined);
+
+    const defineRequest = requests.find((item) => item.url.startsWith("/data/v4/schemas/define"));
+    assert.equal(defineRequest.method, "PUT");
+    assert.equal(defineRequest.body.itemId, "destination-id");
+  } finally {
+    await new Promise((resolveClose) => server.close(resolveClose));
+  }
+});
+
+test("schema push fails clearly instead of treating a 204 empty response as success", async () => {
+  const { cwd, configDir } = await makeWorkspace();
+  await writeProjectAuth(configDir);
+  await mkdir(join(cwd, "blocks", "data", "schemas"), { recursive: true });
+  await writeFile(join(cwd, "blocks", "data", "schemas", "Company.json"), `${JSON.stringify({
+    collectionName: "sb_Companys",
+    fields: [{ name: "Name", type: "String" }],
+    schemaName: "Company",
+    schemaType: 1
+  }, null, 2)}\n`);
+
+  const server = await startJsonServer((request) => {
+    const path = request.url.split("?")[0];
+    if (path === "/data/v4/schemas" && request.method === "GET") {
+      return { data: { items: [{ id: "destination-id", schemaName: "Company" }], totalCount: 1 }, isSuccess: true };
+    }
+    if (path === "/data/v4/schemas/define" && request.method === "PUT") {
+      return rawResponse(204);
+    }
+    return rawResponse(500);
+  });
+
+  try {
+    const result = await runAsync(["data:schema:push", "--yes", "--api-url", server.url, "--json"], {
+      cwd,
+      env: testEnv(configDir, { BLOCKS_SECRET_STORE: "file" })
+    });
+
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /Company/);
+    assert.match(result.stderr, /empty response/);
+    assert.ok(!result.stdout.includes("null"), result.stdout);
+  } finally {
+    await new Promise((resolveClose) => server.close(resolveClose));
+  }
+});
+
+test("schema pull writes a canonical portable file with no server id or system-managed fields", async () => {
+  const { cwd, configDir } = await makeWorkspace();
+  await writeProjectAuth(configDir);
+  // data:validate also requires a rules file to exist; write an empty one so this test
+  // isolates schema-file validation (the point of the pull-to-validate-to-push check).
+  await mkdir(join(cwd, "blocks", "data"), { recursive: true });
+  await writeFile(join(cwd, "blocks", "data", "rules.json"), `${JSON.stringify({ policies: [], security: [] }, null, 2)}\n`);
+
+  const server = await startJsonServer((request) => {
+    const path = request.url.split("?")[0];
+    if (path === "/data/v4/schemas" && request.method === "GET") {
+      return {
+        data: {
+          items: [{
+            collectionName: "sb_Companys",
+            fields: [
+              { isArray: false, isPIIData: false, isUniqueData: false, name: "Name", type: "String" },
+              { name: "ItemId", type: "String" },
+              { name: "CreatedDate", type: "DateTime" }
+            ],
+            id: "server-id",
+            mutationSchemas: ["insertCompany", "updateCompany", "deleteCompany"],
+            projectKey: "project-tenant",
+            querySchema: "Companys",
+            readAccessLevel: 0,
+            schemaName: "Company",
+            schemaType: 1,
+            totalReadPolicies: 0
+          }],
+          totalCount: 1
+        },
+        isSuccess: true
+      };
+    }
+    return rawResponse(500);
+  });
+
+  try {
+    const result = await runAsync(["data:schema:pull", "--api-url", server.url, "--json"], {
+      cwd,
+      env: testEnv(configDir, { BLOCKS_SECRET_STORE: "file" })
+    });
+
+    assert.equal(result.status, 0, result.stderr);
+    const written = JSON.parse(await readFile(join(cwd, "blocks", "data", "schemas", "Company.json"), "utf8"));
+    assert.deepEqual(written, {
+      collectionName: "sb_Companys",
+      fields: [{ isArray: false, isPIIData: false, isUniqueData: false, name: "Name", type: "String" }],
+      schemaName: "Company",
+      schemaType: 1
+    });
+
+    const validate = run(["data:validate", "--json"], { cwd, env: testEnv(configDir, { BLOCKS_SECRET_STORE: "file" }) });
+    assert.equal(validate.status, 0, validate.stderr);
+  } finally {
+    await new Promise((resolveClose) => server.close(resolveClose));
+  }
+});
+
+test("schema pull tolerates a nested legacy response wrapper", async () => {
+  const { cwd, configDir } = await makeWorkspace();
+  await writeProjectAuth(configDir);
+
+  const server = await startJsonServer((request) => {
+    const path = request.url.split("?")[0];
+    if (path === "/data/v4/schemas" && request.method === "GET") {
+      return {
+        data: {
+          data: { items: [{ collectionName: "sb_Companys", id: "server-id", schemaName: "Company", schemaType: 1 }], totalCount: 1 },
+          isSuccess: true
+        },
+        isSuccess: true
+      };
+    }
+    return rawResponse(500);
+  });
+
+  try {
+    const result = await runAsync(["data:schema:pull", "--api-url", server.url, "--json"], {
+      cwd,
+      env: testEnv(configDir, { BLOCKS_SECRET_STORE: "file" })
+    });
+
+    assert.equal(result.status, 0, result.stderr);
+    const output = JSON.parse(result.stdout);
+    assert.equal(output.count, 1);
+    const written = JSON.parse(await readFile(join(cwd, "blocks", "data", "schemas", "Company.json"), "utf8"));
+    assert.equal(written.id, undefined);
+    assert.equal(written.schemaName, "Company");
+  } finally {
+    await new Promise((resolveClose) => server.close(resolveClose));
+  }
+});
+
+test("schema pull fetches every page when more schemas exist than one page returns", async () => {
+  const { cwd, configDir } = await makeWorkspace();
+  await writeProjectAuth(configDir);
+
+  const pageRequests = [];
+  const server = await startJsonServer((request) => {
+    const path = request.url.split("?")[0];
+    if (path === "/data/v4/schemas" && request.method === "GET") {
+      const params = new URL(request.url, "http://x").searchParams;
+      const pageNo = params.get("PageNo");
+      pageRequests.push(pageNo);
+      if (pageNo === "1") {
+        return { data: { items: [{ collectionName: "sb_Companys", id: "id-1", schemaName: "Company", schemaType: 1 }], totalCount: 2 }, isSuccess: true };
+      }
+      return { data: { items: [{ collectionName: "sb_Contacts", id: "id-2", schemaName: "Contact", schemaType: 1 }], totalCount: 2 }, isSuccess: true };
+    }
+    return rawResponse(500);
+  });
+
+  try {
+    const result = await runAsync(["data:schema:pull", "--api-url", server.url, "--json"], {
+      cwd,
+      env: testEnv(configDir, { BLOCKS_SECRET_STORE: "file" })
+    });
+
+    assert.equal(result.status, 0, result.stderr);
+    assert.deepEqual(pageRequests, ["1", "2"]);
+    const output = JSON.parse(result.stdout);
+    assert.equal(output.count, 2);
+  } finally {
+    await new Promise((resolveClose) => server.close(resolveClose));
+  }
+});
+
+test("schema list validates the response envelope and rejects a malformed shape instead of treating it as empty", async () => {
+  const { cwd, configDir } = await makeWorkspace();
+  await writeProjectAuth(configDir);
+
+  const goodServer = await startJsonServer(() => ({ data: { items: [], totalCount: 0 }, isSuccess: true }));
+  try {
+    const good = await runAsync(["data:schema:list", "--page", "1", "--page-size", "50", "--api-url", goodServer.url, "--json"], {
+      cwd,
+      env: testEnv(configDir, { BLOCKS_SECRET_STORE: "file" })
+    });
+    assert.equal(good.status, 0, good.stderr);
+    assert.deepEqual(JSON.parse(good.stdout), { data: { items: [], totalCount: 0 }, isSuccess: true });
+  } finally {
+    await new Promise((resolveClose) => goodServer.close(resolveClose));
+  }
+
+  const malformedServer = await startJsonServer(() => ({ isSuccess: false, message: "boom" }));
+  try {
+    const malformed = await runAsync(["data:schema:list", "--api-url", malformedServer.url, "--json"], {
+      cwd,
+      env: testEnv(configDir, { BLOCKS_SECRET_STORE: "file" })
+    });
+    assert.notEqual(malformed.status, 0);
+    assert.match(malformed.stderr, /Unexpected schema list response shape/);
+  } finally {
+    await new Promise((resolveClose) => malformedServer.close(resolveClose));
+  }
+});
+
+test("rules pull stores the policy list from response.data in the CLI's portable schemaName-based format", async () => {
+  const { cwd, configDir } = await makeWorkspace();
+  await writeProjectAuth(configDir);
+
+  const server = await startJsonServer((request) => {
+    const path = request.url.split("?")[0];
+    if (path === "/data/v4/schemas" && request.method === "GET") {
+      return { data: { items: [{ collectionName: "sb_Companys", id: "schema-id", schemaName: "Company", schemaType: 1 }], totalCount: 1 }, isSuccess: true };
+    }
+    if (path === "/data/v4/data-access/policy/get" && request.method === "GET") {
+      return {
+        data: [{
+          entityName: "Company",
+          fieldNames: [],
+          isAllowPolicy: true,
+          itemId: "policy-1",
+          operation: 0,
+          policyDescription: "",
+          policyName: "OwnerOnly",
+          policyType: 0,
+          priority: 0,
+          ruleGroup: { logicalOperator: 0, nestedGroups: [], rules: [] },
+          schemaId: "schema-id"
+        }],
+        isSuccess: true
+      };
+    }
+    return rawResponse(500);
+  });
+
+  try {
+    const result = await runAsync(["data:rules:pull", "--api-url", server.url, "--json"], {
+      cwd,
+      env: testEnv(configDir, { BLOCKS_SECRET_STORE: "file" })
+    });
+
+    assert.equal(result.status, 0, result.stderr);
+    const written = JSON.parse(await readFile(join(cwd, "blocks", "data", "rules.json"), "utf8"));
+    assert.equal(written.policies.length, 1);
+    assert.equal(written.policies[0].schemaName, "Company");
+    assert.equal(written.policies[0].policyName, "OwnerOnly");
+    assert.equal(written.policies[0].itemId, undefined);
+    assert.equal(written.policies[0].schemaId, undefined);
+    assert.equal(written.policies[0].entityName, undefined);
+    assert.equal(written.isSuccess, undefined, "must not store the raw service envelope");
+  } finally {
+    await new Promise((resolveClose) => server.close(resolveClose));
+  }
+});
+
+test("rules pull falls back to the queried schema name when the API's entityName comes back empty", async () => {
+  // Observed against a live project: policy/get returns entityName: "" instead of
+  // the schema name, so pull must not silently drop the schema association.
+  const { cwd, configDir } = await makeWorkspace();
+  await writeProjectAuth(configDir);
+
+  const server = await startJsonServer((request) => {
+    const path = request.url.split("?")[0];
+    if (path === "/data/v4/schemas" && request.method === "GET") {
+      return { data: { items: [{ collectionName: "sb_AcceptanceTests", id: "schema-id", schemaName: "AcceptanceTest", schemaType: 1 }], totalCount: 1 }, isSuccess: true };
+    }
+    if (path === "/data/v4/data-access/policy/get" && request.method === "GET") {
+      return {
+        data: [{
+          entityName: "",
+          fieldNames: [],
+          isAllowPolicy: true,
+          itemId: "policy-1",
+          operation: 0,
+          policyDescription: "",
+          policyName: "OwnerOnlyRead",
+          policyType: 0,
+          priority: 0,
+          ruleGroup: { logicalOperator: 0, nestedGroups: [], rules: [] },
+          schemaId: "schema-id"
+        }],
+        isSuccess: true
+      };
+    }
+    return rawResponse(500);
+  });
+
+  try {
+    const result = await runAsync(["data:rules:pull", "--api-url", server.url, "--json"], {
+      cwd,
+      env: testEnv(configDir, { BLOCKS_SECRET_STORE: "file" })
+    });
+
+    assert.equal(result.status, 0, result.stderr);
+    const written = JSON.parse(await readFile(join(cwd, "blocks", "data", "rules.json"), "utf8"));
+    assert.equal(written.policies[0].schemaName, "AcceptanceTest");
+  } finally {
+    await new Promise((resolveClose) => server.close(resolveClose));
+  }
+});
+
+test("rules deploy resolves the destination schema id by name instead of reusing a source-project id", async () => {
+  const { cwd, configDir } = await makeWorkspace();
+  await writeProjectAuth(configDir);
+  await mkdir(join(cwd, "blocks", "data"), { recursive: true });
+  await writeFile(join(cwd, "blocks", "data", "rules.json"), `${JSON.stringify({
+    policies: [{
+      fieldNames: [],
+      isAllowPolicy: true,
+      operation: 0,
+      policyDescription: "",
+      policyName: "OwnerOnly",
+      policyType: 0,
+      priority: 0,
+      ruleGroup: { logicalOperator: 0, nestedGroups: [], rules: [] },
+      schemaName: "Company"
+    }],
+    security: []
+  }, null, 2)}\n`);
+
+  const requests = [];
+  const server = await startJsonServer((request, body) => {
+    const path = request.url.split("?")[0];
+    requests.push({ body, method: request.method, url: request.url });
+    if (path === "/data/v4/schemas" && request.method === "GET") {
+      return { data: { items: [{ collectionName: "sb_Companys", id: "destination-schema-id", schemaName: "Company", schemaType: 1 }], totalCount: 1 }, isSuccess: true };
+    }
+    if (path === "/data/v4/data-access/policy/get" && request.method === "GET") {
+      return { data: [], isSuccess: true };
+    }
+    if (path === "/data/v4/data-access/policy/create" && request.method === "POST") {
+      return { data: { acknowledged: true, itemId: "new-policy-id" }, isSuccess: true };
+    }
+    return rawResponse(500, { errorMessage: `Unexpected ${request.method} ${path}` });
+  });
+
+  try {
+    const result = await runAsync(["data:rules:deploy", "--yes", "--api-url", server.url, "--json"], {
+      cwd,
+      env: testEnv(configDir, { BLOCKS_SECRET_STORE: "file" })
+    });
+
+    assert.equal(result.status, 0, result.stderr);
+    const createRequest = requests.find((item) => item.url.startsWith("/data/v4/data-access/policy/create"));
+    assert.ok(createRequest, JSON.stringify(requests));
+    assert.equal(createRequest.body.schemaId, "destination-schema-id");
+    assert.equal(createRequest.body.schemaName, "Company");
+    assert.equal(createRequest.body.policyName, "OwnerOnly");
+  } finally {
+    await new Promise((resolveClose) => server.close(resolveClose));
+  }
+});
+
+test("rules deploy fails clearly when a policy targets a schema missing from the destination project", async () => {
+  const { cwd, configDir } = await makeWorkspace();
+  await writeProjectAuth(configDir);
+  await mkdir(join(cwd, "blocks", "data"), { recursive: true });
+  await writeFile(join(cwd, "blocks", "data", "rules.json"), `${JSON.stringify({
+    policies: [{ policyName: "OwnerOnly", schemaName: "Ghost" }],
+    security: []
+  }, null, 2)}\n`);
+
+  const server = await startJsonServer((request) => {
+    const path = request.url.split("?")[0];
+    if (path === "/data/v4/schemas" && request.method === "GET") return { data: { items: [], totalCount: 0 }, isSuccess: true };
+    if (path === "/data/v4/data-access/policy/get" && request.method === "GET") return { data: [], isSuccess: true };
+    return rawResponse(500);
+  });
+
+  try {
+    const result = await runAsync(["data:rules:deploy", "--yes", "--api-url", server.url, "--json"], {
+      cwd,
+      env: testEnv(configDir, { BLOCKS_SECRET_STORE: "file" })
+    });
+
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /Ghost/);
+  } finally {
+    await new Promise((resolveClose) => server.close(resolveClose));
+  }
+});
+
+test("schema get prints exact GraphQL operation names in human output while leaving --json untouched", async () => {
+  const { cwd, configDir } = await makeWorkspace();
+  await writeProjectAuth(configDir);
+
+  const schemaResponse = {
+    data: {
+      collectionName: "sb_Companys",
+      id: "server-id",
+      mutationSchemas: ["insertCompany", "updateCompany", "deleteCompany"],
+      querySchema: "Companys",
+      schemaName: "Company",
+      schemaType: 1
+    },
+    isSuccess: true
+  };
+  const server = await startJsonServer(() => schemaResponse);
+
+  try {
+    const jsonResult = await runAsync(["data:schema:get", "server-id", "--api-url", server.url, "--json"], {
+      cwd,
+      env: testEnv(configDir, { BLOCKS_SECRET_STORE: "file" })
+    });
+    assert.equal(jsonResult.status, 0, jsonResult.stderr);
+    assert.deepEqual(JSON.parse(jsonResult.stdout), schemaResponse);
+
+    const humanResult = await runAsync(["data:schema:get", "server-id", "--api-url", server.url], {
+      cwd,
+      env: testEnv(configDir, { BLOCKS_SECRET_STORE: "file" })
+    });
+    assert.equal(humanResult.status, 0, humanResult.stderr);
+    assert.match(humanResult.stdout, /getCompanys/);
+    assert.match(humanResult.stdout, /insertManyCompany/);
+    assert.match(humanResult.stdout, /updateManyCompany/);
+    assert.match(humanResult.stdout, /deleteManyCompany/);
+    assert.match(humanResult.stdout, /insertCompany/);
+  } finally {
+    await new Promise((resolveClose) => server.close(resolveClose));
+  }
+});
+
 test("notifier notify dry-run parses comma lists and JSON array flags", async () => {
   const { cwd, configDir } = await makeWorkspace();
   const env = testEnv(configDir, { BLOCKS_SECRET_STORE: "file" });
@@ -446,7 +1122,7 @@ test("secret-bearing command dry-runs redact secrets while preserving typed fiel
   assert.doesNotMatch(result.stdout, /super-secret/);
 });
 
-test("composed data file upload dry-run plans presign, provider PUT, and DMS registration", async () => {
+test("composed data file upload dry-run plans metadata creation and provider PUT", async () => {
   const { cwd, configDir } = await makeWorkspace();
   const env = testEnv(configDir, { BLOCKS_SECRET_STORE: "file" });
 
@@ -465,9 +1141,8 @@ test("composed data file upload dry-run plans presign, provider PUT, and DMS reg
   const output = JSON.parse(result.stdout);
   assert.equal(output.dryRun, true);
   assert.deepEqual(output.steps.map((step) => step.endpoint), [
-    "/data/v4/Files/GetPreSignedUrlForUpload",
-    "PUT <uploadUrl>",
-    "/data/v4/Files/UploadFile"
+    "/data/v4/files/get-pre-signed-url-for-upload",
+    "PUT <uploadUrl>"
   ]);
   assert.deepEqual(output.steps[0].body, {
     accessModifier: "Public",
@@ -477,6 +1152,43 @@ test("composed data file upload dry-run plans presign, provider PUT, and DMS reg
     tags: "finance,2026"
   });
   assert.equal(output.steps[1].contentType, "application/pdf");
+});
+
+test("current storage commands dry-run object-tree mutations with safe delete defaults", async () => {
+  const { cwd, configDir } = await makeWorkspace();
+  const env = testEnv(configDir, { BLOCKS_SECRET_STORE: "file" });
+
+  const softDelete = run(["data", "files", "delete", "file-1", "--dry-run", "--json"], { cwd, env });
+  assert.equal(softDelete.status, 0, softDelete.stderr);
+  assert.deepEqual(JSON.parse(softDelete.stdout), {
+    dryRun: true,
+    endpoint: "/data/v4/files/delete-file",
+    request: { fileId: "file-1", permanent: false }
+  });
+
+  const directory = run([
+    "data", "files", "directory-create", "Contracts",
+    "--parent-id", "dir-1",
+    "--allowed-extensions", "pdf,docx",
+    "--dry-run", "--json"
+  ], { cwd, env });
+  assert.equal(directory.status, 0, directory.stderr);
+  assert.deepEqual(JSON.parse(directory.stdout).request, {
+    allowedFileExtensions: ["pdf", "docx"],
+    name: "Contracts",
+    parentDirectoryId: "dir-1"
+  });
+
+  const access = run([
+    "data", "files", "access-grant", "dir-1",
+    "--resource-type", "Directory",
+    "--principal-type", "Role",
+    "--principal-id", "editors",
+    "--permission", "Edit",
+    "--dry-run", "--json"
+  ], { cwd, env });
+  assert.equal(access.status, 0, access.stderr);
+  assert.equal(JSON.parse(access.stdout).endpoint, "/data/v4/objects/grant-access");
 });
 
 test("localization validate accepts nested i18n JSON and reports flattened key count", async () => {
@@ -766,13 +1478,13 @@ test("init uses centralized default API URL", async () => {
   assert.match(envExample, /^VITE_BLOCKS_API_URL=https:\/\/api\.seliseblocks\.com$/m);
 });
 
-test("new web uses centralized default URLs when no API/OIDC overrides are passed", async () => {
+test("new web derives the default API URL from the app domain when no API override is passed", async () => {
   const { cwd, configDir } = await makeWorkspace();
 
   const result = run([
     "new", "web", "dev-app",
     "--x-blocks-key", "dev-project-key",
-    "--app-domain", "https://dev-app.example.test",
+    "--app-domain", "https://dqrsf.slsblx.com",
     "--client-id", "dev-client-id"
   ], {
     cwd,
@@ -781,8 +1493,27 @@ test("new web uses centralized default URLs when no API/OIDC overrides are passe
 
   assert.equal(result.status, 0, result.stderr);
   const envFile = await readFile(join(cwd, "dev-app", ".env"), "utf8");
-  assert.match(envFile, /^VITE_BLOCKS_API_URL=https:\/\/api\.seliseblocks\.com$/m);
+  assert.match(envFile, /^VITE_BLOCKS_API_URL=https:\/\/blocksapi\.slsblx\.com$/m);
   assert.match(envFile, /^VITE_BLOCKS_OIDC_URL=https:\/\/iam\.seliseblocks\.com$/m);
+});
+
+test("new web preserves an explicit blocks API URL override", async () => {
+  const { cwd, configDir } = await makeWorkspace();
+
+  const result = run([
+    "new", "web", "override-app",
+    "--x-blocks-key", "dev-project-key",
+    "--app-domain", "https://dqrsf.slsblx.com",
+    "--blocks-api-url", "https://api.override.example.test",
+    "--client-id", "dev-client-id"
+  ], {
+    cwd,
+    env: testEnv(configDir, { BLOCKS_SECRET_STORE: "file" })
+  });
+
+  assert.equal(result.status, 0, result.stderr);
+  const envFile = await readFile(join(cwd, "override-app", ".env"), "utf8");
+  assert.match(envFile, /^VITE_BLOCKS_API_URL=https:\/\/api\.override\.example\.test$/m);
 });
 
 test("json mode emits structured auth errors", async () => {
@@ -976,6 +1707,46 @@ test("sdk:client prints the resolved config and snippet without writing any file
   assert.deepEqual(entries, [], "sdk:client must not write any files");
 });
 
+test("sdk:client keeps the centralized default API URL when no API override is passed", async () => {
+  const { cwd, configDir } = await makeWorkspace();
+  const env = testEnv(configDir, { BLOCKS_SECRET_STORE: "file" });
+
+  const result = run([
+    "sdk:client",
+    "--x-blocks-key", "sdk-test-tenant",
+    "--app-domain", "https://dqrsf.slsblx.com",
+    "--client-id", "sdk-test-client",
+    "--json"
+  ], { cwd, env });
+
+  assert.equal(result.status, 0, result.stderr);
+  assert.deepEqual(JSON.parse(result.stdout), {
+    apiUrl: "https://api.seliseblocks.com",
+    appDomain: "https://dqrsf.slsblx.com",
+    notes: [],
+    oidcClientId: "sdk-test-client",
+    oidcUrl: "https://iam.seliseblocks.com",
+    xBlocksKey: "sdk-test-tenant"
+  });
+});
+
+test("sdk:client preserves an explicit blocks API URL override", async () => {
+  const { cwd, configDir } = await makeWorkspace();
+  const env = testEnv(configDir, { BLOCKS_SECRET_STORE: "file" });
+
+  const result = run([
+    "sdk:client",
+    "--x-blocks-key", "sdk-test-tenant",
+    "--app-domain", "https://dqrsf.slsblx.com",
+    "--client-id", "sdk-test-client",
+    "--blocks-api-url", "https://api.override.example.test",
+    "--json"
+  ], { cwd, env });
+
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(JSON.parse(result.stdout).apiUrl, "https://api.override.example.test");
+});
+
 async function makeWorkspace() {
   const base = await mkdtemp(join(tmpdir(), "blocks-cli-test-"));
   const cwd = join(base, "workspace");
@@ -987,6 +1758,42 @@ async function makeWorkspace() {
 
 async function writeConfig(configDir, config) {
   await writeFile(join(configDir, "config.json"), `${JSON.stringify(config, null, 2)}\n`);
+}
+
+async function writeProjectAuth(configDir) {
+  await writeConfig(configDir, {
+    accounts: {
+      default: {
+        apiUrl: "https://api.example.test",
+        clientId: "client-id",
+        oidcUrl: "https://iam.example.test",
+        rootTenantId: "root-tenant"
+      }
+    },
+    selectedProject: { tenantId: "project-tenant" }
+  });
+  await writeFile(join(configDir, "tokens.json"), `${JSON.stringify({
+    accounts: {
+      default: {
+        account: {
+          accessToken: fakeJwt({ tenant_id: "root-tenant" }),
+          accountTenant: "root-tenant",
+          expiresAt: new Date(Date.now() + 3_600_000).toISOString(),
+          refreshToken: "account-refresh-token",
+          tokenType: "Bearer"
+        },
+        projects: {
+          "project-tenant": {
+            accessToken: fakeJwt({ tenant_id: "project-tenant" }),
+            accountTenant: "root-tenant",
+            expiresAt: new Date(Date.now() + 3_600_000).toISOString(),
+            refreshToken: "project-refresh-token",
+            tokenType: "Bearer"
+          }
+        }
+      }
+    }
+  }, null, 2)}\n`);
 }
 
 async function writeSecretStore(configDir, store) {
@@ -1042,6 +1849,11 @@ function jsonResponse(body, status = 200) {
   });
 }
 
+/** For use as a startJsonServer handler return value: a non-200 status, optionally with a JSON body. */
+function rawResponse(status, body) {
+  return body === undefined ? { __httpStatus: status } : { __httpBody: body, __httpStatus: status };
+}
+
 function fakeJwt(payload) {
   const header = Buffer.from(JSON.stringify({ alg: "none", typ: "JWT" })).toString("base64url");
   const body = Buffer.from(JSON.stringify(payload)).toString("base64url");
@@ -1050,6 +1862,15 @@ function fakeJwt(payload) {
 
 function run(args, { cwd, env }) {
   return spawnSync(process.execPath, [bin, ...args], {
+    cwd,
+    encoding: "utf8",
+    env,
+    timeout: 20_000
+  });
+}
+
+function runNodeScript(args, { cwd, env }) {
+  return spawnSync(process.execPath, args, {
     cwd,
     encoding: "utf8",
     env,
@@ -1100,8 +1921,22 @@ async function startJsonServer(handler) {
     const text = Buffer.concat(chunks).toString("utf8");
     const body = text ? JSON.parse(text) : undefined;
     const result = handler(request, body);
-    response.setHeader("content-type", "application/json");
     response.setHeader("connection", "close");
+
+    // A handler can return `rawResponse(status[, body])` to simulate a non-200
+    // status and/or an empty body (e.g. the backend's HTTP 204 "not found").
+    if (result && typeof result === "object" && "__httpStatus" in result) {
+      response.statusCode = result.__httpStatus;
+      if ("__httpBody" in result) {
+        response.setHeader("content-type", "application/json");
+        response.end(JSON.stringify(result.__httpBody));
+      } else {
+        response.end();
+      }
+      return;
+    }
+
+    response.setHeader("content-type", "application/json");
     response.end(JSON.stringify(result));
   });
 

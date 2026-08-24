@@ -3,17 +3,22 @@ import {
   BlocksDataCollection,
   BlocksDataCollectionOptions,
   BlocksDataListOptions,
-  BlocksDmsCreateFolderRequest,
-  BlocksDmsListRequest,
-  BlocksDmsUploadRequest,
+  BlocksDirectoryCreateRequest,
+  BlocksDirectoryDeleteRequest,
+  BlocksDirectoryMoveRequest,
+  BlocksDirectoryUpdateRequest,
+  BlocksFileCopyRequest,
+  BlocksFileCreateVersionRequest,
   BlocksFileDeleteRequest,
   BlocksFileGetOptions,
   BlocksFileInfoListRequest,
+  BlocksFileMoveRequest,
+  BlocksFileRenameRequest,
+  BlocksFileVersionsRequest,
   BlocksDataSchema,
   BlocksFileListRequest,
   BlocksFileUpdateAdditionalInfoRequest,
   BlocksFileUploadRequest,
-  BlocksFolderDeleteRequest,
   BlocksGraphqlRequest,
   BlocksLocalStorageUploadRequest,
   BlocksPagedResult,
@@ -21,6 +26,15 @@ import {
   BlocksSchemaFieldValidationOptions,
   BlocksSchemaListOptions,
   BlocksSchemaValidationListOptions,
+  BlocksStorageAccessPolicyRequest,
+  BlocksStorageObjectListRequest,
+  BlocksStorageObjectPageRequest,
+  BlocksStorageObjectSearchRequest,
+  BlocksStorageObjectsResponse,
+  BlocksStorageResourceRequest,
+  BlocksStorageRevokeAccessRequest,
+  BlocksStorageShareRequest,
+  BlocksStorageToggleInheritanceRequest,
   BlocksUploadToUrlRequest
 } from "./types.js";
 
@@ -85,11 +99,11 @@ export class BlocksDataClient {
 
   files = {
     /**
-     * What: reads one file record through `GET /data/v4/Files/GetFile`.
+     * What: reads one file record through the current file download operation.
      * Why: frontend views need file metadata or a downloadable reference by file id.
      * How: pass `fileId` and optional Data file configuration/version fields.
      */
-    get: (fileId: string, options: BlocksFileGetOptions = {}): Promise<unknown> => this.http.request(`${DATA_API}/Files/GetFile`, {
+    get: (fileId: string, options: BlocksFileGetOptions = {}): Promise<unknown> => this.http.request(`${DATA_API}/files/get-file`, {
       query: {
         ConfigurationName: options.configurationName,
         FileId: fileId,
@@ -98,29 +112,29 @@ export class BlocksDataClient {
     }),
 
     /**
-     * What: batch-reads files through `POST /data/v4/Files/GetFiles`.
+     * What: batch-reads file metadata and download URLs.
      * Why: pages with many attachments should avoid one request per file.
      * How: pass the file-list payload exactly as Data expects; the SDK does not inject project fields.
      */
-    getMany: (request: BlocksFileListRequest): Promise<unknown> => this.http.request(`${DATA_API}/Files/GetFiles`, {
+    getMany: (request: BlocksFileListRequest): Promise<unknown> => this.http.request(`${DATA_API}/files/get-files`, {
       body: normalizeFileListRequest(request)
     }),
 
     /**
-     * What: lists file records and metadata through `POST /data/v4/Files/GetFilesInfo`.
+     * What: lists file records and metadata.
      * Why: storage browsers and attachment managers need paged file metadata before downloading content.
      * How: pass paging, sort, and filter fields; the SDK sends your request without any `projectKey`.
      */
-    info: (request: BlocksFileInfoListRequest): Promise<unknown> => this.http.request(`${DATA_API}/Files/GetFilesInfo`, {
+    info: (request: BlocksFileInfoListRequest): Promise<unknown> => this.http.request(`${DATA_API}/files/get-files-info`, {
       body: withoutProjectKey(request)
     }),
 
     /**
-     * What: requests an upload URL through `POST /data/v4/Files/GetPreSignedUrlForUpload`.
+     * What: creates file/version metadata and requests a pre-signed upload URL.
      * Why: browser apps should upload binary content through the URL issued by Blocks Data.
-     * How: pass file metadata such as `name`, `contentType`, `configurationName`, and optional DMS fields.
+     * How: pass file metadata plus a parent directory id or module default.
      */
-    presignedUploadUrl: (request: BlocksFileUploadRequest): Promise<unknown> => this.http.request(`${DATA_API}/Files/GetPreSignedUrlForUpload`, {
+    presignedUploadUrl: (request: BlocksFileUploadRequest): Promise<unknown> => this.http.request(`${DATA_API}/files/get-pre-signed-url-for-upload`, {
       body: normalizeUploadRequest(request)
     }),
 
@@ -141,78 +155,127 @@ export class BlocksDataClient {
     },
 
     /**
-     * What: uploads a file through `POST /data/v4/Files/UploadFileToLocalStorage`.
+     * What: creates a file/version and uploads its bytes to local storage.
      * Why: local-storage deployments need multipart upload through Blocks Data instead of a pre-signed cloud URL.
      * How: pass a `Blob`/`File` and metadata; the SDK builds `FormData` and does not add `projectKey`.
      */
-    uploadToLocalStorage: (request: BlocksLocalStorageUploadRequest): Promise<unknown> => this.http.request(`${DATA_API}/Files/UploadFileToLocalStorage`, {
+    uploadToLocalStorage: (request: BlocksLocalStorageUploadRequest): Promise<unknown> => this.http.request(`${DATA_API}/files/upload-file-to-local-storage`, {
       body: toLocalStorageFormData(request),
       headers: {}
     }),
 
     /**
-     * What: deletes a file through `POST /data/v4/Files/DeleteFile`.
+     * What: moves a file to trash or permanently deletes it.
      * Why: storage UIs need to remove files when permissions and Data rules allow it.
-     * How: pass `fileId` and optional `configurationName`; the SDK sends no project key.
+     * How: pass `fileId` and an explicit `permanent` choice; false moves to trash.
      */
-    delete: (request: BlocksFileDeleteRequest): Promise<unknown> => this.http.request(`${DATA_API}/Files/DeleteFile`, {
+    delete: (request: BlocksFileDeleteRequest): Promise<unknown> => this.http.request(`${DATA_API}/files/delete-file`, {
       body: withoutProjectKey(request)
     }),
 
     /**
-     * What: updates file additional properties through `POST /data/v4/Files/UpdateFileAdditionalInfo`.
+     * What: updates file additional properties.
      * Why: apps often need to attach searchable metadata such as agent status or business references to a file.
      * How: pass `itemId` and `additionalProperties`; the SDK forwards the request as-is except for not adding project fields.
      */
-    updateAdditionalInfo: (request: BlocksFileUpdateAdditionalInfoRequest): Promise<unknown> => this.http.request(`${DATA_API}/Files/UpdateFileAdditionalInfo`, {
+    updateAdditionalInfo: (request: BlocksFileUpdateAdditionalInfoRequest): Promise<unknown> => this.http.request(`${DATA_API}/files/update-file-additional-info`, {
       body: withoutProjectKey(request)
     }),
 
-    /**
-     * What: reads DMS file/folder entries through `POST /data/v4/Files/GetDmsFileAndFolder`.
-     * Why: document-management views need combined folder and file listings.
-     * How: pass Data's DMS listing payload exactly as your app builds it.
-     */
-    listFolder: (request: BlocksFileListRequest): Promise<unknown> => this.http.request(`${DATA_API}/Files/GetDmsFileAndFolder`, {
-      body: withoutProjectKey(request)
+    versions: (request: BlocksFileVersionsRequest): Promise<unknown> => this.http.request(`${DATA_API}/files/get-file-versions`, {
+      query: request
+    }),
+
+    createVersion: (request: BlocksFileCreateVersionRequest): Promise<unknown> => this.http.request(`${DATA_API}/files/create-file-version`, {
+      body: request
+    }),
+
+    copy: (request: BlocksFileCopyRequest): Promise<unknown> => this.http.request(`${DATA_API}/files/copy-file`, {
+      body: request
+    }),
+
+    move: (request: BlocksFileMoveRequest): Promise<unknown> => this.http.request(`${DATA_API}/files/move-file`, {
+      body: request
+    }),
+
+    rename: (request: BlocksFileRenameRequest): Promise<unknown> => this.http.request(`${DATA_API}/files/rename-file`, {
+      body: request
     })
   };
 
-  dms = {
-    /**
-     * What: lists DMS files and folders through `POST /data/v4/Files/GetDmsFileAndFolder`.
-     * Why: document-management screens need folder contents, search, skip/take paging, and file entries together.
-     * How: pass DMS listing fields such as `parentId`, `configurationName`, `searchKey`, `skip`, and `take`.
-     */
-    list: (request: BlocksDmsListRequest): Promise<unknown> => this.http.request(`${DATA_API}/Files/GetDmsFileAndFolder`, {
-      body: withoutProjectKey(request)
+  directories = {
+    create: (request: BlocksDirectoryCreateRequest): Promise<unknown> => this.http.request(`${DATA_API}/directory/create-directory`, {
+      body: request
     }),
 
-    /**
-     * What: registers uploaded files in DMS through `POST /data/v4/Files/UploadFile`.
-     * Why: after binary upload, DMS needs artifact metadata so files appear in document folders.
-     * How: pass the `upload` array with file storage ids and metadata returned from the upload flow.
-     */
-    uploadFiles: (request: BlocksDmsUploadRequest): Promise<unknown> => this.http.request(`${DATA_API}/Files/UploadFile`, {
-      body: withoutProjectKey(request)
+    get: (directoryId: string): Promise<unknown> => this.http.request(`${DATA_API}/directory/get-directory`, {
+      query: { directoryId }
     }),
 
-    /**
-     * What: creates a DMS folder through `POST /data/v4/Files/CreateFolder`.
-     * Why: document-management UIs need to create folder hierarchy for uploaded files.
-     * How: pass folder metadata such as `artifactName`, `parentId`, and optional `configurationName`.
-     */
-    createFolder: (request: BlocksDmsCreateFolderRequest): Promise<unknown> => this.http.request(`${DATA_API}/Files/CreateFolder`, {
-      body: withoutProjectKey(request)
+    update: (request: BlocksDirectoryUpdateRequest): Promise<unknown> => this.http.request(`${DATA_API}/directory/update-directory`, {
+      body: request
     }),
 
-    /**
-     * What: deletes a DMS folder through `POST /data/v4/Files/DeleteFolder`.
-     * Why: document-management UIs need to remove empty or allowed folders.
-     * How: pass `folderId` and optional `configurationName`; the SDK sends no project key.
-     */
-    deleteFolder: (request: BlocksFolderDeleteRequest): Promise<unknown> => this.http.request(`${DATA_API}/Files/DeleteFolder`, {
-      body: withoutProjectKey(request)
+    delete: (request: BlocksDirectoryDeleteRequest): Promise<unknown> => this.http.request(`${DATA_API}/directory/delete-directory`, {
+      body: request
+    }),
+
+    move: (request: BlocksDirectoryMoveRequest): Promise<unknown> => this.http.request(`${DATA_API}/directory/move-directory`, {
+      body: request
+    })
+  };
+
+  objects = {
+    list: (request: BlocksStorageObjectListRequest = {}): Promise<BlocksStorageObjectsResponse> => this.http.request(`${DATA_API}/objects/get-objects`, {
+      query: request
+    }),
+
+    search: (request: BlocksStorageObjectSearchRequest): Promise<BlocksStorageObjectsResponse> => this.http.request(`${DATA_API}/objects/search-objects`, {
+      query: request
+    }),
+
+    trash: (request: BlocksStorageObjectPageRequest = {}): Promise<BlocksStorageObjectsResponse> => this.http.request(`${DATA_API}/objects/get-trash`, {
+      query: request
+    }),
+
+    shared: (request: BlocksStorageObjectPageRequest = {}): Promise<BlocksStorageObjectsResponse> => this.http.request(`${DATA_API}/objects/get-shared-objects`, {
+      query: request
+    }),
+
+    restore: (request: BlocksStorageResourceRequest): Promise<unknown> => this.http.request(`${DATA_API}/objects/restore-from-trash`, {
+      body: request
+    }),
+
+    deleteFromTrash: (request: BlocksStorageResourceRequest): Promise<unknown> => this.http.request(`${DATA_API}/objects/delete-from-trash`, {
+      body: request
+    }),
+
+    accessPolicies: (resourceId: string): Promise<unknown> => this.http.request(`${DATA_API}/objects/get-access-policies`, {
+      query: { resourceId }
+    }),
+
+    grantAccess: (request: BlocksStorageAccessPolicyRequest): Promise<unknown> => this.http.request(`${DATA_API}/objects/grant-access`, {
+      body: request
+    }),
+
+    updateAccess: (request: BlocksStorageAccessPolicyRequest): Promise<unknown> => this.http.request(`${DATA_API}/objects/update-access-policy`, {
+      body: request
+    }),
+
+    revokeAccess: (request: BlocksStorageRevokeAccessRequest): Promise<unknown> => this.http.request(`${DATA_API}/objects/revoke-access-policy`, {
+      body: request
+    }),
+
+    resolveAccess: (resourceId: string): Promise<unknown> => this.http.request(`${DATA_API}/objects/resolve-access`, {
+      query: { resourceId }
+    }),
+
+    toggleInheritance: (request: BlocksStorageToggleInheritanceRequest): Promise<unknown> => this.http.request(`${DATA_API}/objects/toggle-inheritance`, {
+      body: request
+    }),
+
+    share: (request: BlocksStorageShareRequest): Promise<unknown> => this.http.request(`${DATA_API}/objects/share-object`, {
+      body: request
     })
   };
 

@@ -210,7 +210,7 @@ test("localization uses x-blocks-key header for runtime endpoints", async () => 
   assert.equal(blocks.localization.t("HELLO"), "Hello");
 });
 
-test("data exposes schema info and file helper endpoints", async () => {
+test("data exposes schema info and current storage helper endpoints", async () => {
   const calls = [];
   const blocks = createBlocksClient({
     apiUrl: "https://api.seliseblocks.com",
@@ -228,23 +228,22 @@ test("data exposes schema info and file helper endpoints", async () => {
   await blocks.data.schemas.infoByName("Student");
   await blocks.data.files.presignedUploadUrl({ fileName: "a.txt" });
   await blocks.data.files.info({ page: 1, pageSize: 10, projectKey: "legacy-project-key" });
-  await blocks.data.files.delete({ fileId: "file-1", projectKey: "legacy-project-key" });
+  await blocks.data.files.delete({ fileId: "file-1", permanent: false, projectKey: "legacy-project-key" });
   await blocks.data.files.updateAdditionalInfo({
     additionalProperties: { status: "ready" },
     itemId: "file-1",
     ProjectKey: "legacy-project-key"
   });
-  await blocks.data.dms.list({ configurationName: "default", parentId: "root", projectKey: "legacy-project-key" });
-  await blocks.data.dms.uploadFiles({
-    projectKey: "legacy-project-key",
-    upload: [{ artifactName: "a.txt", fileStorageId: "file-1" }]
+  await blocks.data.directories.create({ name: "Docs", parentDirectoryId: "root" });
+  await blocks.data.directories.get("folder-1");
+  await blocks.data.objects.list({ limit: 20, parentDirectoryId: "folder-1", type: "file" });
+  await blocks.data.objects.share({
+    permission: "View",
+    principalId: "role-1",
+    principalType: "Role",
+    resourceId: "folder-1",
+    resourceType: "Directory"
   });
-  await blocks.data.dms.createFolder({
-    artifactName: "Docs",
-    configurationName: "default",
-    projectKey: "legacy-project-key"
-  });
-  await blocks.data.dms.deleteFolder({ folderId: "folder-1", projectKey: "legacy-project-key" });
   await blocks.data.validations.list({ schemaId: "schema-1", fieldName: "email", projectKey: "legacy-project-key" });
   await blocks.data.validations.getById("validation-1");
   await blocks.data.validations.bySchemaId("schema-1");
@@ -258,30 +257,34 @@ test("data exposes schema info and file helper endpoints", async () => {
   assert.equal(calls[2].url, "https://api.seliseblocks.com/data/v4/schemas/get-by-id?id=schema-1");
   assert.equal(calls[3].url, "https://api.seliseblocks.com/data/v4/schemas/info");
   assert.equal(calls[4].url, "https://api.seliseblocks.com/data/v4/schemas/info-by-name?schemaName=Student");
-  assert.equal(calls[5].url, "https://api.seliseblocks.com/data/v4/Files/GetPreSignedUrlForUpload");
+  assert.equal(calls[5].url, "https://api.seliseblocks.com/data/v4/files/get-pre-signed-url-for-upload");
   assert.equal(calls[5].init.method, "POST");
   assert.equal(Object.fromEntries(calls[0].init.headers)["x-blocks-key"], "tenant-1");
   assert.equal(Object.fromEntries(calls[1].init.headers)["x-blocks-key"], "tenant-1");
   assert.equal(Object.fromEntries(calls[2].init.headers)["x-blocks-key"], "tenant-1");
   assert.equal(Object.fromEntries(calls[3].init.headers)["x-blocks-key"], "tenant-1");
   assert.deepEqual(JSON.parse(calls[5].init.body), { Name: "a.txt" });
-  assert.equal(calls[6].url, "https://api.seliseblocks.com/data/v4/Files/GetFilesInfo");
+  assert.equal(calls[6].url, "https://api.seliseblocks.com/data/v4/files/get-files-info");
   assert.deepEqual(JSON.parse(calls[6].init.body), { page: 1, pageSize: 10 });
-  assert.equal(calls[7].url, "https://api.seliseblocks.com/data/v4/Files/DeleteFile");
-  assert.deepEqual(JSON.parse(calls[7].init.body), { fileId: "file-1" });
-  assert.equal(calls[8].url, "https://api.seliseblocks.com/data/v4/Files/UpdateFileAdditionalInfo");
+  assert.equal(calls[7].url, "https://api.seliseblocks.com/data/v4/files/delete-file");
+  assert.deepEqual(JSON.parse(calls[7].init.body), { fileId: "file-1", permanent: false });
+  assert.equal(calls[8].url, "https://api.seliseblocks.com/data/v4/files/update-file-additional-info");
   assert.deepEqual(JSON.parse(calls[8].init.body), {
     additionalProperties: { status: "ready" },
     itemId: "file-1"
   });
-  assert.equal(calls[9].url, "https://api.seliseblocks.com/data/v4/Files/GetDmsFileAndFolder");
-  assert.deepEqual(JSON.parse(calls[9].init.body), { configurationName: "default", parentId: "root" });
-  assert.equal(calls[10].url, "https://api.seliseblocks.com/data/v4/Files/UploadFile");
-  assert.deepEqual(JSON.parse(calls[10].init.body), { upload: [{ artifactName: "a.txt", fileStorageId: "file-1" }] });
-  assert.equal(calls[11].url, "https://api.seliseblocks.com/data/v4/Files/CreateFolder");
-  assert.deepEqual(JSON.parse(calls[11].init.body), { artifactName: "Docs", configurationName: "default" });
-  assert.equal(calls[12].url, "https://api.seliseblocks.com/data/v4/Files/DeleteFolder");
-  assert.deepEqual(JSON.parse(calls[12].init.body), { folderId: "folder-1" });
+  assert.equal(calls[9].url, "https://api.seliseblocks.com/data/v4/directory/create-directory");
+  assert.deepEqual(JSON.parse(calls[9].init.body), { name: "Docs", parentDirectoryId: "root" });
+  assert.equal(calls[10].url, "https://api.seliseblocks.com/data/v4/directory/get-directory?directoryId=folder-1");
+  assert.equal(calls[11].url, "https://api.seliseblocks.com/data/v4/objects/get-objects?limit=20&parentDirectoryId=folder-1&type=file");
+  assert.equal(calls[12].url, "https://api.seliseblocks.com/data/v4/objects/share-object");
+  assert.deepEqual(JSON.parse(calls[12].init.body), {
+    permission: "View",
+    principalId: "role-1",
+    principalType: "Role",
+    resourceId: "folder-1",
+    resourceType: "Directory"
+  });
   assert.equal(calls[13].url, "https://api.seliseblocks.com/data/v4/data-validations?FieldName=email&PageNo=1&PageSize=100&SchemaId=schema-1");
   assert.equal(calls[14].url, "https://api.seliseblocks.com/data/v4/data-validations/get-by-id?id=validation-1");
   assert.equal(calls[15].url, "https://api.seliseblocks.com/data/v4/data-validations/by-schema-id?schemaId=schema-1");
@@ -295,6 +298,68 @@ test("data exposes schema info and file helper endpoints", async () => {
     query: "{ students { items { itemId } } }",
     variables: { take: 10 }
   });
+});
+
+test("storage object-tree helpers cover file, directory, trash, and access operations", async () => {
+  const calls = [];
+  const blocks = createBlocksClient({
+    apiUrl: "https://api.seliseblocks.com",
+    fetch: async (url, init) => {
+      calls.push({ url, init });
+      return jsonResponse({ ok: true });
+    },
+    xBlocksKey: "tenant-1"
+  });
+
+  await blocks.data.files.versions({ fileId: "file-1", limit: 25 });
+  await blocks.data.files.createVersion({ fileId: "file-1" });
+  await blocks.data.files.copy({ copyAccessPolicies: true, fileId: "file-1", targetDirectoryId: "dir-2" });
+  await blocks.data.files.move({ fileId: "file-1", targetDirectoryId: "dir-2" });
+  await blocks.data.files.rename({ fileId: "file-1", name: "renamed.pdf" });
+  await blocks.data.directories.update({ directoryId: "dir-1", name: "Renamed" });
+  await blocks.data.directories.delete({ directoryId: "dir-1", permanent: false });
+  await blocks.data.directories.move({ directoryId: "dir-1", targetDirectoryId: "dir-2" });
+  await blocks.data.objects.search({ directoryId: "dir-1", query: "invoice" });
+  await blocks.data.objects.trash({ limit: 10, type: "file" });
+  await blocks.data.objects.shared({ limit: 10 });
+  await blocks.data.objects.restore({ resourceId: "file-1" });
+  await blocks.data.objects.deleteFromTrash({ resourceId: "file-1" });
+  await blocks.data.objects.accessPolicies("dir-1");
+  await blocks.data.objects.grantAccess({
+    effect: "Allow", permission: "Edit", principalId: "role-1", principalType: "Role",
+    resourceId: "dir-1", resourceType: "Directory"
+  });
+  await blocks.data.objects.updateAccess({
+    effect: "Deny", permission: "Delete", policyItemId: "policy-1", principalId: "role-1",
+    principalType: "Role", resourceId: "dir-1", resourceType: "Directory"
+  });
+  await blocks.data.objects.revokeAccess({ policyItemId: "policy-1", resourceId: "dir-1" });
+  await blocks.data.objects.resolveAccess("dir-1");
+  await blocks.data.objects.toggleInheritance({ inheritsParentAccess: false, resourceId: "dir-1" });
+
+  assert.deepEqual(calls.map((call) => new URL(call.url).pathname), [
+    "/data/v4/files/get-file-versions",
+    "/data/v4/files/create-file-version",
+    "/data/v4/files/copy-file",
+    "/data/v4/files/move-file",
+    "/data/v4/files/rename-file",
+    "/data/v4/directory/update-directory",
+    "/data/v4/directory/delete-directory",
+    "/data/v4/directory/move-directory",
+    "/data/v4/objects/search-objects",
+    "/data/v4/objects/get-trash",
+    "/data/v4/objects/get-shared-objects",
+    "/data/v4/objects/restore-from-trash",
+    "/data/v4/objects/delete-from-trash",
+    "/data/v4/objects/get-access-policies",
+    "/data/v4/objects/grant-access",
+    "/data/v4/objects/update-access-policy",
+    "/data/v4/objects/revoke-access-policy",
+    "/data/v4/objects/resolve-access",
+    "/data/v4/objects/toggle-inheritance"
+  ]);
+  assert.deepEqual(JSON.parse(calls[6].init.body), { directoryId: "dir-1", permanent: false });
+  assert.equal(calls[8].url, "https://api.seliseblocks.com/data/v4/objects/search-objects?directoryId=dir-1&query=invoice");
 });
 
 test("data collection helpers use the GraphQL gateway runtime", async () => {
@@ -378,7 +443,7 @@ test("data upload helpers support FormData and external pre-signed upload withou
     url: "https://storage.example/upload"
   });
 
-  assert.equal(calls[0].url, "https://api.seliseblocks.com/data/v4/Files/UploadFileToLocalStorage");
+  assert.equal(calls[0].url, "https://api.seliseblocks.com/data/v4/files/upload-file-to-local-storage");
   assert.equal(calls[0].init.body instanceof FormData, true);
   assert.equal(Object.fromEntries(calls[0].init.headers)["x-blocks-key"], "tenant-1");
   assert.equal(calls[1].url, "https://storage.example/upload");
@@ -445,6 +510,84 @@ test("sends credentials so IAM's httpOnly session cookie reaches Blocks API and 
   assert.equal(calls[0].credentials, "include", "auth/me must send the session cookie");
   assert.equal(calls[1].credentials, "include", "Blocks API requests must send the session cookie");
   assert.equal(calls[2].credentials, undefined, "external() must not leak Blocks session credentials to third-party URLs");
+});
+
+test("retries once with a fresh token when onUnauthorized recovers from a 401", async () => {
+  const authHeaders = [];
+  const blocks = createBlocksClient({
+    apiUrl: "https://api.seliseblocks.com/",
+    accessToken: () => "stale-token",
+    fetch: async (url, init) => {
+      const auth = new Headers(init?.headers).get("authorization");
+      authHeaders.push(auth);
+      if (auth === "Bearer stale-token") return jsonResponse({ message: "unauthorized" }, 401);
+      return jsonResponse({ ok: true });
+    },
+    onUnauthorized: async () => "fresh-token",
+    xBlocksKey: "tenant-1"
+  });
+
+  const response = await blocks.http.request("/iam/v4/iam/me");
+  assert.deepEqual(response, { ok: true });
+  assert.deepEqual(authHeaders, ["Bearer stale-token", "Bearer fresh-token"]);
+});
+
+test("does not retry when onUnauthorized cannot recover, and leaves the 401 to throw", async () => {
+  let onUnauthorizedCalls = 0;
+  let fetchCalls = 0;
+  const blocks = createBlocksClient({
+    apiUrl: "https://api.seliseblocks.com/",
+    accessToken: () => "dead-token",
+    fetch: async () => {
+      fetchCalls += 1;
+      return jsonResponse({ message: "unauthorized" }, 401);
+    },
+    onUnauthorized: async () => {
+      onUnauthorizedCalls += 1;
+      return undefined;
+    },
+    xBlocksKey: "tenant-1"
+  });
+
+  await assert.rejects(() => blocks.http.request("/iam/v4/iam/me"), /Blocks API 401/);
+  assert.equal(fetchCalls, 1, "no retry attempted without a fresh token");
+  assert.equal(onUnauthorizedCalls, 1);
+});
+
+test("an onUnauthorized that dedupes itself resolves one refresh for concurrent 401s, not one each", async () => {
+  // The SDK never dedupes calls to onUnauthorized on its own -- that's the app's
+  // responsibility (mirroring the scaffold's forceRefreshAccessToken, which guards
+  // refreshAccessToken() behind a shared refreshInFlight promise). This proves that
+  // pattern actually resolves one refresh for a burst of concurrent 401s.
+  let onUnauthorizedCalls = 0;
+  let refreshInFlight;
+  const blocks = createBlocksClient({
+    apiUrl: "https://api.seliseblocks.com/",
+    accessToken: () => "stale-token",
+    fetch: async (url, init) => {
+      const auth = new Headers(init?.headers).get("authorization");
+      if (auth === "Bearer stale-token") return jsonResponse({ message: "unauthorized" }, 401);
+      return jsonResponse({ ok: true, auth });
+    },
+    onUnauthorized: () => {
+      if (!refreshInFlight) {
+        onUnauthorizedCalls += 1;
+        refreshInFlight = new Promise((resolve) => setTimeout(() => resolve("fresh-token"), 5))
+          .finally(() => { refreshInFlight = undefined; });
+      }
+      return refreshInFlight;
+    },
+    xBlocksKey: "tenant-1"
+  });
+
+  const responses = await Promise.all([
+    blocks.http.request("/iam/v4/iam/me"),
+    blocks.http.request("/iam/v4/iam/me"),
+    blocks.http.request("/iam/v4/iam/me")
+  ]);
+
+  assert.equal(onUnauthorizedCalls, 1, "three concurrent 401s should resolve one refresh, not one each");
+  assert.deepEqual(responses.map((r) => r.auth), ["Bearer fresh-token", "Bearer fresh-token", "Bearer fresh-token"]);
 });
 
 function jsonResponse(body, status = 200) {
