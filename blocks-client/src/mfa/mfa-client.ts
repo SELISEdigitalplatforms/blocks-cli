@@ -90,6 +90,8 @@ export class BlocksMfaClient {
    * What: sets the signed-in user's active MFA method through `PUT /iam/v4/mfa/method`.
    * Why: users who have enrolled more than one method need to switch which one is active.
    * How: pass the `mfaType` to activate; enroll it first (e.g. via `totp.setup`/`verifySetup`) if it isn't already.
+     * Careful: IAM only branches on TOTP (1) and Email (2) here -- every other value falls through to its
+     * disable path and turns the user's MFA off. Use `disable()` when that is the intent.
    */
   setMethod(request: BlocksMfaSetMethodRequest): Promise<BlocksMfaPassThroughResponse> {
     return this.http.request<BlocksMfaPassThroughResponse>(`${MFA_API}/method`, {

@@ -32,7 +32,7 @@ blocks auth status --json
 blocks doctor --json
 ```
 
-`auth status` reports only existence and freshness — `missing`, `expired`, or `valid` — for four tokens:
+`auth status` reports only existence and freshness — `missing`, `expired`, `valid`, or `available` (present, but with no recorded expiry) — for four tokens:
 
 ```json
 { "accountAccessToken": "expired", "accountRefreshToken": "missing",
@@ -47,6 +47,7 @@ Read it like this:
 | `accountAccessToken` and `accountRefreshToken` both `missing` | Never logged in on this machine | `blocks login` |
 | `accountAccessToken` `expired`, `accountRefreshToken` `missing` | Session dead, cannot self-refresh | `blocks login` again |
 | `accountAccessToken` `expired`, `accountRefreshToken` `valid` | Recoverable | `blocks auth refresh --json`, then re-probe |
+| Any token `available` | Present, expiry unknown — treat as usable but unproven | Continue, and fall back to `blocks login` if a call returns `api_auth_failed` |
 | Account tokens fine, no project selected | Needs a project | [flows/project-selection.md](flows/project-selection.md) |
 | Account tokens fine, project selected | Ready | Confirm the project with the user, then route below |
 
@@ -86,7 +87,6 @@ Once one user can log in, bootstrap is over. Hand off: `blocks-iam-users` and `b
 
 ## Hard rules
 
-- **`blocks skill` and `blocks sdk client` do not exist.** They are not missing features to work around; the CLI's test suite asserts they stay unexposed. Never suggest either.
 - **Ask the user before installing or upgrading the global CLI.** Never run `npm install -g` on your own initiative.
 - **If the user supplied an `x-blocks-key`, use it directly.** Do not show a picker, and do not list projects to "confirm" a choice they already made.
 - **If they did not, list the projects and ask.** Never silently continue on a prior session's cached selection.

@@ -21,6 +21,18 @@ blocks iam permissions update <id> [same flags as create, plus --is-archived] [-
 blocks iam permissions by-severity [--json]
 ```
 
+`--type` and `--severity` are IAM enums passed as raw integers, and severity is ordered **most severe first**, which is the opposite of what the number suggests:
+
+| `--type` (ResourceType) | | `--severity` (PermissionSeverity) | |
+|---|---|---|---|
+| `0` | None (unset) | `0` | None — unset, treated as the lowest tier |
+| `1` | Endpoint — checked by the API gateway | `1` | **Critical** — can compromise the tenant |
+| `2` | FrontendAction — checked by the SPA's permission gate | `2` | High — exposes customer data or broad read access |
+| `3` | DataProtection — field/record encryption or masking rule | `3` | Medium — routine admin, limited blast radius |
+| | | `4` | Low — cosmetic or read-only |
+
+So `--severity 1` filters for the *most* dangerous permissions, not the least. Severity drives approval workflows (high-severity grants need an extra approver), UI emphasis, and audit-alert priority — it is not decorative.
+
 Mutating commands (`create`, `update`, `assign-permissions`) follow the same discipline as every other mutating command in this CLI: pass `--dry-run` first to see the exact request body and endpoint with no network call, then re-run with `--yes` (or you'll be prompted to confirm) to actually send it.
 
 ## Two equally real surfaces

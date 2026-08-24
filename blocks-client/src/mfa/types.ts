@@ -23,7 +23,7 @@ export type BlocksMfaConfigSaveRequest = Record<string, unknown> & {
 };
 
 export type BlocksMfaGenerateRequest = {
-  /** IAM-defined numeric MFA method (its enum names aren't in the swagger contract -- treat as opaque). */
+  /** IAM's UserMfaType: 0 None, 1 TOTP, 2 Email, 3 Sms, 4 WhatsApp. Only 1 and 2 have a provider. */
   mfaType: number;
   sendPhoneNumberAsEmailDomain?: string;
 };
@@ -34,6 +34,7 @@ export type BlocksMfaResendRequest = {
 };
 
 export type BlocksMfaVerifyRequest = {
+  /** Same UserMfaType enum as `mfaType`: the method that issued this challenge (1 TOTP, 2 Email). */
   authType: number;
   isFromTokenCall?: boolean;
   mfaId: string;

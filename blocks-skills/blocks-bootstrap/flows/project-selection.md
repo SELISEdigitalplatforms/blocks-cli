@@ -50,7 +50,7 @@ blocks projects create "<name>" --yes --json
 blocks use <tenantId>
 ```
 
-Run `projects list` first: `--dry-run` returns before the duplicate-name check, so a dry run cannot tell you the name is already taken. A retried create makes a *second* project with the same name rather than failing, so the check matters.
+`--dry-run` returns before the duplicate-name check, so a dry run never tells you the name is taken. The real run does: it refuses with `project_name_taken` if any project on the account already uses that name, and only `--allow-duplicate-name` overrides that. Names must be 3–100 characters.
 
 What it creates is deliberately narrow: exactly one application, always in the `dev` environment. Domain, cookie domain, and production flag are fixed and not configurable. The domain it sends is a placeholder the platform discards and replaces with one it assigns, so read the real domain back from the result rather than from the request. Provisioning is asynchronous, so the command polls briefly and reports whether the new project has been published yet. Adding further environments to an existing project is portal-only.
 

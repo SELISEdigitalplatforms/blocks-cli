@@ -36,6 +36,8 @@ All of these commands are project-scoped: they need a selected project (`blocks 
      --register-as-identity-provider \
      [--dry-run] [--yes]
    ```
+   `--require-mfa [--allowed-mfa-methods 1,2]` belongs here too when this client must force MFA. It is a **third, independent MFA gate**: IAM's login policy requires MFA if the tenant requires it, the user's role requires it, the user enrolled voluntarily, **or** the client sets `requireMfa`. `allowedMfaMethods` narrows, never widens — IAM intersects it with the tenant's allowed list, so naming a method the tenant hasn't enabled leaves nothing usable. Values are IAM's `UserMfaType` (`1` TOTP, `2` Email; `0` is None and `3`/`4` have no provider) — see blocks-iam-mfa.
+
    This mirrors exactly what `blocks new web`'s interactive OIDC-client prompt does when scaffolding a new web app. `--register-as-identity-provider` is what turns this from "just an OIDC client" into something the hosted-login redirect flow (`auth.idp.redirectToProvider()` / `auth.idp.callback()`) can authenticate against — per the CLI's own scaffold help text, this registers the client "as a Blocks OIDC identity provider" in the same call.
 3. **Verify the auto-created provider before handing off.** `--register-as-identity-provider` creates the provider record for you. Current CLI builds the provider discovery URL by default, matching the portal checkbox behavior, but still check what landed with `blocks auth idp list --json`. If an older provider has `authorizationUrl` null, hosted login will not redirect: the initiate call behind `auth.idp.redirectToProvider()` builds its target as `provider.AuthorizationUrl ?? ""` plus a query string, so the browser navigates to the app's own origin with OIDC params attached. The repair:
    ```

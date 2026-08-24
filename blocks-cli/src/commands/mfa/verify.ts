@@ -9,7 +9,10 @@ export async function mfaVerify(argv: string[]): Promise<void> {
   const mfaId = args[0] || stringFlag(flags, "mfa-id", { required: true });
   const verificationCode = args[1] || stringFlag(flags, "code", { required: true });
   const authType = integerFlag(flags, "auth-type", NaN);
-  if (!Number.isInteger(authType)) throw new Error("Provide --auth-type <n>.");
+  if (!Number.isInteger(authType)) {
+    // Same UserMfaType enum as --mfa-type -- IAM types this field as UserMfaType too.
+    throw new Error("Provide --auth-type <n> -- the method that issued the challenge: 1 TOTP, 2 Email.");
+  }
   const projectKey = await selectedProject(flags);
 
   const result = await blocksRequest<unknown>("/iam/v4/mfa/verify", {

@@ -39,7 +39,7 @@ SubscriptionFilterData.Value
 OrderBy
 ```
 
-CLI flags map to them as `--user-id` -> `UserId`, `--context` -> `SubscriptionFilterData.Context`, `--action-name` -> `SubscriptionFilterData.ActionName`, `--value` -> `SubscriptionFilterData.Value`, `--order-by` -> `OrderBy` (an integer, `1|2` per the SDK type — its enum meaning isn't published anywhere, so treat it as opaque and confirm with the user rather than guessing which value means what).
+CLI flags map to them as `--user-id` -> `UserId`, `--context` -> `SubscriptionFilterData.Context`, `--action-name` -> `SubscriptionFilterData.ActionName`, `--value` -> `SubscriptionFilterData.Value`, `--order-by` -> `OrderBy` (`1` = CreatedTime, newest first; `2` = ReadStatus — unread grouped ahead of read).
 
 This flattening is a **client-side inference, not something verified against a live call** — both the CLI and SDK made the same choice independently, which is corroborating but not proof the real backend accepts it. If a live `notifier unread` call ever errors, re-check this against the actual API response rather than assuming the flattening above is still correct.
 
@@ -67,7 +67,7 @@ await blocksClient.notifier.markAllNotificationAsRead();
 ```
 
 - **`notify(request: BlocksNotifyRequest)`** — fields: `configurationName?`, `connectionId?`, `contentAvailable?: boolean`, `denormalizedPayload?: string`, `responseKey?`, `responseValue?`, `roles?: string[]`, `saveDenormalizedPayloadAsAnObject?: boolean`, `subscriptionFilters?: BlocksNotifierSubscriptionFilter[]`, `userIds?: string[]`.
-- **`getUnreadNotificationsBySubscriptionFilter(request)`** — fields: `orderBy?: 1 | 2` (opaque enum), `subscriptionFilterData?: { actionName?, context?, value? }`, `userId?`. Internally builds the same flattened query as the CLI (see above) — this is the SDK-side half of the same documented workaround.
+- **`getUnreadNotificationsBySubscriptionFilter(request)`** — fields: `orderBy: 1 | 2` (`1` CreatedTime desc, `2` ReadStatus — **required in practice**, see below), `subscriptionFilterData?: { actionName?, context?, value? }`, `userId?`. Internally builds the same flattened query as the CLI (see above) — this is the SDK-side half of the same documented workaround.
 - **`getNotifications(options: BlocksGetNotificationsOptions = {})`** — options: `filter?`, `isUnreadOnly?`, `page?`, `pageSize?`, `sortBy?`, `sortDescending?`. Response shape: `{ notifications: Record<string, unknown>[], totalNotificationsCount: number, unReadNotificationsCount: number }`.
 - **`markAllNotificationAsRead()`** — no arguments.
 - **`markNotificationAsRead(request: BlocksMarkNotificationAsReadRequest)`** — request: `{ id: string }`.
@@ -91,7 +91,7 @@ Always show the `--dry-run` output and get explicit approval before re-running w
 - **`notifier unread`'s query-param flattening is an inferred client-side workaround for a Fetch-spec conflict, not verified against a live call.** See "The GET-with-a-body quirk" above. If it ever errors in practice, re-check whether the real endpoint tolerates a body server-side (some non-browser/non-Node HTTP stacks do) before assuming the flattening itself is broken.
 - **`--content-available` and `--save-denormalized-payload-as-object` on `notify` are true-only flags.** Passing them sends `true`; omitting them omits the field entirely — there's no way to send an explicit `false` through the convenience flags (use `--body`/`--file` for that).
 - **Convenience flags on `notify` win over `--body`/`--file`.** The merge order is `--body`/`--file` first, then the individual flags spread on top — so a flag like `--connection-id` always overrides the same key in `--body` if both are given.
-- **`order-by` (both CLI `--order-by` and SDK `orderBy`) is an opaque `1|2` enum** — its meaning isn't published anywhere. Ask the user or confirm from the live API rather than guessing which value sorts which way.
+- **`order-by` is `1` = CreatedTime (newest first) or `2` = ReadStatus.** There is no `0`, and that is the trap: the service switches on the value and returns an **empty list** for anything else — including the `0` an omitted field serializes to. A caller that forgets `orderBy` gets zero notifications back and reads it as "nothing unread," not as a bad request. Always send `1` or `2` explicitly.
 - **Every CLI command is project-scoped**; there's no account-level mode. The SDK has no per-call project argument — it inherits whatever project the shared `blocksClient` was configured for.
 - **`mark-read`'s `id` (positional or `--id`) is always required** — never guessed or defaulted.
 - **`--dry-run` before `--yes`, always**, on the three CLI mutations — same discipline as every other mutating `blocks` command in this pack.

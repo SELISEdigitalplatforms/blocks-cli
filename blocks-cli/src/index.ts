@@ -657,6 +657,9 @@ IAM:
     blocks iam permissions update <id> [same flags as create, plus --is-archived]
                               [--dry-run] [--yes] [--json]
     blocks iam permissions by-severity [--json]
+      --type is IAM's ResourceType: 0 None, 1 Endpoint, 2 FrontendAction, 3 DataProtection.
+      --severity is PermissionSeverity, ordered most-severe-first, not least: 0 None,
+      1 Critical, 2 High, 3 Medium, 4 Low.
 
   Resources (/iam/v4/iam/resource*):
     blocks iam resources groups [--json]
@@ -688,11 +691,15 @@ IAM:
                               [--body '<json>'|--file <path>] [--dry-run] [--yes] [--json]
 
 MFA (/iam/v4/mfa*, project-scoped: requires a selected project, impersonated project token only):
+  Every mfa-type/auth-type/user-mfa-type value is IAM's UserMfaType enum: 0 None, 1 TOTP,
+  2 Email, 3 Sms, 4 WhatsApp. Only 1 and 2 have a working provider; 3 and 4 are declared
+  but unimplemented. Leaving --user-mfa-type empty means no method is allowed, so MFA is
+  never actually required no matter what else the policy says.
   blocks mfa config get [--json]
     Read the tenant's MFA policy.
   blocks mfa config save [--enable] [--require-for-all-users] [--allow-user-opt-out]
                               [--allow-backup-codes] [--backup-codes-count <n>]
-                              [--user-mfa-type 0,1] [--required-roles a,b] [--exempt-roles a,b]
+                              [--user-mfa-type 1,2] [--required-roles a,b] [--exempt-roles a,b]
                               [--body '<json>'|--file <path>] [--dry-run] [--yes] [--json]
     Save the tenant's MFA policy.
   blocks mfa totp setup [--json]
@@ -711,9 +718,12 @@ MFA (/iam/v4/mfa*, project-scoped: requires a selected project, impersonated pro
   blocks mfa resend <mfaId> [--send-phone-number-as-email-domain <domain>] [--json]
   blocks mfa verify <mfaId> <code> --auth-type <n> [--from-token-call] [--json]
   blocks mfa method set --mfa-type <n> [--json]
-    Switch the impersonated user's active MFA method.
+    Switch the impersonated user's active MFA method. IAM only branches on 1 (TOTP) and
+    2 (Email) here -- any other value falls through to its disable path and turns the
+    user's MFA off. Use 'blocks mfa disable' when that is what you mean.
   blocks mfa disable [--dry-run] [--yes] [--json]
   blocks mfa backup-codes list [--json]
+    Returns { remaining: <count> } only -- the codes themselves are shown once, at generate.
   blocks mfa backup-codes generate [--dry-run] [--yes] [--json]
   blocks mfa backup-codes use <userId> <code> [--json]
 
@@ -856,7 +866,7 @@ Auth Admin (/iam/v4/auth/identity-providers*, /config, /client-credentials, /oid
                               [--redirect-uris a,b] [--post-logout-redirect-uris a,b]
                               [--scope] [--allowed-scopes a,b] [--allowed-response-types a,b]
                               [--require-pkce] [--require-consent] [--require-mfa]
-                              [--allowed-mfa-methods 0,1] [--front-channel-logout-uri]
+                              [--allowed-mfa-methods 1,2] [--front-channel-logout-uri]
                               [--back-channel-logout-uri] [--auto-redirect]
                               [--external-discovery-endpoint] [--active] [--login-mode]
                               [--client-logo-url] [--client-brand-color] [--use-tokens-cookie]
@@ -948,6 +958,7 @@ Data:
       Irreversible.
     blocks data schema info list [--json]
       Entity-type schema collections with basic info.
+      --schema-type: 1 Entity, 2 Dto. There is no 0.
     blocks data schema info save --schema-name <n> [--collection-name] [--schema-type <1|2>]
                               [--body '<json>'|--file <path>] [--dry-run] [--yes] [--json]
       Create schema metadata only (no fields yet) - pair with data schema fields.
@@ -1132,6 +1143,7 @@ Localization:
     blocks localization key uilm-import <fileId> [--message-co-relation-id]
                               [--dry-run] [--yes] [--json]
     blocks localization key uilm-export [--output-type <0-5>] [--app-ids a,b] [--languages a,b]
+      --output-type: 0 Json (default), 1 Xml, 2 Text, 3 Xlsx, 4 Csv, 5 Xlf.
                               [--reference-file-id] [--caller-tenant-id] [--start-date]
                               [--end-date] [--message-co-relation-id] [--dry-run] [--yes] [--json]
     blocks localization key get-uilm-exported-files [--search] [--page-number] [--page-size]

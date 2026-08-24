@@ -115,7 +115,9 @@ A few more commands round out the surface beyond push/pull/validate/language/mod
 
 | Command | What it does |
 |---|---|
-| `blocks localization key translate-and-export --module-id <id> [--wait] [--dry-run] [--yes] [--json]` | Composed flow: `translate-all` (machine-translates every untranslated key in the module) → if `--wait`, polls until the operation settles → `generate-uilm-file` → `uilm-export`. Without `--wait` the three steps just fire back-to-back. Mutating. |
+| `blocks localization key translate-and-export --module-id <id> [--wait] [--output-type <0-5>] [--dry-run] [--yes] [--json]` | Composed flow: `translate-all` (machine-translates every untranslated key in the module) → if `--wait`, polls until the operation settles → `generate-uilm-file` → `uilm-export`. Without `--wait` the three steps just fire back-to-back. Mutating. |
+
+`--output-type` (here and on `key uilm-export`) is the export file format, zero-based: `0` Json (the default), `1` Xml, `2` Text, `3` Xlsx, `4` Csv, `5` Xlf. Leaving it off gives Json, so an agent that wants a spreadsheet has to pass `3` explicitly.
 | `blocks localization glossary save --name <n> [--item-id <id>] [--language <c>] [--type <t>] [--context <text>] [--additional-note <text>] [--is-global] [--module-ids a,b] [--dry-run] [--yes] [--json]` | Creates or updates a glossary term. Mutating. |
 | `blocks localization glossary list [--search <text>] [--module-id <id>] [--is-global] [--page-number <n>] [--page-size <n>] [--json]` | Lists glossary terms. Read-only. |
 | `blocks localization glossary get <itemId> [--json]` | Fetches one glossary term. Read-only. |
