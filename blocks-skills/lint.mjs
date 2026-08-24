@@ -2,14 +2,11 @@
 // Consistency lint for blocks-skills/. Run: node blocks-skills/lint.mjs
 //
 // A skill is consumed by an AI that has ONLY the globally-installed `blocks`
-// CLI and a project-local `@seliseblocks/client` -- never this monorepo, and
-// `blocks skill add` pulls exactly one skill directory at a time. Checks:
+// CLI and a project-local `@seliseblocks/client` -- never this monorepo.
+// Checks:
 // 1. Every skill directory has a SKILL.md with frontmatter: `name` matches the
 //    directory name, `name` <= 64 chars, `description` present, non-empty,
-//    on a single physical line (blocks-cli's own frontmatter parser --
-//    src/lib/skills.ts -- is a hand-rolled line-by-line parser with no YAML
-//    dependency; a description that wraps onto a second line silently breaks
-//    `blocks skill list`/`show`), and <= 1024 chars (hard fail) / <= 700 chars
+//    on a single physical line, and <= 1024 chars (hard fail) / <= 700 chars
 //    (warn -- this pack's house style target is ~400-600).
 // 2. Relative markdown links (in SKILL.md and any flows/*.md) resolve to a
 //    real file.
@@ -142,7 +139,7 @@ function checkLinksInFile(skillName, filePath) {
       errors.push(
         `${rel}: link leaves this skill's own directory ('${pathPart}') -- ` +
           `mention other skills by name in plain text instead, never a link, since ` +
-          `'blocks skill add' only copies one skill directory at a time and the target isn't guaranteed to be present`
+          `the target skill directory is not guaranteed to be present`
       );
     }
   }

@@ -110,17 +110,13 @@ import { localizationValidate } from "./commands/localization/validate.js";
 import { login } from "./commands/login.js";
 import { logout } from "./commands/logout.js";
 import { newWeb } from "./commands/new/web.js";
-// import { createProject } from "./commands/projects/create.js"; // disabled for now
+import { createProject } from "./commands/projects/create.js";
 import { getProject } from "./commands/projects/get.js";
 import { listProjects } from "./commands/projects/list.js";
 import { releaseBuildsGet } from "./commands/release/builds/get.js";
 import { releaseBuildsList } from "./commands/release/builds/list.js";
 import { releaseDeploy } from "./commands/release/deploy.js";
 import { releaseStatus } from "./commands/release/status.js";
-import { sdkClient } from "./commands/sdk/client.js";
-import { skillAdd } from "./commands/skill/add.js";
-import { skillList } from "./commands/skill/list.js";
-import { skillShow } from "./commands/skill/show.js";
 import { useProject } from "./commands/use.js";
 import { authClientCredentialsDelete } from "./commands/auth/client-credentials/delete.js";
 import { authClientCredentialsList } from "./commands/auth/client-credentials/list.js";
@@ -227,6 +223,7 @@ const commands: Partial<Record<string, CommandHandler>> = {
   "init": () => init(),
   "login": login,
   "logout": logout,
+  "projects:create": createProject,
   "projects:list": listProjects,
   "use": useProject,
   "deselect": deselectProject,
@@ -428,10 +425,6 @@ const commands: Partial<Record<string, CommandHandler>> = {
   "iam:me": iamMe,
   "projects:get": getProject,
   "new:web": newWeb,
-  "skill:list": skillList,
-  "skill:show": skillShow,
-  "skill:add": skillAdd,
-  "sdk:client": sdkClient,
 };
 
 const MAX_COMMAND_WORDS = 4;
@@ -571,6 +564,18 @@ Auth:
     Revoke the current refresh token when possible and remove local session data.
 
 Projects:
+  blocks projects create <name> [--allow-duplicate-name] [--yes] [--dry-run] [--json]
+    Create a new Blocks project via /os/v4/Project/Create using the account
+    token (no project needs to be selected yet). Creates exactly one
+    application, always in the 'dev' environment -- environment, domain,
+    cookie domain, and production flag are fixed and not configurable here;
+    the domain sent is a placeholder the platform discards and replaces with
+    the one it assigns. Confirms first because it accepts the Blocks terms on
+    your behalf. Refuses a name already used by another project unless
+    --allow-duplicate-name is passed. Verifies the result against
+    Project/Gets and prints the new tenantId, tenantGroupId, and assigned
+    domain. Does not select the project -- run 'blocks use <tenantId>' next.
+
   blocks projects list [--json]
     List accessible Blocks projects via /os/v4/Project/Gets. Uses the
     impersonated project session when a project is selected, otherwise the
@@ -652,6 +657,9 @@ IAM:
     blocks iam permissions update <id> [same flags as create, plus --is-archived]
                               [--dry-run] [--yes] [--json]
     blocks iam permissions by-severity [--json]
+      --type is IAM's ResourceType: 0 None, 1 Endpoint, 2 FrontendAction, 3 DataProtection.
+      --severity is PermissionSeverity, ordered most-severe-first, not least: 0 None,
+      1 Critical, 2 High, 3 Medium, 4 Low.
 
   Resources (/iam/v4/iam/resource*):
     blocks iam resources groups [--json]
@@ -683,11 +691,15 @@ IAM:
                               [--body '<json>'|--file <path>] [--dry-run] [--yes] [--json]
 
 MFA (/iam/v4/mfa*, project-scoped: requires a selected project, impersonated project token only):
+  Every mfa-type/auth-type/user-mfa-type value is IAM's UserMfaType enum: 0 None, 1 TOTP,
+  2 Email, 3 Sms, 4 WhatsApp. Only 1 and 2 have a working provider; 3 and 4 are declared
+  but unimplemented. Leaving --user-mfa-type empty means no method is allowed, so MFA is
+  never actually required no matter what else the policy says.
   blocks mfa config get [--json]
     Read the tenant's MFA policy.
   blocks mfa config save [--enable] [--require-for-all-users] [--allow-user-opt-out]
                               [--allow-backup-codes] [--backup-codes-count <n>]
-                              [--user-mfa-type 0,1] [--required-roles a,b] [--exempt-roles a,b]
+                              [--user-mfa-type 1,2] [--required-roles a,b] [--exempt-roles a,b]
                               [--body '<json>'|--file <path>] [--dry-run] [--yes] [--json]
     Save the tenant's MFA policy.
   blocks mfa totp setup [--json]
@@ -706,9 +718,12 @@ MFA (/iam/v4/mfa*, project-scoped: requires a selected project, impersonated pro
   blocks mfa resend <mfaId> [--send-phone-number-as-email-domain <domain>] [--json]
   blocks mfa verify <mfaId> <code> --auth-type <n> [--from-token-call] [--json]
   blocks mfa method set --mfa-type <n> [--json]
-    Switch the impersonated user's active MFA method.
+    Switch the impersonated user's active MFA method. IAM only branches on 1 (TOTP) and
+    2 (Email) here -- any other value falls through to its disable path and turns the
+    user's MFA off. Use 'blocks mfa disable' when that is what you mean.
   blocks mfa disable [--dry-run] [--yes] [--json]
   blocks mfa backup-codes list [--json]
+    Returns { remaining: <count> } only -- the codes themselves are shown once, at generate.
   blocks mfa backup-codes generate [--dry-run] [--yes] [--json]
   blocks mfa backup-codes use <userId> <code> [--json]
 
@@ -851,11 +866,11 @@ Auth Admin (/iam/v4/auth/identity-providers*, /config, /client-credentials, /oid
                               [--redirect-uris a,b] [--post-logout-redirect-uris a,b]
                               [--scope] [--allowed-scopes a,b] [--allowed-response-types a,b]
                               [--require-pkce] [--require-consent] [--require-mfa]
-                              [--allowed-mfa-methods 0,1] [--front-channel-logout-uri]
+                              [--allowed-mfa-methods 1,2] [--front-channel-logout-uri]
                               [--back-channel-logout-uri] [--auto-redirect]
                               [--external-discovery-endpoint] [--active] [--login-mode]
                               [--client-logo-url] [--client-brand-color] [--use-tokens-cookie]
-                              [--register-as-identity-provider] [--device-flow-client]
+                              [--register-as-identity-provider] [--oidc-url] [--device-flow-client]
                               [--body '<json>'|--file <path>] [--dry-run] [--yes] [--json]
     Upsert: omit --item-id to register a new client, pass it to update an existing one.
     The response's client_secret is shown once and is not retrievable again afterward.
@@ -864,9 +879,10 @@ Auth Admin (/iam/v4/auth/identity-providers*, /config, /client-credentials, /oid
     lets it request the client_credentials grant. Pass --client-type public for any
     PKCE/browser client.
     --register-as-identity-provider creates the linked identity provider in the same call.
-    Its authorize/token/userinfo/jwks/issuer values are filled from the discovery document
-    at --external-discovery-endpoint; with no discovery endpoint they are left null and the
-    provider's scope is replaced with "openid profile email". Verify with 'auth idp list'.
+    Its authorize/token/userinfo/jwks/issuer values are filled from the discovery document.
+    When omitted, --external-discovery-endpoint defaults to
+    <oidc-url>/<project>/.well-known/openid-configuration; pass it explicitly for an
+    external provider or non-standard IAM base URL.
   blocks auth oidc-clients delete <clientId> [--dry-run] [--yes] [--json]
     Irreversible; revokes all tokens issued to the client.
   blocks auth oidc-clients rotate-secret <clientId> [--dry-run] [--yes] [--json]
@@ -942,6 +958,7 @@ Data:
       Irreversible.
     blocks data schema info list [--json]
       Entity-type schema collections with basic info.
+      --schema-type: 1 Entity, 2 Dto. There is no 0.
     blocks data schema info save --schema-name <n> [--collection-name] [--schema-type <1|2>]
                               [--body '<json>'|--file <path>] [--dry-run] [--yes] [--json]
       Create schema metadata only (no fields yet) - pair with data schema fields.
@@ -1126,6 +1143,7 @@ Localization:
     blocks localization key uilm-import <fileId> [--message-co-relation-id]
                               [--dry-run] [--yes] [--json]
     blocks localization key uilm-export [--output-type <0-5>] [--app-ids a,b] [--languages a,b]
+      --output-type: 0 Json (default), 1 Xml, 2 Text, 3 Xlsx, 4 Csv, 5 Xlf.
                               [--reference-file-id] [--caller-tenant-id] [--start-date]
                               [--end-date] [--message-co-relation-id] [--dry-run] [--yes] [--json]
     blocks localization key get-uilm-exported-files [--search] [--page-number] [--page-size]
@@ -1199,29 +1217,5 @@ Scaffold:
     different Data/IAM/Localization/OS gateway URL explicitly only if your
     project uses a non-default one.
     --oidc-url defaults to https://iam.seliseblocks.com.
-
-Skills:
-  blocks skill list [--json]
-    List bundled blocks-skills/*/SKILL.md agent context docs (name +
-    description). Local-only, no cloud calls.
-  blocks skill show <name> [--json]
-    Print one skill's full SKILL.md content.
-  blocks skill add <name> [--dir <path>]
-    Copy a bundled skill's SKILL.md into <path>/<name>/SKILL.md in the
-    current directory (default --dir is 'blocks-skills'), for use in a
-    project outside this monorepo. Overwrites silently, same as
-    'data schema pull'.
-
-SDK:
-  blocks sdk client [--app-domain <domain>] [--client-id <oidcClientId>]
-                    [--x-blocks-key <tenantId>] [--blocks-api-url <url>] [--oidc-url <url>] [--json]
-    Read-only: "I want to use the Blocks SDK -- show me the client." Resolves this
-    project's @seliseblocks/client config using the selected project unless
-    --x-blocks-key overrides it, and the project's registered domain/OIDC client
-    when --app-domain/--client-id are omitted. Its API URL defaults to
-    https://api.seliseblocks.com unless --blocks-api-url is passed.
-    Prints a ready-to-paste createBlocksClient(...) snippet.
-    Passing both --app-domain and --client-id skips the project lookup entirely
-    (no login required). Never writes a file; to scaffold a new app use 'new web'.
 `);
 }

@@ -82,7 +82,13 @@ List projects:
 blocks projects list --json
 ```
 
-`projects create` is currently disabled in this build (commented out pending a product decision) - do not tell users it's available, and do not try to work around its absence with a raw API call. Projects must already exist (created from the Blocks portal) before selecting one below.
+Create a project when none suitable exists (ask the user first - it accepts the Blocks terms on their behalf):
+
+```bash
+blocks projects create "<project name>" --json      # add --dry-run first to show the payload
+```
+
+It always creates exactly one application in the `dev` environment; environment, domain, cookie domain, and production flag are fixed. Adding further environments (`test`, `stg`, `prod`, ...) to an existing project is still portal-only. The command does not select the new project - run `blocks use <tenantId>` with the `tenantId` it prints.
 
 Select a project:
 
@@ -128,8 +134,7 @@ Then run with explicit flags so no prompt is reached:
 blocks new web <appName> --x-blocks-key <projectTenantId> --app-domain <appDomainOrUrl> --client-id <publicOidcClientId>
 ```
 
-`new web` also accepts `--blocks-api-url <url>` and `--oidc-url <url>`, same as `sdk client`
-below. When `--blocks-api-url` is omitted, the scaffold derives it from the app domain as
+`new web` also accepts `--blocks-api-url <url>` and `--oidc-url <url>`. When `--blocks-api-url` is omitted, the scaffold derives it from the app domain as
 `https://blocksapi.<registrable-domain>`; for example `https://dqrsf.slsblx.com` becomes
 `https://blocksapi.slsblx.com`. Pass `--blocks-api-url` only when targeting a non-default Blocks gateway. `--oidc-url` defaults to `https://iam.seliseblocks.com`.
 
@@ -147,27 +152,13 @@ Do not pass CLI auth state to the scaffolded app. Browser apps must use a public
 
 For local browser login on the real host domain:
 
-1. Add `127.0.0.1 <VITE_BLOCKS_DEV_HOST>` to the hosts file.
+1. Add `127.0.0.1 <VITE_BLOCKS_DEV_HOST>` to the hosts file **yourself** (elevated on Windows, `sudo` elsewhere), then tell the user it was added - never stop and ask the user to edit the hosts file by hand. The blocks-frontend-local-https skill has the idempotent add-and-verify commands for each OS.
 2. Run `npm install`.
 3. Run `npm run cert`.
 4. Run `npm run dev`.
 5. Open `https://<VITE_BLOCKS_DEV_HOST>:5173`, not plain `http://`.
 
 The generated cert script uses the `selfsigned` Node dependency, so it works from normal PowerShell after `npm install`; do not tell Windows users to switch to Git Bash just for OpenSSL. If hosted login or secure cookies fail locally, confirm the app is opened with the HTTPS dev URL from `VITE_BLOCKS_DEV_HOST`.
-
-## SDK Client (read-only)
-
-`sdk client` answers "I want to use the Blocks SDK - show me the client." It resolves this project's `@seliseblocks/client` config (same values `new web` scaffolds an app with) and prints a ready-to-paste `createBlocksClient(...)` snippet - **it never writes a file or mutates anything**. To scaffold a full app instead, use `new web` above.
-
-```bash
-blocks sdk client --x-blocks-key <projectTenantId> --app-domain <appDomainOrUrl> --client-id <publicOidcClientId> --blocks-api-url https://api.seliseblocks.com
-```
-
-Unlike `new web`, `sdk client` keeps `--blocks-api-url` defaulted to `https://api.seliseblocks.com`; only pass it explicitly if your project uses a different gateway URL. Passing both `--app-domain` and `--client-id` skips the project lookup entirely, so it needs no CLI login at all - useful for a quick, non-interactive check. Omit either one and it resolves from the selected project instead (auto-picks when there's exactly one match, otherwise lists the options and asks you to pass the flag explicitly - it does not prompt or create anything, since this command is read-only). Use `--json` for the resolved values instead of the snippet.
-
-## Skills
-
-`skill list [--json]` / `skill show <name> [--json]` / `skill add <name> [--dir <path>]` read this package's bundled copy of `blocks-skills/*/SKILL.md` - local-only, no cloud calls. `skill add` copies a skill's **entire directory** (`SKILL.md` plus any supporting files, e.g. `flows/*.md`) into `<dir>/<name>/` (default `./blocks-skills`) in the current directory, for pulling a single skill into a project outside this monorepo. `skill list`'s human-readable output (and the "unknown skill" error from `show`/`add`) both point at the full public skill catalog, in case the locally bundled set is out of date. As with any skill file, verify command names against this guide or `blocks --help` before running them - skills are conversational context, not command ground truth.
 
 ## IAM, MFA, and Auth Admin
 
@@ -187,8 +178,8 @@ Command families (run `blocks --help` for the full flag reference on each):
 - `iam resources *` - resource groups and feature flags (read-only).
 - `iam organizations *` - list/get/create/update, `my`, and organization config get/save.
 - `iam signup-settings *` - get/save tenant signup policy.
-- `mfa config *`, `mfa totp *`, `mfa generate`/`resend`/`verify`, `mfa method set`, `mfa disable`, `mfa backup-codes *` - tenant MFA policy plus enrollment/verification/backup-code flows.
-- `mfa totp enable --mfa-type <n>` - composed TOTP enrollment: `totp setup` → prints the QR/secret → `totp verify-setup` → `method set` → `backup-codes generate`, one confirmation. Prefer this over running the individual steps. `--mfa-type` is required and not defaulted - the tenant-specific integer meaning "TOTP" isn't documented anywhere in this CLI; don't guess it, ask the user or check `mfa config get`. **Prompts interactively for the verification code unless `--code <c>` is given** - an agent running this non-interactively must supply `--code` (from wherever the user's authenticator app output is captured) or it will hang waiting on stdin. Deliberately excludes `mfa config save` (a separate tenant-wide admin policy, not part of one user's enrollment).
+- `mfa config *`, `mfa totp *`, `mfa generate`/`resend`/`verify`, `mfa method set`, `mfa disable`, `mfa backup-codes *` - tenant MFA policy plus enrollment/verification/backup-code flows. `mfa method set` only switches on `1`/`2`; every other value makes IAM disable the user's MFA. A tenant policy with `enableMfa` but an empty `userMfaType` list never actually requires MFA at login.
+- `mfa totp enable --mfa-type <n>` - composed TOTP enrollment: `totp setup` → prints the QR/secret → `totp verify-setup` → `method set` → `backup-codes generate`, one confirmation. Prefer this over running the individual steps. `--mfa-type` is required and not defaulted - pass `1`, IAM's `UserMfaType` value for TOTP (`0` None, `1` TOTP, `2` Email, `3` Sms and `4` WhatsApp are declared but have no provider). The same enum drives `--auth-type`, `--user-mfa-type`, and a client's `--allowed-mfa-methods`. **Prompts interactively for the verification code unless `--code <c>` is given** - an agent running this non-interactively must supply `--code` (from wherever the user's authenticator app output is captured) or it will hang waiting on stdin. Deliberately excludes `mfa config save` (a separate tenant-wide admin policy, not part of one user's enrollment).
 - `auth idp *` - identity provider (SSO/OIDC) configuration: list/get/create/update/delete/status.
 - `auth config *` - AuthController tenant config (token lifetimes, lockout policy, etc.).
 - `auth client-credentials *` - machine-to-machine client credentials: list/save/delete.

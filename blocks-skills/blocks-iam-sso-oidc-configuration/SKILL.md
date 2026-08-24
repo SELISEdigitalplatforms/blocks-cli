@@ -1,6 +1,6 @@
 ---
 name: blocks-iam-sso-oidc-configuration
-description: "Enable/configure SSO for a Blocks project — register an OIDC client and identity provider so end users can log into the app via hosted login. Use for 'enable SSO', 'set up an OIDC identity provider', 'configure single sign-on', 'add a login provider'. CLI-driven by default (`blocks auth oidc-clients *` / `auth idp *`, project-scoped, --dry-run→--yes), not portal-only — the portal remains a valid alternative, especially for federated external providers (Google/Azure/Okta). Don't confuse with `blocks login` (the CLI's own login — see blocks-onboarding)."
+description: "Enable/configure SSO for a Blocks project — register an OIDC client and identity provider so end users can log into the app via hosted login. Use for 'enable SSO', 'set up an OIDC identity provider', 'configure single sign-on', 'add a login provider'. CLI-driven by default (`blocks auth oidc-clients *` / `auth idp *`, project-scoped, --dry-run→--yes), not portal-only — the portal remains a valid alternative, especially for federated external providers (Google/Azure/Okta). Don't confuse with `blocks login` (the CLI's own login — see blocks-bootstrap)."
 ---
 
 # Blocks IAM — SSO / OIDC Configuration
@@ -16,9 +16,9 @@ Don't conflate the CLI's own login with the identity provider this skill configu
 | What it's for | Lets `blocks` itself authenticate | Lets **end users log into the user's own app** via hosted SSO |
 | Client type | Packaged into the CLI - nothing to register, no secret to hold | Public (browser client, no secret) |
 | Registered via | Nothing to register - just run `blocks login` | `blocks auth oidc-clients save` / `blocks auth idp create`, or the portal |
-| Owned by | **blocks-onboarding** skill | **This skill**, handing off to **blocks-iam-sso-oidc-implementation** |
+| Owned by | **blocks-bootstrap** skill | **This skill**, handing off to **blocks-iam-sso-oidc-implementation** |
 
-If the user is asking "how do I get `blocks` logged in" or hits `not_logged_in`, that's **blocks-onboarding**, not this skill. This skill is about the identity provider that sits in front of *the user's own application's* login page.
+If the user is asking "how do I get `blocks` logged in" or hits `not_logged_in`, that's **blocks-bootstrap**, not this skill. This skill is about the identity provider that sits in front of *the user's own application's* login page.
 
 ## Decision tree
 
@@ -36,8 +36,10 @@ All of these commands are project-scoped: they need a selected project (`blocks 
      --register-as-identity-provider \
      [--dry-run] [--yes]
    ```
+   `--require-mfa [--allowed-mfa-methods 1,2]` belongs here too when this client must force MFA. It is a **third, independent MFA gate**: IAM's login policy requires MFA if the tenant requires it, the user's role requires it, the user enrolled voluntarily, **or** the client sets `requireMfa`. `allowedMfaMethods` narrows, never widens — IAM intersects it with the tenant's allowed list, so naming a method the tenant hasn't enabled leaves nothing usable. Values are IAM's `UserMfaType` (`1` TOTP, `2` Email; `0` is None and `3`/`4` have no provider) — see blocks-iam-mfa.
+
    This mirrors exactly what `blocks new web`'s interactive OIDC-client prompt does when scaffolding a new web app. `--register-as-identity-provider` is what turns this from "just an OIDC client" into something the hosted-login redirect flow (`auth.idp.redirectToProvider()` / `auth.idp.callback()`) can authenticate against — per the CLI's own scaffold help text, this registers the client "as a Blocks OIDC identity provider" in the same call.
-3. **Verify the auto-created provider before handing off.** `--register-as-identity-provider` creates the provider record for you — but check what landed in it with `blocks auth idp list --json`, because on the common path several fields come back null. See the footguns below. If `authorizationUrl` is null, hosted login will not redirect: `GET /iam/v4/idp/initiate` (what `auth.idp.redirectToProvider()` calls) builds its target as `provider.AuthorizationUrl ?? ""` plus a query string, so the browser navigates to the app's own origin with OIDC params attached. The repair, for a provider that already exists in that state:
+3. **Verify the auto-created provider before handing off.** `--register-as-identity-provider` creates the provider record for you. Current CLI builds the provider discovery URL by default, matching the portal checkbox behavior, but still check what landed with `blocks auth idp list --json`. If an older provider has `authorizationUrl` null, hosted login will not redirect: the initiate call behind `auth.idp.redirectToProvider()` builds its target as `provider.AuthorizationUrl ?? ""` plus a query string, so the browser navigates to the app's own origin with OIDC params attached. The repair:
    ```
    blocks auth idp update <providerItemId> \
      --authorization-url "<tenant authorize endpoint>" \
@@ -72,9 +74,9 @@ Never raw `fetch`/`curl` these endpoints to route around the CLI's confirmation/
 ## Verified footguns
 
 - **`--client-type public` is not cosmetic — omitting it stores a browser app as confidential.** IAM derives `tokenEndpointAuthMethod` from `clientType`: `public` (or any device-flow client) becomes `"none"`, anything else becomes `"client_secret_post"`. Leave `--client-type` off and a PKCE SPA is persisted as a confidential client that is also eligible for the `client_credentials` grant. Always pass `--client-type public` for a browser client. `--require-pkce` alone does not imply it.
-- **The auto-created provider's endpoint URLs come from discovery, and discovery is driven by one field.** IAM's repository-level `CreateIdentityProviderAsync` runs `PopulateProviderEndpointsFromWellKnownAsync` before inserting: if `wellKnownUrl` is set it fetches the document and fills `authorizationUrl`, `tokenUrl`, `userInfoUrl`, `jwksUri` and `issuer` from it. The only input that reaches `wellKnownUrl` on this path is `oidc-clients save --external-discovery-endpoint`. Omit it and the `else` branch runs `GetSocialMetadata(provider)`, which matches only names containing `google` or `microsoft` — for an app-named provider it returns null, so all five fields are written null **and `scope` is overwritten with `"openid profile email"`**, discarding the `offline_access` the OIDC client had just been given. Check both `authorizationUrl` and `scope` on the provider after registering.
+- **The auto-created provider's endpoint URLs come from discovery, and discovery is driven by one field.** IAM's repository-level `CreateIdentityProviderAsync` runs `PopulateProviderEndpointsFromWellKnownAsync` before inserting: if `wellKnownUrl` is set it fetches the document and fills `authorizationUrl`, `tokenUrl`, `userInfoUrl`, `jwksUri` and `issuer` from it. The CLI now sends that value automatically on `oidc-clients save --register-as-identity-provider` and `new web` interactive client creation; use `--external-discovery-endpoint` only to override it for an external provider or non-standard IAM base URL. Older clients created without this value may still have null endpoint fields; check both `authorizationUrl` and `scope` on the provider after registering.
 - **This only happens at create.** Re-saving the same OIDC client does not re-run discovery: the `existingProvider` branch never touches `wellKnownUrl`, and the repository's update is a plain replace. A provider already written with null URLs cannot be repaired by re-saving the client — use `idp update`, or delete and recreate.
-- **PKCE and the discovery URL exist on both records and mean different things.** `requirePkce` on the OIDC client governs the app's own authorize flow; `--require-pkce` on `auth idp` governs the *upstream* handshake `/idp/initiate` performs. `--external-discovery-endpoint` on the client is read only as the linked provider's `wellKnownUrl`; on the provider record itself use `--well-known-url`.
+- **PKCE and the discovery URL exist on both records and mean different things.** `requirePkce` on the OIDC client governs the app's own authorize flow; `--require-pkce` on `auth idp` governs the *upstream* handshake the initiate call performs. `--external-discovery-endpoint` on the client is read only as the linked provider's `wellKnownUrl`; on the provider record itself use `--well-known-url`.
 - **Do not compose the tenant's own discovery or authorize URL from a template.** `DiscoveryController` declares `/{tenant_id}/.well-known/openid-configuration` as an absolute route, outside the `/iam/v4` prefix that every other IAM endpoint sits behind, and every `wellKnownUrl` example in IAM's own source and tests is an *external* provider (`accounts.google.com`, `login.microsoftonline.com`, `idp.example.com`) — there is no in-repo example of a Blocks tenant pointing at itself. Whether that route resolves through the `blocksapi.<domain>` gateway as-is or needs an extra segment is **not settled in source**. Fetch the tenant's discovery document and read the endpoints out of it, or ask the user; do not assert a shape you have not seen respond.
 
 ## Secondary, optional: the SDK's `identityProviders` admin methods
@@ -93,7 +95,7 @@ Request/payload types on these SDK methods are intentionally loose (`Record<stri
 
 ## Related skills
 
-- **blocks-onboarding** — owns `blocks login` itself (authenticates with no setup, nothing to register or look up). Go there first if `blocks` itself isn't authenticated, or if the user is conflating "logging in the CLI" with "SSO for my app."
+- **blocks-bootstrap** — owns `blocks login` itself (authenticates with no setup, nothing to register or look up). Go there first if `blocks` itself isn't authenticated, or if the user is conflating "logging in the CLI" with "SSO for my app."
 - **blocks-iam-sso-oidc-implementation** — owns everything that happens once an identity provider/client id exists: wiring the login button, callback route, and token/session handling in the scaffolded React app using `@seliseblocks/client`. This skill hands off to it and does not duplicate its content.
 
 ## Example trigger prompts → routing
@@ -101,5 +103,5 @@ Request/payload types on these SDK methods are intentionally loose (`Record<stri
 - "Enable SSO for my project" / "Set up an OIDC identity provider" / "Configure single sign-on for my app" → confirm it's the app's end-user login (not the CLI's), run the decision tree above (`auth oidc-clients list/get` → `auth oidc-clients save --register-as-identity-provider` if none exists), then hand off to **blocks-iam-sso-oidc-implementation**.
 - "Register an OIDC client so users can log in" → `blocks auth oidc-clients list`/`get` first to avoid duplicates, then `blocks auth oidc-clients save` with `--dry-run` shown to the user before confirming.
 - "Can you just create the identity provider via the API so I don't have to click through the portal?" → yes — walk them through `blocks auth oidc-clients save` / `blocks auth idp create` with `--dry-run` first, get explicit confirmation before dropping `--yes`, and mention the portal (https://os.seliseblocks.com) as an alternative if they'd rather use a GUI, especially for federated external providers where they need to register with that provider first.
-- "blocks login isn't working" / "not_logged_in" → this is the CLI's own login, not this skill — route to **blocks-onboarding**.
+- "blocks login isn't working" / "not_logged_in" → this is the CLI's own login, not this skill — route to **blocks-bootstrap**.
 - "I want an admin page in my app where I can manage identity providers" → this skill's SDK section applies: help build the settings screen calling `identityProviders.list/create/update/delete` from the admin's own button clicks.

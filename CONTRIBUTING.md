@@ -22,8 +22,8 @@ Do not open a public issue for a suspected vulnerability. Follow the private dis
 
 - `blocks-cli/`: `@seliseblocks/cli-os`, the terminal/admin/AI control plane package.
 - `blocks-client/`: `@seliseblocks/client`, the framework-neutral frontend TypeScript SDK package.
-- `blocks-skills/`: bundled AI workflow skills exposed through `blocks skill list`, `blocks skill show`, and `blocks skill add`.
-- `AI_START_GUIDE.md`: first-stop routing guide for AI agents entering the Blocks workflow.
+- `blocks-skills/`: bundled AI workflow skills for agents building on Blocks.
+- `docs/AI_START_GUIDE.md`: first-stop routing guide for AI agents entering the Blocks workflow.
 
 ## Running the checks
 
@@ -75,11 +75,11 @@ Review the dry-run file list before publishing. The public package must not incl
 
 ## AI workflow docs
 
-AI agents should start with [AI_START_GUIDE.md](AI_START_GUIDE.md). For package-specific behavior, use:
+AI agents should start with [docs/AI_START_GUIDE.md](docs/AI_START_GUIDE.md). For package-specific behavior, use:
 
 - `blocks-cli/AI_USAGE_GUIDE.md` for CLI command contracts, flags, and failure behavior.
 - `blocks-client/AI_USAGE_GUIDE.md` for SDK usage rules and method boundaries.
-- `blocks skill list` and `blocks skill show <name>` for consumer Blocks app workflows.
+- `blocks-skills/<name>/SKILL.md` for consumer Blocks app workflows.
 
 Do not inspect or expose local CLI storage files. Use `blocks doctor --json`, `blocks auth status --json`, and other supported `blocks` commands instead.
 
@@ -90,4 +90,4 @@ The CLI, SDK, and bundled skill workflows are consumed by external users and AI 
 - Keep existing exported SDK names working where practical and mark renamed exports with `@deprecated`.
 - Keep CLI command aliases, flags, JSON shapes, and documented failure codes stable unless a breaking change is intentional and documented.
 - Keep skill names and high-level workflow handoffs stable when possible.
-- Update `README.md`, `AI_START_GUIDE.md`, package `AI_USAGE_GUIDE.md` files, and tests with behavioral changes.
+- Update `README.md`, `docs/AI_START_GUIDE.md`, package `AI_USAGE_GUIDE.md` files, and tests with behavioral changes.

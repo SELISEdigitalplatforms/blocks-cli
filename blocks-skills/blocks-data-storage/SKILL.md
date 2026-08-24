@@ -10,10 +10,10 @@ Treat storage as one permission-aware object tree containing **directories** and
 Use:
 
 - **`blocks data files *`** for supported terminal/admin operations.
-- **`@seliseblocks/client`** for app code. Use the shared `blocksClient` created by blocks-onboarding.
+- **`@seliseblocks/client`** for app code. Use the shared `blocksClient` created by blocks-bootstrap.
 - **blocks-storage-configuration** only to manage the named provider configuration used by `configurationName`.
 
-Select a project first with `blocks use <tenantId>`. If login/project state or the shared client setup is unknown, use blocks-onboarding before this skill.
+Select a project first with `blocks use <tenantId>`. If login/project state or the shared client setup is unknown, use blocks-bootstrap before this skill.
 
 Store the returned `fileId` in a Data record when attaching a file to domain data. Use blocks-data-gateway-crud for the record mutation.
 

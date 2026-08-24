@@ -1,7 +1,9 @@
 import { booleanFlag, optionalBooleanFlag, stringFlag } from "../../../lib/args.js";
 import { blocksRequest } from "../../../lib/api.js";
 import { confirmMutation } from "../../../lib/confirm.js";
+import { defaults } from "../../../lib/config.js";
 import { compact, jsonBodyFlag, listFlag } from "../../../lib/json-flag.js";
+import { withBlocksIdentityProviderDiscovery } from "../../../lib/oidc-discovery.js";
 import { writeOutput } from "../../../lib/output.js";
 import { requestContext } from "../../../lib/request-context.js";
 import { parseCommand, selectedProject } from "../../../lib/workspace.js";
@@ -39,6 +41,7 @@ export async function authOidcClientsSave(argv: string[]): Promise<void> {
   };
 
   const projectKey = await selectedProject(flags);
+  const oidcUrl = stringFlag(flags, "oidc-url", { defaultValue: defaults().oidcUrl });
   const itemId = typeof overrides.itemId === "string" ? overrides.itemId : undefined;
 
   // Saving an existing client (itemId set) replaces the whole client document
@@ -54,7 +57,7 @@ export async function authOidcClientsSave(argv: string[]): Promise<void> {
         projectTenantId: projectKey
       })
     : {};
-  const body = { ...current, ...overrides };
+  const body = withBlocksIdentityProviderDiscovery({ ...current, ...overrides }, oidcUrl, projectKey);
 
   if (booleanFlag(flags, "dry-run")) {
     writeOutput({ dryRun: true, endpoint: "/iam/v4/oidc-clients", request: redactSecret(body) }, flags);

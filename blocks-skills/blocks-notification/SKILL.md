@@ -7,7 +7,7 @@ description: "Manage SELISE Blocks notification-channel configuration via `block
 
 Manage notification-channel configuration through `blocks notification *`. This is **100% CLI, no SDK equivalent** — `@seliseblocks/client` has no `notification` namespace at all. It does have a `notifier` namespace (backing `blocks notifier *`), but that's a **different, unrelated surface**: `notifier` pushes real-time/offline notifications and reads a user's own inbox; `notification` (this skill) manages the tenant's notification *channel configuration* — which channel/method a notification type uses, not sending one. Never write a frontend/app-code path for channel configuration — it's always this CLI.
 
-**Prerequisite:** a project is selected (`blocks use <tenantId>`, or pass `--project <tenantId>`) — see the blocks-onboarding skill. Every one of the four commands requires an impersonated project session; there is no account-level mode for any of them.
+**Prerequisite:** a project is selected (`blocks use <tenantId>`, or pass `--project <tenantId>`) — see the blocks-bootstrap skill. Every one of the four commands requires an impersonated project session; there is no account-level mode for any of them.
 
 ## Safe read commands
 

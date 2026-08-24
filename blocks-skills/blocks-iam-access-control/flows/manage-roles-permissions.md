@@ -21,6 +21,18 @@ blocks iam permissions update <id> [same flags as create, plus --is-archived] [-
 blocks iam permissions by-severity [--json]
 ```
 
+`--type` and `--severity` are IAM enums passed as raw integers, and severity is ordered **most severe first**, which is the opposite of what the number suggests:
+
+| `--type` (ResourceType) | | `--severity` (PermissionSeverity) | |
+|---|---|---|---|
+| `0` | None (unset) | `0` | None — unset, treated as the lowest tier |
+| `1` | Endpoint — checked by the API gateway | `1` | **Critical** — can compromise the tenant |
+| `2` | FrontendAction — checked by the SPA's permission gate | `2` | High — exposes customer data or broad read access |
+| `3` | DataProtection — field/record encryption or masking rule | `3` | Medium — routine admin, limited blast radius |
+| | | `4` | Low — cosmetic or read-only |
+
+So `--severity 1` filters for the *most* dangerous permissions, not the least. Severity drives approval workflows (high-severity grants need an extra approver), UI emphasis, and audit-alert priority — it is not decorative.
+
 Mutating commands (`create`, `update`, `assign-permissions`) follow the same discipline as every other mutating command in this CLI: pass `--dry-run` first to see the exact request body and endpoint with no network call, then re-run with `--yes` (or you'll be prompted to confirm) to actually send it.
 
 ## Two equally real surfaces
@@ -107,4 +119,4 @@ blocks iam roles assign-permissions editor --add-permissions content::publish --
 - **`roles.assignPermissions` is additive/subtractive** (`addPermissions[]` / `removePermissions[]` in one call), not a full-set replace — compute the delta from what's checked/unchecked, don't resend the entire permission list as "adds."
 - **`roles.assignable()` scopes to the caller** — always populate role pickers from it rather than `roles.list()`, so an admin can't be shown (or attempt to grant) a role above their own authority.
 - **Never fire a create/update/assign-permissions call — CLI or SDK — without a human confirming that specific change first** (a reviewed `--dry-run` plus explicit go-ahead on the CLI, an explicit in-UI confirm for the SDK) — no auto-provisioning "default roles," no agent-initiated cleanup of permissions, no batch edits without a per-change confirm.
-- **OIDC/identity-provider client provisioning is always portal-only**, independent of everything above — if a request drifts into "create an OIDC client" or "add an identity provider," that's a different skill's territory (or no skill's — send the user to the portal), not something to bolt onto this one.
+- **OIDC/identity-provider client provisioning is a separate concern**, independent of everything above — it runs through `blocks auth oidc-clients`/`auth idp` and is owned by `blocks-iam-sso-oidc-configuration`, not something to bolt onto this role/permission flow.

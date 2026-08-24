@@ -7,7 +7,7 @@ description: "Configure a SELISE Blocks project's data model via the blocks CLI 
 
 The Data schema/rules model of a Blocks project is configured entirely through the `blocks` CLI now — there is no supported reason to hand-roll `fetch`/`curl` calls against `api.seliseblocks.com/data/v4` anymore. The CLI reads and writes local files under `blocks/data/` and talks to the Data service for you.
 
-**Prerequisite:** `blocks init` has been run (creates `blocks/data/schemas/` and `blocks/data/rules.json`) and a project is selected (`blocks use <tenantId>`). If either is missing, or auth state is unknown, run the blocks-onboarding skill first — it covers `auth status` probing, login, and project selection in detail; this skill assumes that's already done.
+**Prerequisite:** `blocks init` has been run (creates `blocks/data/schemas/` and `blocks/data/rules.json`) and a project is selected (`blocks use <tenantId>`). If either is missing, or auth state is unknown, run the blocks-bootstrap skill first — it covers `auth status` probing, login, and project selection in detail; this skill assumes that's already done.
 
 ## Check the data-source configuration first
 
@@ -127,6 +127,10 @@ blocks data validation save --schema-id <schemaId> --field-name email \
 blocks data validation delete <validationId> --dry-run --json
 blocks data validation delete <validationId> --yes --json
 ```
+
+`type` inside a `validations` entry is the Data Gateway's `ValidationType` enum, zero-based in declaration order — `0` NotEmpty, `1` Regex, `2` MinLength, `3` MaxLength, `4` LengthRange, `5` Equal, `6` NotEqual, `7` GreaterThan, `8` LessThan, `9` GreaterThanOrEqual, `10` LessThanOrEqual, `11` Range. The example above uses `1`, so `value` is the regex. `value` is interpreted per type: a pattern for `1`, a number for the length and comparison types, a range for `4`/`11`.
+
+The separate `--schema-type` flag on the `data schema *` commands is a *different* enum with no zero: `1` Entity, `2` Dto.
 
 The API doesn't publish named constants for the `type` enum in its schema — if the user needs a specific validation type and you're not sure of its numeric value, run `data validation by-schema-field` on a field with a known-working rule (e.g. one set up in the portal) to see the value in context, rather than guessing.
 

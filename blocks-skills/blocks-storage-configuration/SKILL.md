@@ -9,7 +9,7 @@ This skill manages the **storage configuration record itself** — which cloud p
 
 **CLI-only, no SDK path.** There is no `@seliseblocks/client` method for reading or writing a storage configuration's own fields. Runtime storage calls select an existing record by `configurationName`. If the user wants to manipulate a file/directory or its access policies, hand off to blocks-data-storage.
 
-**Prerequisite:** a project is selected (`blocks use <tenantId>`). If login/project state is unknown, run the blocks-onboarding skill first.
+**Prerequisite:** a project is selected (`blocks use <tenantId>`). If login/project state is unknown, run the blocks-bootstrap skill first.
 
 ## Command family
 

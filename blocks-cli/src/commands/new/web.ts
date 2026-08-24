@@ -4,6 +4,7 @@ import { confirmMutation } from "../../lib/confirm.js";
 import { defaults, readConfig, writeConfig } from "../../lib/config.js";
 import { apiUrlFromAppDomain } from "../../lib/domains.js";
 import { CliActionableError } from "../../lib/errors.js";
+import { withBlocksIdentityProviderDiscovery } from "../../lib/oidc-discovery.js";
 import { findProjectByTenantId, ProjectRecord } from "../../lib/project-info.js";
 import { promptText, selectFromList } from "../../lib/prompt.js";
 import { requestContext } from "../../lib/request-context.js";
@@ -221,7 +222,7 @@ async function createOidcClientInteractively(
   // straight to the provider via window.location.assign -- without this flag IAM
   // shows an interstitial "continue" click on the hosted login page instead of
   // redirecting immediately, which is dead weight for a flow the SPA already drives.
-  const body = {
+  const body = withBlocksIdentityProviderDiscovery({
     clientDisplayName: displayName,
     clientType: "public",
     isActive: true,
@@ -230,7 +231,7 @@ async function createOidcClientInteractively(
     registerAsIdentityProvider: true,
     requirePkce: true,
     scope: "openid profile"
-  };
+  }, stringFlag(flags, "oidc-url", { defaultValue: defaults().oidcUrl }), tenantId);
 
   await confirmMutation(flags, `Create OIDC client '${displayName}' for this project. The response's client secret (if any) is shown once.`);
   const result = await blocksRequest<Record<string, unknown>>("/iam/v4/oidc-clients", {

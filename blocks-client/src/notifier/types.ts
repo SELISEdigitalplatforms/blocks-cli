@@ -18,7 +18,7 @@ export type BlocksNotifyRequest = {
 };
 
 export type BlocksGetUnreadNotificationsBySubscriptionFilterRequest = {
-  /** IAM/Notifier-defined order enum (its meanings aren't in the swagger contract -- treat as opaque). */
+  /** 1 = CreatedTime (newest first), 2 = ReadStatus. Any other value (including an omitted 0) returns an empty list. */
   orderBy?: 1 | 2;
   subscriptionFilterData?: BlocksNotifierSubscriptionFilter;
   userId?: string;

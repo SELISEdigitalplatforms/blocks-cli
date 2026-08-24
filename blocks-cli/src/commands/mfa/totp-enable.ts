@@ -13,16 +13,16 @@ import { mfaTotpVerifySetup } from "./totp-verify-setup.js";
  * method to TOTP -> generate backup codes. This is one real enrollment sitting, not four
  * independent tasks -- nobody enables TOTP setup and comes back next week to verify it.
  *
- * --mfa-type is still required, not defaulted: the numeric MFA-method value that means
- * "TOTP" for a given tenant isn't documented anywhere in this CLI (mfa:method:set/mfa:generate
- * take the same raw, tenant-defined integer), so it's not safe to guess one here.
+ * --mfa-type is still required, not defaulted: it is IAM's UserMfaType value to make active
+ * after enrollment (1 = TOTP), the same integer mfa:method:set and mfa:generate take. Keeping
+ * it explicit means the caller states which method they are enrolling, not this command.
  */
 export async function mfaTotpEnable(argv: string[]): Promise<void> {
   const { flags } = parseCommand(argv);
   const mfaType = integerFlag(flags, "mfa-type", NaN);
   if (!Number.isInteger(mfaType)) {
     throw new Error(
-      "Provide --mfa-type <n> -- the numeric MFA method value your tenant uses for TOTP (the same value 'mfa:method:set' expects)."
+      "Provide --mfa-type <n> -- the UserMfaType value to make active after enrollment (1 is TOTP, the same value 'mfa:method:set' expects)."
     );
   }
 
