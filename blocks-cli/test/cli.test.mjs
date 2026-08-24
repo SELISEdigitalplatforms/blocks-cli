@@ -389,6 +389,34 @@ test("fresh workspace dry-run commands do not require data files", async () => {
   assert.deepEqual(JSON.parse(rules.stdout), { dryRun: true, policies: 0, security: 0 });
 });
 
+test("oidc client provider registration defaults the discovery endpoint", async () => {
+  const { cwd, configDir } = await makeWorkspace();
+  await writeConfig(configDir, {
+    accounts: {},
+    selectedProject: { tenantId: "project-tenant" }
+  });
+
+  const result = run([
+    "auth", "oidc-clients", "save",
+    "--client-display-name", "Web App",
+    "--client-type", "public",
+    "--redirect-uris", "https://app.example.test/login/callback",
+    "--scope", "openid profile",
+    "--register-as-identity-provider",
+    "--oidc-url", "https://iam.example.test",
+    "--dry-run",
+    "--json"
+  ], {
+    cwd,
+    env: testEnv(configDir, { BLOCKS_SECRET_STORE: "file" })
+  });
+
+  assert.equal(result.status, 0, result.stderr);
+  const output = JSON.parse(result.stdout);
+  assert.equal(output.request.registerAsIdentityProvider, true);
+  assert.equal(output.request.externalDiscoveryEndpoint, "https://iam.example.test/project-tenant/.well-known/openid-configuration");
+});
+
 test("space-separated complex command aliases resolve like colon commands", async () => {
   const { cwd, configDir } = await makeWorkspace();
   const env = testEnv(configDir, { BLOCKS_SECRET_STORE: "file" });

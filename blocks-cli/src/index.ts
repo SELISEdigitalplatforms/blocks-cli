@@ -855,7 +855,7 @@ Auth Admin (/iam/v4/auth/identity-providers*, /config, /client-credentials, /oid
                               [--back-channel-logout-uri] [--auto-redirect]
                               [--external-discovery-endpoint] [--active] [--login-mode]
                               [--client-logo-url] [--client-brand-color] [--use-tokens-cookie]
-                              [--register-as-identity-provider] [--device-flow-client]
+                              [--register-as-identity-provider] [--oidc-url] [--device-flow-client]
                               [--body '<json>'|--file <path>] [--dry-run] [--yes] [--json]
     Upsert: omit --item-id to register a new client, pass it to update an existing one.
     The response's client_secret is shown once and is not retrievable again afterward.
@@ -864,9 +864,10 @@ Auth Admin (/iam/v4/auth/identity-providers*, /config, /client-credentials, /oid
     lets it request the client_credentials grant. Pass --client-type public for any
     PKCE/browser client.
     --register-as-identity-provider creates the linked identity provider in the same call.
-    Its authorize/token/userinfo/jwks/issuer values are filled from the discovery document
-    at --external-discovery-endpoint; with no discovery endpoint they are left null and the
-    provider's scope is replaced with "openid profile email". Verify with 'auth idp list'.
+    Its authorize/token/userinfo/jwks/issuer values are filled from the discovery document.
+    When omitted, --external-discovery-endpoint defaults to
+    <oidc-url>/<project>/.well-known/openid-configuration; pass it explicitly for an
+    external provider or non-standard IAM base URL.
   blocks auth oidc-clients delete <clientId> [--dry-run] [--yes] [--json]
     Irreversible; revokes all tokens issued to the client.
   blocks auth oidc-clients rotate-secret <clientId> [--dry-run] [--yes] [--json]
