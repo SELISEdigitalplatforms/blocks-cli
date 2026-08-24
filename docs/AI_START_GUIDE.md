@@ -8,12 +8,12 @@ Identify which job the user is asking for:
 
 | User situation | Start here | Why |
 |---|---|---|
-| New user, unknown login/project/app state | Install/probe first, then `blocks skill show blocks-onboarding` | Do not run onboarding until the CLI exists; then detect login, project selection, `blocks init`, OIDC client, and app scaffold gaps. |
-| Building or changing a Blocks application | `blocks skill list`, then `blocks skill show <relevant-skill>` | Skills own the conversational workflow for app work. |
-| Writing frontend app code with the SDK | `blocks-client/AI_USAGE_GUIDE.md` plus the relevant skill | The client guide owns SDK rules and method map; skills own task flow. |
-| Running CLI/admin/project operations | `blocks-cli/AI_USAGE_GUIDE.md` plus the relevant skill | The CLI guide owns exact flags, command behavior, and failure handling. |
+| New user, unknown login/project/app state | Install/probe first, then follow setup/bootstrap guidance | Do not proceed until the CLI exists; then detect login, project selection, `blocks init`, OIDC client, and app scaffold gaps. |
+| Building or changing a Blocks application | The package guide for the surface being changed | Package guides own command and SDK contracts for app work. |
+| Writing frontend app code with the SDK | `blocks-client/AI_USAGE_GUIDE.md` | The client guide owns SDK rules and method map. |
+| Running CLI/admin/project operations | `blocks-cli/AI_USAGE_GUIDE.md` | The CLI guide owns exact flags, command behavior, and failure handling. |
 | Maintaining this monorepo's packages | Package README, package `AI_USAGE_GUIDE.md`, then source/tests | Source is allowed only when the task is about the packages themselves. |
-| Debugging an error | The error's package guide, then the matching skill | Avoid bypassing supported CLI/SDK paths with raw API calls. |
+| Debugging an error | The error's package guide | Avoid bypassing supported CLI/package paths with raw API calls. |
 
 ## Install Commands
 
@@ -54,10 +54,9 @@ blocks --version
 blocks --help
 blocks auth status --json
 blocks doctor --json
-blocks skill list --json
 ```
 
-If `blocks` is missing, stop the probe and ask before installing the global package. Do not claim the onboarding skill is runnable until the CLI exists.
+If `blocks` is missing, stop the probe and ask before installing the global package.
 
 Do not read local CLI storage files directly. If auth or project state is broken, use CLI commands such as `blocks login`, `blocks auth remove <account>`, `blocks projects list --json`, and `blocks use <tenantId>`.
 
@@ -65,17 +64,11 @@ Do not read local CLI storage files directly. If auth or project state is broken
 
 ### I have nothing installed
 
-Read `blocks-cli/AI_USAGE_GUIDE.md`, ask the user before installing the CLI with the command above, verify `blocks --version`, then run:
-
-```bash
-blocks skill show blocks-onboarding
-```
-
-Follow that skill before attempting Data, IAM, Localization, Release, storage, mail, notification, or app-code work.
+Read `blocks-cli/AI_USAGE_GUIDE.md`, ask the user before installing the CLI with the command above, then verify `blocks --version` before attempting Data, IAM, Localization, Release, storage, mail, notification, or app-code work.
 
 ### I am logged in but no project is selected
 
-Use the onboarding skill. The short path is:
+Use the setup/bootstrap flow. The short path is:
 
 ```bash
 blocks projects list --json
@@ -87,29 +80,29 @@ Show the accessible project list and the selected project to the user before mut
 
 ### I am inside an existing Blocks app
 
-Run the relevant skill first, based on the task:
+Use the relevant package guide first, based on the task:
 
-| Task | Skill |
+| Task | Guide |
 |---|---|
-| Data schema/rules/configuration | `blocks-data-gateway-configuration` |
-| Runtime CRUD/GraphQL in app code | `blocks-data-gateway-crud` |
-| Files/DMS upload/download | `blocks-data-storage` |
-| Runtime translations in app code | `blocks-localization-implementation` |
-| Translation authoring/push/pull | `blocks-localization-configuration` |
-| Hosted login callback/login button | `blocks-iam-sso-oidc-implementation` |
-| OIDC client/identity provider setup | `blocks-iam-sso-oidc-configuration` |
-| Current user's account/profile/password | `blocks-iam-account` |
-| Admin user management | `blocks-iam-users` |
-| Roles and permissions | `blocks-iam-access-control` |
-| MFA | `blocks-iam-mfa` |
-| Organizations/signup settings | `blocks-iam-organizations` |
-| Local HTTPS dev loop | `blocks-frontend-local-https` |
-| Release deployment | `blocks-release-deployment` |
-| Secrets | `blocks-secrets` |
-| Mail settings/templates | `blocks-mail` |
-| Notification channel configuration | `blocks-notification` |
-| Sending/reading notifications | `blocks-notifier` |
-| Storage provider configuration | `blocks-storage-configuration` |
+| Data schema/rules/configuration | `blocks-cli/AI_USAGE_GUIDE.md` |
+| Runtime CRUD/GraphQL in app code | `blocks-client/AI_USAGE_GUIDE.md` |
+| Files/DMS upload/download | `blocks-cli/AI_USAGE_GUIDE.md` or `blocks-client/AI_USAGE_GUIDE.md` based on surface |
+| Runtime translations in app code | `blocks-client/AI_USAGE_GUIDE.md` |
+| Translation authoring/push/pull | `blocks-cli/AI_USAGE_GUIDE.md` |
+| Hosted login callback/login button | `blocks-client/AI_USAGE_GUIDE.md` |
+| OIDC client/identity provider setup | `blocks-cli/AI_USAGE_GUIDE.md` |
+| Current user's account/profile/password | `blocks-client/AI_USAGE_GUIDE.md` |
+| Admin user management | `blocks-client/AI_USAGE_GUIDE.md` |
+| Roles and permissions | `blocks-cli/AI_USAGE_GUIDE.md` or `blocks-client/AI_USAGE_GUIDE.md` based on surface |
+| MFA | `blocks-cli/AI_USAGE_GUIDE.md` or `blocks-client/AI_USAGE_GUIDE.md` based on surface |
+| Organizations/signup settings | `blocks-cli/AI_USAGE_GUIDE.md` or `blocks-client/AI_USAGE_GUIDE.md` based on surface |
+| Local HTTPS dev loop | Scaffolded app README/scripts |
+| Release deployment | `blocks-cli/AI_USAGE_GUIDE.md` |
+| Secrets | `blocks-cli/AI_USAGE_GUIDE.md` |
+| Mail settings/templates | `blocks-cli/AI_USAGE_GUIDE.md` |
+| Notification channel configuration | `blocks-cli/AI_USAGE_GUIDE.md` |
+| Sending/reading notifications | `blocks-cli/AI_USAGE_GUIDE.md` or `blocks-client/AI_USAGE_GUIDE.md` based on surface |
+| Storage provider configuration | `blocks-cli/AI_USAGE_GUIDE.md` |
 
 Then use `blocks-client/AI_USAGE_GUIDE.md` for app-code method rules and `blocks-cli/AI_USAGE_GUIDE.md` for terminal command flags.
 
@@ -121,7 +114,7 @@ npm install @seliseblocks/client@latest
 
 ### I need to scaffold a new app
 
-Use onboarding first. For non-interactive AI runs, gather required values before `new web` so prompts do not hang:
+Use the setup/bootstrap flow first. For non-interactive AI runs, gather required values before `new web` so prompts do not hang:
 
 ```bash
 blocks projects get --json
@@ -133,7 +126,7 @@ Do not invent a project key, domain, or client id. The generated app includes `@
 
 ### I need to configure cloud resources
 
-Use the matching skill and dry-run first:
+Use the matching CLI command and dry-run first:
 
 ```bash
 blocks <command> --dry-run --json
@@ -168,10 +161,9 @@ On Windows PowerShell, use `npm.cmd` if script execution policy blocks `npm`.
 
 Use the highest-level source that answers the question:
 
-1. `blocks skill show <name>` for task flow and handoffs.
-2. `blocks-cli/AI_USAGE_GUIDE.md` for CLI command contracts.
-3. `blocks-client/AI_USAGE_GUIDE.md` for SDK app-code contracts.
-4. Package source/tests only when maintaining this monorepo's packages.
+1. `blocks-cli/AI_USAGE_GUIDE.md` for CLI command contracts.
+2. `blocks-client/AI_USAGE_GUIDE.md` for SDK app-code contracts.
+3. Package source/tests only when maintaining this monorepo's packages.
 
 Do not duplicate business logic in generated apps. Use `blocks` commands for supported admin/project operations and `@seliseblocks/client` for supported app-code operations.
 

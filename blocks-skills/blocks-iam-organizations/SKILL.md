@@ -1,6 +1,6 @@
 ---
 name: blocks-iam-organizations
-description: "Work with organizations (multi-tenant workspaces) via `iam.organizations`/`iam.signupSettings`/`auth.switchOrganization` (SDK, in-app) or `blocks iam organizations *`/`iam signup-settings *` (CLI, project-scoped, `--dry-run`→`--yes`) — never raw fetch/curl. Covers the org switcher, switching active org context (SDK/app-only, no CLI equivalent), public signup policy, and — human-confirmed only — creating/editing organizations and org/signup config. Use for 'org switcher', 'switch organization', 'multi-org', 'create/update an organization', 'organization settings', 'signup settings'. Users/roles within an org are blocks-iam-users/blocks-iam-access-control; SSO/OIDC client setup is blocks-onboarding, portal-optional now."
+description: "Work with organizations (multi-tenant workspaces) via `iam.organizations`/`iam.signupSettings`/`auth.switchOrganization` (SDK, in-app) or `blocks iam organizations *`/`iam signup-settings *` (CLI, project-scoped, `--dry-run`→`--yes`) — never raw fetch/curl. Covers the org switcher, switching active org context (SDK/app-only, no CLI equivalent), public signup policy, and — human-confirmed only — creating/editing organizations and org/signup config. Use for 'org switcher', 'switch organization', 'multi-org', 'create/update an organization', 'organization settings', 'signup settings'. Users/roles within an org are blocks-iam-users/blocks-iam-access-control; SSO/OIDC client setup is blocks-bootstrap, portal-optional now."
 ---
 
 # Blocks IAM — Organizations
@@ -12,11 +12,11 @@ Organizations are the tenancy/workspace unit inside a Blocks project. Two equall
 
 The one thing neither surface papers over as a gap is `auth.switchOrganization` — there is no `blocks iam organizations switch` or similar; switching the *active session's* org context only makes sense from inside the app that owns that session, so it stays SDK-only.
 
-**Prerequisite:** the app is a `blocks new web` scaffold with a project selected. If auth/project state is unknown, run the blocks-onboarding skill first.
+**Prerequisite:** the app is a `blocks new web` scaffold with a project selected. If auth/project state is unknown, run the blocks-bootstrap skill first.
 
 ## The platform boundary — read this before writing any admin-CRUD call
 
-Full organization management (create, update, config, signup-settings) **is** exposed today, on both surfaces above. What's restricted isn't the surface but *who authorizes a mutation and when* — organizations are a tenant-isolation boundary, so creating or reconfiguring them carries the same "human explicitly directs this specific change" discipline as the portal-only OIDC provisioning in blocks-onboarding, just enforced on two different mechanisms (SDK call vs. CLI command) instead of one.
+Full organization management (create, update, config, signup-settings) **is** exposed today, on both surfaces above. What's restricted isn't the surface but *who authorizes a mutation and when* — organizations are a tenant-isolation boundary, so creating or reconfiguring them carries the same "human explicitly directs this specific change" discipline as the portal-only OIDC provisioning in blocks-bootstrap, just enforced on two different mechanisms (SDK call vs. CLI command) instead of one.
 
 Concretely: **before wiring up or invoking any `create`/`update`/`saveConfig`/`save` call — SDK or CLI — restate the exact change back to the user in plain terms (which organization, which fields, old value vs. new value) and get an explicit go-ahead.** Never something an agent calls on its own initiative, in an unattended script, or as a side effect of some other task.
 

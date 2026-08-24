@@ -9,7 +9,7 @@ This skill manages **generic tenant secret storage** — arbitrary named secret 
 
 **CLI-only, no SDK path, by explicit design.** There is no `@seliseblocks/client` method anywhere for reading or writing tenant secrets (the SDK's only "secret" surfaces are unrelated: MFA enrollment secrets and OIDC `clientSecret`). If a user wants to store or fetch a project secret, `blocks secrets get`/`blocks secrets save` is the only path — don't suggest an SDK call for this.
 
-**Prerequisite:** a project is selected (`blocks use <tenantId>`). If login/project state is unknown, run the blocks-onboarding skill first.
+**Prerequisite:** a project is selected (`blocks use <tenantId>`). If login/project state is unknown, run the blocks-bootstrap skill first.
 
 ## Command family
 

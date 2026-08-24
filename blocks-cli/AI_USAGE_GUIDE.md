@@ -128,8 +128,7 @@ Then run with explicit flags so no prompt is reached:
 blocks new web <appName> --x-blocks-key <projectTenantId> --app-domain <appDomainOrUrl> --client-id <publicOidcClientId>
 ```
 
-`new web` also accepts `--blocks-api-url <url>` and `--oidc-url <url>`, same as `sdk client`
-below. When `--blocks-api-url` is omitted, the scaffold derives it from the app domain as
+`new web` also accepts `--blocks-api-url <url>` and `--oidc-url <url>`. When `--blocks-api-url` is omitted, the scaffold derives it from the app domain as
 `https://blocksapi.<registrable-domain>`; for example `https://dqrsf.slsblx.com` becomes
 `https://blocksapi.slsblx.com`. Pass `--blocks-api-url` only when targeting a non-default Blocks gateway. `--oidc-url` defaults to `https://iam.seliseblocks.com`.
 
@@ -154,20 +153,6 @@ For local browser login on the real host domain:
 5. Open `https://<VITE_BLOCKS_DEV_HOST>:5173`, not plain `http://`.
 
 The generated cert script uses the `selfsigned` Node dependency, so it works from normal PowerShell after `npm install`; do not tell Windows users to switch to Git Bash just for OpenSSL. If hosted login or secure cookies fail locally, confirm the app is opened with the HTTPS dev URL from `VITE_BLOCKS_DEV_HOST`.
-
-## SDK Client (read-only)
-
-`sdk client` answers "I want to use the Blocks SDK - show me the client." It resolves this project's `@seliseblocks/client` config (same values `new web` scaffolds an app with) and prints a ready-to-paste `createBlocksClient(...)` snippet - **it never writes a file or mutates anything**. To scaffold a full app instead, use `new web` above.
-
-```bash
-blocks sdk client --x-blocks-key <projectTenantId> --app-domain <appDomainOrUrl> --client-id <publicOidcClientId> --blocks-api-url https://api.seliseblocks.com
-```
-
-Unlike `new web`, `sdk client` keeps `--blocks-api-url` defaulted to `https://api.seliseblocks.com`; only pass it explicitly if your project uses a different gateway URL. Passing both `--app-domain` and `--client-id` skips the project lookup entirely, so it needs no CLI login at all - useful for a quick, non-interactive check. Omit either one and it resolves from the selected project instead (auto-picks when there's exactly one match, otherwise lists the options and asks you to pass the flag explicitly - it does not prompt or create anything, since this command is read-only). Use `--json` for the resolved values instead of the snippet.
-
-## Skills
-
-`skill list [--json]` / `skill show <name> [--json]` / `skill add <name> [--dir <path>]` read this package's bundled copy of `blocks-skills/*/SKILL.md` - local-only, no cloud calls. `skill add` copies a skill's **entire directory** (`SKILL.md` plus any supporting files, e.g. `flows/*.md`) into `<dir>/<name>/` (default `./blocks-skills`) in the current directory, for pulling a single skill into a project outside this monorepo. `skill list`'s human-readable output (and the "unknown skill" error from `show`/`add`) both point at the full public skill catalog, in case the locally bundled set is out of date. As with any skill file, verify command names against this guide or `blocks --help` before running them - skills are conversational context, not command ground truth.
 
 ## IAM, MFA, and Auth Admin
 

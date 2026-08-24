@@ -1,6 +1,6 @@
 ---
 name: blocks-iam-sso-oidc-configuration
-description: "Enable/configure SSO for a Blocks project — register an OIDC client and identity provider so end users can log into the app via hosted login. Use for 'enable SSO', 'set up an OIDC identity provider', 'configure single sign-on', 'add a login provider'. CLI-driven by default (`blocks auth oidc-clients *` / `auth idp *`, project-scoped, --dry-run→--yes), not portal-only — the portal remains a valid alternative, especially for federated external providers (Google/Azure/Okta). Don't confuse with `blocks login` (the CLI's own login — see blocks-onboarding)."
+description: "Enable/configure SSO for a Blocks project — register an OIDC client and identity provider so end users can log into the app via hosted login. Use for 'enable SSO', 'set up an OIDC identity provider', 'configure single sign-on', 'add a login provider'. CLI-driven by default (`blocks auth oidc-clients *` / `auth idp *`, project-scoped, --dry-run→--yes), not portal-only — the portal remains a valid alternative, especially for federated external providers (Google/Azure/Okta). Don't confuse with `blocks login` (the CLI's own login — see blocks-bootstrap)."
 ---
 
 # Blocks IAM — SSO / OIDC Configuration
@@ -16,9 +16,9 @@ Don't conflate the CLI's own login with the identity provider this skill configu
 | What it's for | Lets `blocks` itself authenticate | Lets **end users log into the user's own app** via hosted SSO |
 | Client type | Packaged into the CLI - nothing to register, no secret to hold | Public (browser client, no secret) |
 | Registered via | Nothing to register - just run `blocks login` | `blocks auth oidc-clients save` / `blocks auth idp create`, or the portal |
-| Owned by | **blocks-onboarding** skill | **This skill**, handing off to **blocks-iam-sso-oidc-implementation** |
+| Owned by | **blocks-bootstrap** skill | **This skill**, handing off to **blocks-iam-sso-oidc-implementation** |
 
-If the user is asking "how do I get `blocks` logged in" or hits `not_logged_in`, that's **blocks-onboarding**, not this skill. This skill is about the identity provider that sits in front of *the user's own application's* login page.
+If the user is asking "how do I get `blocks` logged in" or hits `not_logged_in`, that's **blocks-bootstrap**, not this skill. This skill is about the identity provider that sits in front of *the user's own application's* login page.
 
 ## Decision tree
 
@@ -93,7 +93,7 @@ Request/payload types on these SDK methods are intentionally loose (`Record<stri
 
 ## Related skills
 
-- **blocks-onboarding** — owns `blocks login` itself (authenticates with no setup, nothing to register or look up). Go there first if `blocks` itself isn't authenticated, or if the user is conflating "logging in the CLI" with "SSO for my app."
+- **blocks-bootstrap** — owns `blocks login` itself (authenticates with no setup, nothing to register or look up). Go there first if `blocks` itself isn't authenticated, or if the user is conflating "logging in the CLI" with "SSO for my app."
 - **blocks-iam-sso-oidc-implementation** — owns everything that happens once an identity provider/client id exists: wiring the login button, callback route, and token/session handling in the scaffolded React app using `@seliseblocks/client`. This skill hands off to it and does not duplicate its content.
 
 ## Example trigger prompts → routing
@@ -101,5 +101,5 @@ Request/payload types on these SDK methods are intentionally loose (`Record<stri
 - "Enable SSO for my project" / "Set up an OIDC identity provider" / "Configure single sign-on for my app" → confirm it's the app's end-user login (not the CLI's), run the decision tree above (`auth oidc-clients list/get` → `auth oidc-clients save --register-as-identity-provider` if none exists), then hand off to **blocks-iam-sso-oidc-implementation**.
 - "Register an OIDC client so users can log in" → `blocks auth oidc-clients list`/`get` first to avoid duplicates, then `blocks auth oidc-clients save` with `--dry-run` shown to the user before confirming.
 - "Can you just create the identity provider via the API so I don't have to click through the portal?" → yes — walk them through `blocks auth oidc-clients save` / `blocks auth idp create` with `--dry-run` first, get explicit confirmation before dropping `--yes`, and mention the portal (https://os.seliseblocks.com) as an alternative if they'd rather use a GUI, especially for federated external providers where they need to register with that provider first.
-- "blocks login isn't working" / "not_logged_in" → this is the CLI's own login, not this skill — route to **blocks-onboarding**.
+- "blocks login isn't working" / "not_logged_in" → this is the CLI's own login, not this skill — route to **blocks-bootstrap**.
 - "I want an admin page in my app where I can manage identity providers" → this skill's SDK section applies: help build the settings screen calling `identityProviders.list/create/update/delete` from the admin's own button clicks.

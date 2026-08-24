@@ -7,7 +7,7 @@ description: "Implement create/read/update/delete against a SELISE Blocks projec
 
 Once a schema exists and has been reloaded via the blocks-data-gateway-configuration skill, the Data Gateway exposes runtime records through GraphQL. This skill shows how to use the generated app's shared `@seliseblocks/client` instance for CRUD. Do not use raw `fetch` or `curl` against Blocks APIs from app code.
 
-Prerequisite: a project selected via `blocks use` and an app scaffolded with `blocks new web <name> ...`. If either is missing, run the blocks-onboarding skill first.
+Prerequisite: a project selected via `blocks use` and an app scaffolded with `blocks new web <name> ...`. If either is missing, run the blocks-bootstrap skill first.
 
 ## Use the Existing Client
 

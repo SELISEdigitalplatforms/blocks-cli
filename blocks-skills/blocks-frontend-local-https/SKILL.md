@@ -5,7 +5,7 @@ description: "Run a scaffolded (`blocks new web`) Blocks app locally over HTTPS 
 
 # Blocks Frontend — Local HTTPS for a Scaffolded App
 
-This is the local dev loop for an app already created with `blocks new web` (see the blocks-onboarding skill for the scaffold command itself — this skill doesn't repeat it). The scaffold **already generates its own cert tooling**; nothing here is built from scratch, and nothing uses raw `openssl`/`curl`/`fetch`.
+This is the local dev loop for an app already created with `blocks new web` (see the blocks-bootstrap skill for the scaffold command itself — this skill doesn't repeat it). The scaffold **already generates its own cert tooling**; nothing here is built from scratch, and nothing uses raw `openssl`/`curl`/`fetch`.
 
 ## Why localhost doesn't work
 
@@ -66,7 +66,7 @@ Restart the browser after trusting so it picks up the new trust store entry. `.c
 
 ## Still need a public OIDC client
 
-Local HTTPS alone doesn't make login succeed if no OIDC client is registered yet, or if its `redirect_uris` don't include this exact dev origin. That registration is portal-only (see blocks-onboarding's Gotchas) — out of scope here, but it's the next thing to check if HTTPS is right and login still fails. The redirect URI must match byte-for-byte, including `:5173`.
+Local HTTPS alone doesn't make login succeed if no OIDC client is registered yet, or if its `redirect_uris` don't include this exact dev origin. That registration is portal-only (see blocks-bootstrap's Gotchas) — out of scope here, but it's the next thing to check if HTTPS is right and login still fails. The redirect URI must match byte-for-byte, including `:5173`.
 
 ## Gotchas
 
@@ -87,7 +87,7 @@ If `VITE_BLOCKS_API_URL` is left at the default `https://api.seliseblocks.com` w
 | Page doesn't load at all / DNS error | Hosts file entry missing or wrong | Add `127.0.0.1 <VITE_BLOCKS_DEV_HOST>` to `C:\Windows\System32\drivers\etc\hosts` (as Administrator) |
 | `npm run cert` errors "No domain given" | `.env` missing or `VITE_BLOCKS_DEV_HOST` not set | Confirm `.env` exists with `VITE_BLOCKS_DEV_HOST=<host>`, or run `npm run cert -- <domain>` explicitly |
 | `npm run dev` fails to bind the port | Port 5173 already in use (dev server uses `strictPort`, won't fall back) | Free port 5173, or the port is fixed because it's part of the registered OIDC redirect URI — don't just change it without updating the OIDC client too |
-| HTTPS works, cert trusted, login still fails | No OIDC client registered yet, or its redirect URI doesn't match this origin exactly | Register/update the public OIDC client in the portal with `https://<VITE_BLOCKS_DEV_HOST>:5173/login/callback` as a redirect URI (portal-only, see blocks-onboarding) |
+| HTTPS works, cert trusted, login still fails | No OIDC client registered yet, or its redirect URI doesn't match this origin exactly | Register/update the public OIDC client in the portal with `https://<VITE_BLOCKS_DEV_HOST>:5173/login/callback` as a redirect URI (portal-only, see blocks-bootstrap) |
 | Works for one dev, fails for a teammate | Each machine needs its own cert + hosts entry — `.cert/` is gitignored on purpose | Teammate runs `npm run cert` and adds the hosts entry on their own machine |
 
 ## Example trigger prompts

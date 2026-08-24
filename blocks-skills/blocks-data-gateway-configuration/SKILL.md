@@ -7,7 +7,7 @@ description: "Configure a SELISE Blocks project's data model via the blocks CLI 
 
 The Data schema/rules model of a Blocks project is configured entirely through the `blocks` CLI now — there is no supported reason to hand-roll `fetch`/`curl` calls against `api.seliseblocks.com/data/v4` anymore. The CLI reads and writes local files under `blocks/data/` and talks to the Data service for you.
 
-**Prerequisite:** `blocks init` has been run (creates `blocks/data/schemas/` and `blocks/data/rules.json`) and a project is selected (`blocks use <tenantId>`). If either is missing, or auth state is unknown, run the blocks-onboarding skill first — it covers `auth status` probing, login, and project selection in detail; this skill assumes that's already done.
+**Prerequisite:** `blocks init` has been run (creates `blocks/data/schemas/` and `blocks/data/rules.json`) and a project is selected (`blocks use <tenantId>`). If either is missing, or auth state is unknown, run the blocks-bootstrap skill first — it covers `auth status` probing, login, and project selection in detail; this skill assumes that's already done.
 
 ## Check the data-source configuration first
 

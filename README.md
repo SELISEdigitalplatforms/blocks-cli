@@ -50,7 +50,6 @@ blocks --help
 blocks login
 blocks auth status --json
 blocks doctor --json
-blocks skill list
 ```
 
 The CLI uses supported Blocks APIs and stores local auth state through OS-aware credential storage. Do not inspect local token/config files directly; use `blocks auth status` and `blocks doctor` for diagnostics.
@@ -78,20 +77,12 @@ See [`blocks-client/README.md`](blocks-client/README.md) for SDK setup and runti
 
 ## AI Agent Usage
 
-AI agents should start with [`docs/AI_START_GUIDE.md`](docs/AI_START_GUIDE.md). It routes agents based on whether they are onboarding, building a Blocks app, operating the CLI, using the SDK, or maintaining this monorepo.
+AI agents should start with [`docs/AI_START_GUIDE.md`](docs/AI_START_GUIDE.md). It routes agents based on whether they are bootstrapping setup, building a Blocks app, operating the CLI, using the SDK, or maintaining this monorepo.
 
 Use these package-specific guides for exact contracts:
 
 - [`blocks-cli/AI_USAGE_GUIDE.md`](blocks-cli/AI_USAGE_GUIDE.md)
 - [`blocks-client/AI_USAGE_GUIDE.md`](blocks-client/AI_USAGE_GUIDE.md)
-
-Bundled workflow skills are available through the CLI:
-
-```bash
-blocks skill list
-blocks skill show blocks-onboarding
-blocks skill add blocks-onboarding
-```
 
 ## Development
 
