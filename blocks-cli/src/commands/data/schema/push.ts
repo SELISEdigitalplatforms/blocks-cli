@@ -2,11 +2,10 @@ import { booleanFlag } from "../../../lib/args.js";
 import { blocksRequest } from "../../../lib/api.js";
 import { confirmMutation } from "../../../lib/confirm.js";
 import { readSchemaFiles, validateSchemas } from "../../../lib/data-files.js";
+import { isRecord, unwrapSchemaListResponse } from "../../../lib/data-response.js";
 import { writeOutput } from "../../../lib/output.js";
 import { requestContext } from "../../../lib/request-context.js";
 import { parseCommand, selectedProject } from "../../../lib/workspace.js";
-
-type SchemaListResponse = { data?: { items?: Array<Record<string, unknown> & { itemId?: string }> } };
 
 export async function dataSchemaPush(argv: string[]): Promise<void> {
   const { flags } = parseCommand(argv);
@@ -22,24 +21,51 @@ export async function dataSchemaPush(argv: string[]): Promise<void> {
 
   await confirmMutation(flags, `Push ${schemas.length} data schema file(s) to project '${projectKey}'.`);
   const results: unknown[] = [];
+  const warnings: string[] = [];
 
-  for (const { schema } of schemas) {
-    const existing = await blocksRequest<SchemaListResponse>("/data/v4/schemas", {
+  for (const { file, schema } of schemas) {
+    const schemaName = String(schema.schemaName);
+    const localId = schema.itemId ?? (schema as { id?: unknown }).id;
+
+    // Look up the destination project's own copy of this schema by name -- a
+    // local id/itemId may belong to a different project and must never be
+    // trusted directly (see CLAUDE_HANDOFF.md #1).
+    const existingResponse = await blocksRequest<unknown>("/data/v4/schemas", {
       impersonatedProjectAuth: true,
       ...requestContext(flags),
       projectTenantId: projectKey,
-      query: { PageNo: 1, PageSize: 5, ProjectKey: projectKey, SchemaName: String(schema.schemaName) }
+      query: { PageNo: 1, PageSize: 5, ProjectKey: projectKey, SchemaName: schemaName }
     });
-    const itemId = schema.itemId ?? existing.data?.items?.[0]?.itemId;
-    const body = { ...schema, itemId, projectKey };
-    results.push(await blocksRequest<unknown>("/data/v4/schemas/define", {
+    const { items } = unwrapSchemaListResponse(existingResponse);
+    const destination = items.find((item) => item.schemaName === schemaName);
+    const destinationId = typeof destination?.id === "string" ? destination.id : undefined;
+
+    if (!destinationId && localId) {
+      warnings.push(`${file}: ignoring local id for '${schemaName}' -- no matching schema found in project '${projectKey}'; creating instead.`);
+    }
+
+    const portable: Record<string, unknown> = { ...schema };
+    delete portable.itemId;
+    delete portable.id;
+    const body = destinationId ? { ...portable, itemId: destinationId, projectKey } : { ...portable, projectKey };
+
+    const response = await blocksRequest<unknown>("/data/v4/schemas/define", {
       body,
       impersonatedProjectAuth: true,
       ...requestContext(flags),
       projectTenantId: projectKey,
-      method: itemId ? "PUT" : "POST"
-    }));
+      method: destinationId ? "PUT" : "POST"
+    });
+
+    if (response === undefined || response === null) {
+      throw new Error(`Push failed for schema '${schemaName}': the server returned an empty response.`);
+    }
+    if (isRecord(response) && response.isSuccess === false) {
+      throw new Error(`Push failed for schema '${schemaName}': ${JSON.stringify(response)}`);
+    }
+
+    results.push(response);
   }
 
-  writeOutput({ results }, flags);
+  writeOutput({ results, ...(warnings.length ? { warnings } : {}) }, flags);
 }
