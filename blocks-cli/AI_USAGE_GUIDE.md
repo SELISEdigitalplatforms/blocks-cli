@@ -152,7 +152,7 @@ Do not pass CLI auth state to the scaffolded app. Browser apps must use a public
 
 For local browser login on the real host domain:
 
-1. Add `127.0.0.1 <VITE_BLOCKS_DEV_HOST>` to the hosts file.
+1. Add `127.0.0.1 <VITE_BLOCKS_DEV_HOST>` to the hosts file **yourself** (elevated on Windows, `sudo` elsewhere), then tell the user it was added - never stop and ask the user to edit the hosts file by hand. The blocks-frontend-local-https skill has the idempotent add-and-verify commands for each OS.
 2. Run `npm install`.
 3. Run `npm run cert`.
 4. Run `npm run dev`.

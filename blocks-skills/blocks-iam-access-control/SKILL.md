@@ -1,6 +1,6 @@
 ---
 name: blocks-iam-access-control
-description: "Work with SELISE Blocks RBAC (roles & permissions) via `blocks iam roles/permissions *` (CLI, project-scoped) or `blocksClient.iam.*` (SDK), never raw fetch/curl. Two facets: read-only feature-gating by the current user's own roles/permissions (common, safe) vs. creating/editing role and permission definitions (sensitive, human-confirmed only — CLI `--dry-run`→`--yes` or an in-app admin screen). OIDC/identity-provider provisioning stays portal-only, a different concern. Use for permission-gated UI, role/permission pickers, or building/scripting role & permission admin ('gate this button by permission', 'create a role and grant permissions', 'list permissions by severity')."
+description: "Work with SELISE Blocks RBAC (roles & permissions) via `blocks iam roles/permissions *` (CLI, project-scoped) or `blocksClient.iam.*` (SDK), never raw fetch/curl. Two facets: read-only feature-gating by the current user's own roles/permissions (common, safe) vs. creating/editing role and permission definitions (sensitive, human-confirmed only — CLI `--dry-run`→`--yes` or an in-app admin screen). OIDC/identity-provider setup is a different skill. Use for permission-gated UI, role/permission pickers, or building/scripting role & permission admin ('gate this button by permission', 'create a role and grant permissions', 'list permissions by severity')."
 ---
 
 # Blocks IAM — Access Control (Permissions & Roles)
@@ -15,7 +15,7 @@ import { blocksClient } from "../../lib/blocks/client";
 
 Role and permission administration is **not** portal-only or app-UI-only — `blocks` has a full, working CLI surface for it too. There are two equally real surfaces for the same operations, and the choice is about *where the human is*, not which one is "allowed" — see [flows/manage-roles-permissions.md](flows/manage-roles-permissions.md) for the full command reference and the CLI-vs-SDK decision.
 
-Identity-provider/OIDC client provisioning is the one piece that really is **portal-only, human-driven**, at `https://os.seliseblocks.com` — unrelated to roles/permissions, don't bolt it onto this skill.
+Identity-provider/OIDC client provisioning is a different concern entirely — driven through `blocks auth oidc-clients`/`auth idp` (the portal is an alternative, not a requirement), and owned by the blocks-iam-sso-oidc-configuration skill. Unrelated to roles/permissions; do not bolt it onto this skill.
 
 Keep the two facets below (read-only feature-gating vs. sensitive admin mutations) separate in your head (and in your code) — they have very different risk profiles regardless of which surface (CLI or SDK) you're using.
 
@@ -36,7 +36,7 @@ Legitimate only in direct response to a human's explicit, in-the-moment instruct
 - **CLI mutations are project-scoped, not account-scoped** — they run against the impersonated-project token; `blocks iam me` is the one IAM command that uses the account token instead.
 - **Role hierarchy and permission assignment key off `slug`**, not `itemId`.
 - **Never fire a create/update/assign-permissions call — CLI or SDK — without a human confirming that specific change first.** See [flows/manage-roles-permissions.md](flows/manage-roles-permissions.md) for the full discipline.
-- **OIDC/identity-provider client provisioning is always portal-only**, independent of everything above.
+- **OIDC/identity-provider client provisioning is a separate concern**, independent of everything above — it runs through `blocks auth oidc-clients`/`auth idp`, not through roles and permissions.
 
 ## Example trigger prompts
 
