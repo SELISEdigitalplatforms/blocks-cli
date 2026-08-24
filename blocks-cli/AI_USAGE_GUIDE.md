@@ -82,7 +82,13 @@ List projects:
 blocks projects list --json
 ```
 
-`projects create` is currently disabled in this build (commented out pending a product decision) - do not tell users it's available, and do not try to work around its absence with a raw API call. Projects must already exist (created from the Blocks portal) before selecting one below.
+Create a project when none suitable exists (ask the user first - it accepts the Blocks terms on their behalf):
+
+```bash
+blocks projects create "<project name>" --json      # add --dry-run first to show the payload
+```
+
+It always creates exactly one application in the `dev` environment; environment, domain, cookie domain, and production flag are fixed. Adding further environments (`test`, `stg`, `prod`, ...) to an existing project is still portal-only. The command does not select the new project - run `blocks use <tenantId>` with the `tenantId` it prints.
 
 Select a project:
 

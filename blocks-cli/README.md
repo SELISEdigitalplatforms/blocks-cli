@@ -58,7 +58,7 @@ Global options available on every command:
 | `blocks logout` | Revoke the current refresh token when possible and remove local session data. |
 | `blocks projects list [--json]` | List accessible Blocks projects via `/os/v4/Project/Gets` using the account token. Read-only. |
 | `blocks projects get [tenantId] [--deployment] [--json]` | Read one project from `Project/Gets`. Uses selected project when `tenantId` is omitted. Pass `--deployment` to also include the environment, tenantGroupId, and linked repo assets that `release deploy` resolves internally. Read-only. |
-| `blocks projects create` | **Currently disabled** (commented out, not deleted) - the dispatch entry, import, and help text were removed pending a product decision. Do not tell users this command is available. |
+| `blocks projects create <name> [--allow-duplicate-name] [--yes] [--dry-run] [--json]` | Create a new project via `/os/v4/Project/Create` with the account token (no project needs to be selected). Always creates **exactly one application, in the `dev` environment** - environment, domain, cookie domain, and production flag are not configurable, and the domain sent is a placeholder the platform replaces with the one it assigns. Confirms first because it accepts the Blocks terms on your behalf. Refuses a name already used by another project unless `--allow-duplicate-name` is passed, then verifies the result against `Project/Gets` and prints the new `tenantId`, `tenantGroupId`, and assigned domain. Does not select the project - run `blocks use <tenantId>` next. |
 | `blocks use <tenantId>` | Save the selected project tenant globally and in `blocks.json` when present. Does not call cloud APIs. |
 | `blocks deselect` | Clear the selected project tenant (globally and in `blocks.json`) and drop its cached impersonation token. Use this to recover when an impersonated project token has expired or failed, then run `blocks use <tenantId>` again to reselect and re-impersonate. |
 | `blocks iam me [--json]` | Read the current user from IAM using the account token (CLI operator identity, not a project resource). |
@@ -168,4 +168,4 @@ Localization dictionaries are not created by `init` - the default path is `block
 - Localization covers dictionary validate/pull/push plus the full raw `/localization/v4/*` API surface (assistant, config, glossary, key, language, module). Prefer `localization key translate-and-export` over running translate/generate/export by hand.
 - Release covers deploy trigger and build status/read commands only.
 - No direct artifact upload unless Blocks Release adds a confirmed artifact upload API.
-- `projects create` is currently disabled in this build (commented out pending a product decision) - don't reference it as available.
+- `projects create` creates a `dev`-only, single-application project. It cannot add environments to an existing project or create a non-`dev` one - those still go through the Blocks portal.

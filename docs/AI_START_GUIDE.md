@@ -77,6 +77,7 @@ blocks projects get --json
 ```
 
 Show the accessible project list and the selected project to the user before mutating project resources.
+If no suitable project exists, ask the user before creating one - `blocks projects create "<name>"` makes a single `dev`-environment project and accepts the Blocks terms on their behalf. Never call the project APIs directly. Adding more environments to an existing project remains portal-only.
 
 ### I am inside an existing Blocks app
 

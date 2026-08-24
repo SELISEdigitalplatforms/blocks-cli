@@ -1654,6 +1654,207 @@ test("removed skill and sdk helper commands are not exposed", async () => {
   }
 });
 
+test("projects create dry-runs a single dev application with the terms accepted", async () => {
+  const { cwd, configDir } = await makeWorkspace();
+  const env = testEnv(configDir, { BLOCKS_SECRET_STORE: "file" });
+
+  const result = run(["projects", "create", "Acme Shop", "--dry-run", "--json"], { cwd, env });
+
+  assert.equal(result.status, 0, result.stderr);
+  const output = JSON.parse(result.stdout);
+  assert.equal(output.endpoint, "/os/v4/Project/Create");
+  assert.equal(output.request.name, "Acme Shop");
+  assert.equal(output.request.isAcceptBlocksTerms, true);
+  assert.equal(output.request.isUseBlocksExclusively, true);
+  assert.equal(output.request.isProduction, false);
+  assert.deepEqual(output.request.resources, []);
+  assert.ok(!("tenantGroupId" in output.request));
+  assert.equal(output.request.applicationContexts.length, 1);
+  assert.equal(output.request.applicationContexts[0].environment, "dev");
+  assert.equal(output.request.applicationContexts[0].cookieDomain, "slsblx.com");
+  assert.match(output.request.applicationContexts[0].domain, /^https:\/\/d[a-z]{5}\.slsblx\.com$/);
+});
+
+test("projects create cannot be widened past one dev environment", async () => {
+  const { cwd, configDir } = await makeWorkspace();
+  const env = testEnv(configDir, { BLOCKS_SECRET_STORE: "file" });
+
+  const result = run([
+    "projects", "create", "Acme Shop",
+    "--env", "prod",
+    "--production",
+    "--domain", "https://custom.example.test",
+    "--cookie-domain", "example.test",
+    "--tenant-group-id", "existing-group",
+    "--dry-run",
+    "--json"
+  ], { cwd, env });
+
+  assert.equal(result.status, 0, result.stderr);
+  const output = JSON.parse(result.stdout);
+  assert.equal(output.request.isProduction, false);
+  assert.ok(!("tenantGroupId" in output.request));
+  assert.deepEqual(output.request.applicationContexts.map((context) => context.environment), ["dev"]);
+  assert.notEqual(output.request.applicationContexts[0].domain, "https://custom.example.test");
+  assert.equal(output.request.applicationContexts[0].cookieDomain, "slsblx.com");
+});
+
+test("projects create rejects a name the backend validator would reject", async () => {
+  const { cwd, configDir } = await makeWorkspace();
+  const env = testEnv(configDir, { BLOCKS_SECRET_STORE: "file" });
+
+  const result = run(["projects", "create", "ab", "--yes", "--json"], { cwd, env });
+
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /between 3 and 100 characters/);
+});
+
+test("projects create fails loudly on a 200 response carrying isSuccess false", async () => {
+  const { cwd, configDir } = await makeWorkspace();
+  await writeProjectAuth(configDir);
+  const server = await startJsonServer((request) => {
+    if (request.url?.startsWith("/os/v4/Project/Gets")) return [];
+    return { errors: { Name: "Project Name must be between 3 and 100 characters." }, isSuccess: false };
+  });
+
+  try {
+    const result = await runAsync([
+      "projects", "create", "Acme Shop",
+      "--api-url", server.url,
+      "--yes",
+      "--json"
+    ], { cwd, env: testEnv(configDir, { BLOCKS_SECRET_STORE: "file" }) });
+
+    assert.equal(result.status, 1, result.stdout);
+    assert.match(result.stderr, /Project\/Create rejected 'Acme Shop'/);
+    assert.match(result.stderr, /Name: Project Name must be between 3 and 100 characters./);
+  } finally {
+    await new Promise((resolveClose) => server.close(resolveClose));
+  }
+});
+
+test("projects create refuses a duplicate project name unless allowed", async () => {
+  const { cwd, configDir } = await makeWorkspace();
+  await writeProjectAuth(configDir);
+  const requests = [];
+  const server = await startJsonServer((request) => {
+    requests.push(request.url);
+    if (request.url?.startsWith("/os/v4/Project/Gets")) {
+      return [{ name: "Acme Shop", projects: [{ environment: "dev", tenantId: "Dgroup-1" }], tenantGroupId: "group-1" }];
+    }
+    return { isSuccess: true, tenantGroupId: "group-2" };
+  });
+
+  try {
+    const result = await runAsync([
+      "projects", "create", "acme shop",
+      "--api-url", server.url,
+      "--yes",
+      "--json"
+    ], { cwd, env: testEnv(configDir, { BLOCKS_SECRET_STORE: "file" }) });
+
+    assert.equal(result.status, 1, result.stdout);
+    assert.match(result.stderr, /already exists on this account/);
+    assert.ok(!requests.some((url) => url === "/os/v4/Project/Create"));
+  } finally {
+    await new Promise((resolveClose) => server.close(resolveClose));
+  }
+});
+
+test("projects create names the positional form when no name is given", async () => {
+  const { cwd, configDir } = await makeWorkspace();
+  const env = testEnv(configDir, { BLOCKS_SECRET_STORE: "file" });
+
+  const result = run(["projects", "create", "--dry-run", "--json"], { cwd, env });
+
+  assert.equal(result.status, 1);
+  const error = JSON.parse(result.stderr);
+  assert.equal(error.code, "missing_project_name");
+  assert.equal(error.nextStep, 'blocks projects create "<name>"');
+});
+
+test("projects create --allow-duplicate-name skips the name lookup entirely", async () => {
+  const { cwd, configDir } = await makeWorkspace();
+  await writeProjectAuth(configDir);
+  const urls = [];
+  const server = await startJsonServer((request) => {
+    urls.push(request.url);
+    if (request.url?.startsWith("/os/v4/Project/Gets")) {
+      return [{
+        name: "Acme Shop",
+        projects: [{ applications: [{ domain: "https://dzzzzz.slsblx.com" }], environment: "dev", name: "Acme Shop", tenantId: "Dgroup-2" }],
+        tenantGroupId: "group-2"
+      }];
+    }
+    return { errors: null, isSuccess: true, tenantGroupId: "group-2" };
+  });
+
+  try {
+    const result = await runAsync([
+      "projects", "create", "Acme Shop",
+      "--allow-duplicate-name",
+      "--api-url", server.url,
+      "--yes",
+      "--json"
+    ], { cwd, env: testEnv(configDir, { BLOCKS_SECRET_STORE: "file" }) });
+
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(JSON.parse(result.stdout).tenantId, "Dgroup-2");
+    // The only Project/Gets calls are the post-create verification ones.
+    assert.equal(urls[0], "/os/v4/Project/Create");
+  } finally {
+    await new Promise((resolveClose) => server.close(resolveClose));
+  }
+});
+
+test("projects create verifies the new dev tenant against Project/Gets", async () => {
+  const { cwd, configDir } = await makeWorkspace();
+  await writeProjectAuth(configDir);
+  const created = [];
+  const server = await startJsonServer((request, body) => {
+    if (request.url?.startsWith("/os/v4/Project/Gets")) {
+      if (created.length === 0) return [];
+      return [{
+        name: "Acme Shop",
+        projects: [{
+          applications: [{ domain: "https://dabcde.slsblx.com" }],
+          environment: "dev",
+          name: "Acme Shop",
+          tenantId: "Dgroup-1"
+        }],
+        tenantGroupId: "group-1"
+      }];
+    }
+
+    created.push(body);
+    return { errors: null, isSuccess: true, tenantGroupId: "group-1" };
+  });
+
+  try {
+    const result = await runAsync([
+      "projects", "create", "Acme Shop",
+      "--api-url", server.url,
+      "--yes",
+      "--json"
+    ], { cwd, env: testEnv(configDir, { BLOCKS_SECRET_STORE: "file" }) });
+
+    assert.equal(result.status, 0, result.stderr);
+    assert.deepEqual(JSON.parse(result.stdout), {
+      domain: "https://dabcde.slsblx.com",
+      environment: "dev",
+      name: "Acme Shop",
+      tenantGroupId: "group-1",
+      tenantId: "Dgroup-1",
+      verified: true
+    });
+    assert.equal(created.length, 1);
+    assert.equal(created[0].applicationContexts.length, 1);
+    assert.equal(created[0].applicationContexts[0].environment, "dev");
+  } finally {
+    await new Promise((resolveClose) => server.close(resolveClose));
+  }
+});
+
 async function makeWorkspace() {
   const base = await mkdtemp(join(tmpdir(), "blocks-cli-test-"));
   const cwd = join(base, "workspace");

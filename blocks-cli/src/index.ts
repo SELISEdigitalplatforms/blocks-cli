@@ -110,7 +110,7 @@ import { localizationValidate } from "./commands/localization/validate.js";
 import { login } from "./commands/login.js";
 import { logout } from "./commands/logout.js";
 import { newWeb } from "./commands/new/web.js";
-// import { createProject } from "./commands/projects/create.js"; // disabled for now
+import { createProject } from "./commands/projects/create.js";
 import { getProject } from "./commands/projects/get.js";
 import { listProjects } from "./commands/projects/list.js";
 import { releaseBuildsGet } from "./commands/release/builds/get.js";
@@ -223,6 +223,7 @@ const commands: Partial<Record<string, CommandHandler>> = {
   "init": () => init(),
   "login": login,
   "logout": logout,
+  "projects:create": createProject,
   "projects:list": listProjects,
   "use": useProject,
   "deselect": deselectProject,
@@ -563,6 +564,18 @@ Auth:
     Revoke the current refresh token when possible and remove local session data.
 
 Projects:
+  blocks projects create <name> [--allow-duplicate-name] [--yes] [--dry-run] [--json]
+    Create a new Blocks project via /os/v4/Project/Create using the account
+    token (no project needs to be selected yet). Creates exactly one
+    application, always in the 'dev' environment -- environment, domain,
+    cookie domain, and production flag are fixed and not configurable here;
+    the domain sent is a placeholder the platform discards and replaces with
+    the one it assigns. Confirms first because it accepts the Blocks terms on
+    your behalf. Refuses a name already used by another project unless
+    --allow-duplicate-name is passed. Verifies the result against
+    Project/Gets and prints the new tenantId, tenantGroupId, and assigned
+    domain. Does not select the project -- run 'blocks use <tenantId>' next.
+
   blocks projects list [--json]
     List accessible Blocks projects via /os/v4/Project/Gets. Uses the
     impersonated project session when a project is selected, otherwise the

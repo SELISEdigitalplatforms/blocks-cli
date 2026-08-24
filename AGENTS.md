@@ -20,6 +20,7 @@ This is the AI entry point for the repository.
 * Do not duplicate business logic.
 * Respect package boundaries.
 * Use the CLI or SDK instead of reimplementing functionality.
+* Create Blocks projects only through `blocks projects create` (single `dev` environment, after the user agrees - it accepts the Blocks terms on their behalf), never through raw project APIs. Adding environments to an existing project is portal-only.
 * Never expose secrets or credentials.
 * Ask for approval before destructive or cloud-mutating operations.
 * Verify changes before considering the task complete.

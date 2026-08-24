@@ -44,7 +44,7 @@ blocks projects list --json
 
 Always show the full list of accessible projects, and if one already appears selected, say which one — never silently continue on a prior session's selection. If projects exist, confirm which one (and which environment) the user wants; never guess.
 
-**`projects create` is currently disabled in this CLI build** (commented out pending a product decision — there is no CLI path to create a new project). If none of the listed projects fit, tell the user a new project must be created from the Blocks portal first; once they confirm it exists, re-run `blocks projects list --json` and continue from here.
+If none of the listed projects fit, you can create one from here — but ask first and get an explicit go-ahead, because the command accepts the Blocks terms on the user's behalf: `blocks projects create "<name>" --dry-run --json` to show what it will send, then re-run with `--yes`. It always creates exactly **one application, in the `dev` environment**; a non-`dev` environment, or adding an environment to a project that already exists, is still portal-only. It does not select the new project — run `blocks use <tenantId>` with the id it prints, then confirm with `blocks projects list --json`.
 
 Then select it:
 
