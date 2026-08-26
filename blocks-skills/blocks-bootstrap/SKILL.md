@@ -139,7 +139,12 @@ For "log me out of Blocks", run `blocks logout` for the resolved account. It rev
 
 A user starting from nothing usually walks it in this order: project selection → OIDC client (and social provider, if they want it) → new web app → first user. Someone handed a key and asking what exists starts at project selection, then the inventory flow, and goes wherever its gap list points.
 
-Once one user can log in, bootstrap is over. Hand off: `blocks-iam-users` and `blocks-iam-account` for further user work, `blocks-iam-sso-oidc-implementation` for app-side login code, `blocks-frontend-local-https` for the local HTTPS dev loop, and each capability's own skill for data, localization, mail, storage, and release work.
+Once one user can log in, bootstrap is over. Hand off to each capability's own skill for data, localization, mail, storage, IAM, and release work, and to `blocks-iam-users`/`blocks-iam-account` for further user work.
+
+Two skills are deliberately **not** on the build path — `blocks new web` already wires both correctly, so loading them by default is wasted reading:
+
+- `blocks-iam-sso-oidc-implementation` — only when hosted login misbehaves, or the user is extending the scaffolded auth flow. A scaffold whose login works needs nothing from it.
+- `blocks-frontend-local-https` — only when actually setting up the local HTTPS dev loop (hosts entry, cert, dev server).
 
 ## Hard rules
 

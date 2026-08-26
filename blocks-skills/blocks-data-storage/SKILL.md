@@ -28,9 +28,10 @@ blocks --version
 blocks --help
 ```
 
-- Use `blocks data files *` for terminal/admin work and inspect the top-level
-  `blocks --help` for exact flags. Do not probe a subcommand with `--help`;
-  subcommands do not consistently treat it as help and may execute real logic.
+- Use `blocks data files *` for terminal/admin work and run
+  `blocks help data files <command> --json` for exact flags. Do not probe a
+  subcommand with `--help`; subcommands do not consistently treat it as help and
+  may execute real logic. The `help` command never reaches a handler.
 - Use `blocksClient.data.files` for bytes, metadata, versions, and file operations.
 - Use `blocksClient.data.directories` for directory create/get/update/delete/move.
 - Use `blocksClient.data.objects` for browse/search/trash/shared/restore/share/access/inheritance.

@@ -185,10 +185,14 @@ function checkTextHygiene(filePath) {
     if (raw.includes(marker)) errors.push(`${rel}: likely UTF-8 mojibake '${marker}'`);
   }
 
+  // The hazard is '--help' after a SUBCOMMAND ('blocks login --help' performs a
+  // real login). Global-flag forms like 'blocks --help --json' are safe, as is
+  // the dedicated 'blocks help <command>' command, which never reaches a handler.
   for (const match of raw.matchAll(/`(blocks\s+[^`\r\n]*--help[^`\r\n]*)`/g)) {
     const invocation = match[1].replace(/\s+/g, " ").trim();
-    if (invocation !== "blocks --help") {
-      errors.push(`${rel}: unsafe subcommand help probe '${invocation}' -- use top-level 'blocks --help'`);
+    const firstToken = invocation.slice("blocks ".length).trimStart().split(" ")[0];
+    if (!firstToken.startsWith("--")) {
+      errors.push(`${rel}: unsafe subcommand help probe '${invocation}' -- use 'blocks help <command>' or top-level 'blocks --help'`);
     }
   }
 
@@ -224,6 +228,10 @@ function checkInvocation(rel, line) {
   if (invocation === "blocks --help" || invocation === "blocks --version") return;
 
   const commandText = invocation.slice("blocks ".length);
+  // Global-flag-only forms ('blocks --help --json') and the help command
+  // itself ('blocks help <family>') are valid; help takes a command or family
+  // name as its argument, which is not itself an invocation to verify.
+  if (commandText.startsWith("--") || commandText === "help" || commandText.startsWith("help ")) return;
   if (commandText.startsWith("<")
     || /(^|\s)<command>(\s|$)/.test(commandText)
     || commandText.includes("*")

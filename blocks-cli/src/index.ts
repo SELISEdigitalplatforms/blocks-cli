@@ -209,6 +209,7 @@ import { storageConfigGet } from "./commands/storage/config/get.js";
 import { storageConfigList } from "./commands/storage/config/list.js";
 import { storageConfigSave } from "./commands/storage/config/save.js";
 import { CliActionableError } from "./lib/errors.js";
+import { renderCommand, renderFamily, renderIndex, resolveHelpTarget } from "./lib/help.js";
 
 type CommandHandler = (args: string[]) => Promise<void>;
 
@@ -450,10 +451,32 @@ function resolveCommand(argv: string[]): { handler: CommandHandler; args: string
 const argv = process.argv.slice(2);
 const [command, subcommand] = argv;
 
+const asJson = argv.includes("--json");
+const isHelpRequest = !command || command === "help" || command === "--help" || command === "-h";
+// 'blocks help <command>' is a registered path rather than '<command> --help':
+// most handlers treat --help as an ordinary argument and would run for real
+// (e.g. 'login --help' would perform an actual login), so the safe spelling is
+// a dedicated help command that never reaches a handler.
+const helpWords = command === "help" ? argv.slice(1).filter((token) => !token.startsWith("-")) : [];
+
 try {
   if (command === "--version" || command === "-v" || command === "version") {
     await printVersion();
-  } else if (!command || command === "help" || command === "--help" || command === "-h") {
+  } else if (isHelpRequest && helpWords.length > 0) {
+    const target = resolveHelpTarget(helpWords.flatMap((word) => word.split(":").filter(Boolean)));
+    if (!target) {
+      throw new CliActionableError(
+        `No command or family matches '${helpWords.join(" ")}'.`,
+        "unknown_help_target",
+        "blocks --help --json"
+      );
+    }
+    console.log(target.exact
+      ? renderCommand(target.exact, asJson)
+      : renderFamily(target.name, target.entries, asJson));
+  } else if (isHelpRequest && asJson) {
+    console.log(renderIndex());
+  } else if (isHelpRequest) {
     printHelp();
   } else {
     const resolved = resolveCommand(argv);

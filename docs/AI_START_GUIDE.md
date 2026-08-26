@@ -2,6 +2,33 @@
 
 Use this guide as the first stop when an AI agent can enter the Blocks workflow from any position. It routes the agent to the right source of truth without assuming the user starts from a clean install, a selected project, or a scaffolded app.
 
+## Fast path — check before reading further
+
+Most sessions do not need this guide. Two cheap commands decide:
+
+```bash
+blocks auth status --json
+blocks doctor --json
+```
+
+If a token pair is valid **and** a project is selected, the setup this guide
+exists to establish is already done. **Skip the rest of this file** and go
+straight to the skill for the capability the user asked about — data,
+localization, IAM, mail, storage, release, notifications. Each skill states its
+own prerequisites and links the one `blocks-cli/AI_USAGE_GUIDE.md` section it
+pairs with.
+
+Read on only when one of these is true:
+
+- `blocks --version` fails — the CLI is not installed.
+- Every token reads `missing`, or an access token has no matching refresh token.
+- No project is selected and the user has not named one.
+- The user is scaffolding a new app, or wiring an existing app to Blocks for the first time.
+- A command failed with `not_logged_in`, `project_not_selected`, `api_auth_failed`, or `refresh_token_rejected`.
+
+Reading this whole guide plus the bootstrap skill costs roughly 6k tokens. Skip
+it when the fast path clears.
+
 ## First Decision
 
 Identify which job the user is asking for:
@@ -51,10 +78,13 @@ When state is unknown and the installed CLI is available, start with read-only c
 
 ```bash
 blocks --version
-blocks --help
 blocks auth status --json
 blocks doctor --json
 ```
+
+For command discovery use `blocks --help --json` (names by family), then
+`blocks help <family>` or `blocks help <command> --json`. The full text help is
+~47 KB and cannot be read in part; prefer the scoped queries.
 
 If `blocks` is missing, stop the probe and ask before installing the global package.
 
@@ -62,21 +92,15 @@ Do not read local CLI storage files directly. If local auth or project state is 
 
 ## Agent Context
 
-For ordinary local work, leave `BLOCKS_CONFIG_DIR` unchanged and use the user's
-normal OS-scoped CLI context. If login is required, run
-`blocks login --account <name>`, relay the device verification URL/code, and
-wait for user approval. If no account is known, ask; never choose a different
-configured account silently.
+Three rules apply before any routing decision:
 
-For Code Studio, the launcher must set a session-isolated
-`BLOCKS_CONFIG_DIR` before the agent starts. Never change it or fall back to OS
-state. Missing authentication means the Studio bootstrap is missing; report that
-condition instead of reading or copying credentials. The current CLI supports
-device login but does not yet provide unattended Studio bootstrap.
+- **Leave `BLOCKS_CONFIG_DIR` alone.** It is the whole isolation boundary. Never set, unset, or guess it.
+- **Never silently choose a configured account.** If no account is known, ask.
+- **Pass `--account <name>` and `--project <tenantId>` explicitly** once both are known. Only interactive local use should rely on `activeAccount` and its saved selection.
 
-Once account and project are known, non-interactive agent commands should pass
-`--account <name>` and `--project <tenantId>` explicitly. Interactive local
-commands may use `activeAccount` and its account-specific project selection.
+The `blocks-bootstrap` skill owns the rest: how to read the four token states,
+the account/project token exchange, login, and Code Studio launcher context.
+Go there rather than re-deriving any of it here.
 
 ## Start From Common Positions
 

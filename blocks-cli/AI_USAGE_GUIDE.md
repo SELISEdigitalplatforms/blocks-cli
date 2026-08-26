@@ -32,7 +32,19 @@ Namespaced commands accept either spaces or colons, e.g. `blocks data schema lis
 - `--project <tenantId>` - override the project for this command without changing the saved selection.
 - `--dry-run` / `--yes` - see Operating Rules below.
 
-Use `blocks --help` (no subcommand) as command ground truth for what exists. Do not probe an individual subcommand with `<command> --help` to check its flags - most subcommands don't recognize `--help` as special and just run their real logic with it as a no-op argument (e.g. `login --help` performs an actual login attempt; `new web <name> --help` runs real arg validation). If you need a subcommand's full flag list, read this guide's section for it or infer from `--dry-run`/error output instead.
+### Looking commands up cheaply
+
+Three queries, smallest first. Prefer them over the full text help, which is ~47 KB and cannot be read in part:
+
+```bash
+blocks --help --json                    # every command name, grouped by family (~8 KB)
+blocks help <family> [--json]           # one family, with summaries (e.g. 'blocks help mfa')
+blocks help <command> [--json]          # one command: usage, flags, scope, mutation (~0.8 KB)
+```
+
+`blocks help <command>` is the only safe way to inspect a single command. **Do not use `<command> --help`** - most subcommands don't treat `--help` as special and just run their real logic with it as an ordinary argument (`login --help` performs an actual login attempt). The `help` command never reaches a handler, so it cannot do that.
+
+Every field it reports is derived from the command's own source, not from prose, so `flags`, `scope`, and `mutating` cannot drift from behavior. `blocks --help` (no subcommand) remains the human-readable overview.
 
 ## Operating Rules
 
@@ -230,7 +242,7 @@ blocks iam me --json
 
 Every other command below is strictly project-scoped: it requires a selected project and always calls IAM through an impersonated project token. If no project is selected, it fails with `project_not_selected`.
 
-Command families (run `blocks --help` for the full flag reference on each):
+Command families (run `blocks help <command> --json` for exact flags on any of these):
 
 - `iam users *`, `iam email available` - list/get/create/update/activate/deactivate, access grant/revoke, existence and email-availability checks.
 - `iam roles *` - list/get/create/update, assign-permissions, assignable. `assign-permissions` accepts permission resource strings and resolves them to itemIds before sending IAM's id-based mutation.
@@ -325,7 +337,7 @@ It validates first and hard-fails with no API calls made if schemas or the rules
 
 ### Raw Data API
 
-`validate`/`schema list`/`schema pull`/`schema push`/`rules pull`/`rules deploy`/`reload` above cover the common file-oriented workflow. The rest of `/data/v4/*` is exposed directly, project-scoped with an impersonated project token only. Run `blocks --help` for the full flag reference on each; command families:
+`validate`/`schema list`/`schema pull`/`schema push`/`rules pull`/`rules deploy`/`reload` above cover the common file-oriented workflow. The rest of `/data/v4/*` is exposed directly, project-scoped with an impersonated project token only. Run `blocks help <command> --json` for exact flags; command families:
 
 - `data schema get`/`get-by-name`/`aggregation`/`change-logs`/`delete` - single-schema lookup by id or collection name, access-level aggregation summary, unadapted change logs (cleared by `data reload`), and irreversible delete. `schema get` also prints the schema's exact GraphQL operation names in non-`--json` output; do not guess pluralized names -- generated names are naive string concatenation (`Company` -> `getCompanys`, not `getCompanies`), read them from `querySchema`/`mutationSchemas` instead.
 - `data schema info list`/`save`/`update` + `data schema fields` - a two-step alternative to `schema push` (create/update schema metadata, then add/update field definitions separately). Prefer the file-oriented `schema push` workflow for normal authoring; use these only for a targeted metadata or field-only change without touching the local schema JSON.
@@ -425,7 +437,7 @@ Use Localization gateway v4 paths without `/api`: `/localization/v4/Module/Gets`
 
 ### Raw Localization API
 
-`validate`/`push`/`pull` above cover the common i18n file workflow. Every other `/localization/v4/*` endpoint is also exposed directly, project-scoped with an impersonated project token only (never the account token). Run `blocks --help` for the full flag reference on each; command families:
+`validate`/`push`/`pull` above cover the common i18n file workflow. Every other `/localization/v4/*` endpoint is also exposed directly, project-scoped with an impersonated project token only (never the account token). Run `blocks help <command> --json` for exact flags; command families:
 
 - `localization assistant translation-suggestion` - AI translation suggestion for a single string (`--source-text`, `--destination-language`, optional glossary/context flags).
 - `localization config get-webhook`/`save-webhook` - tenant webhook config for localization change notifications.
@@ -592,6 +604,7 @@ blocks release builds list --repo-id <repoId> --json
 - `invalid_project_name`: use a project name between 3 and 100 characters.
 - `project_create_failed`: creation was rejected; inspect `message`, then run `blocks projects list --json` before deciding whether to retry.
 - `interactive_input_required`: the command needs a value that was not supplied and cannot prompt without a TTY. Re-run with the explicit flag named by the command documentation; common cases are `new web --app-domain ... --client-id ...`, `mfa totp enable --code ...`, and `release builds list --repo-id ...`.
+- `unknown_help_target` (from `blocks help <name>`): no command or family matches that name. List what exists with `blocks --help --json`, then retry with a name from it.
 - `impersonation_invalid_client`: give an admin the CLI client id printed in the error and have that client registered for project impersonation. Re-login and `auth config` cannot repair it.
 - `api_auth_failed`: run `blocks auth status --json`, then login again. If the failure is specifically a stale/expired impersonated project token rather than the account token, `blocks deselect` followed by `blocks use <tenantId>` re-impersonates without a full re-login.
 - `repo_not_linked` (from `release deploy`): no repo is linked to this project. This needs GitHub OAuth - tell the user to link it from the Blocks portal, do not retry from the CLI.

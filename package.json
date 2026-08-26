@@ -8,8 +8,10 @@
   ],
   "scripts": {
     "build": "npm run build --workspaces",
+    "generate:catalog": "node scripts/generate-command-catalog.mjs",
+    "lint:catalog": "node scripts/generate-command-catalog.mjs --check",
     "lint:contracts": "node scripts/lint-cli-contracts.mjs",
     "lint:skills": "node blocks-skills/lint.mjs",
-    "test": "npm run test --workspaces && npm run lint:skills && npm run lint:contracts"
+    "test": "npm run test --workspaces && npm run lint:skills && npm run lint:contracts && npm run lint:catalog"
   }
 }

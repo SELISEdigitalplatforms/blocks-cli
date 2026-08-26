@@ -105,9 +105,10 @@ Mutations — every one supports `--dry-run` (print the request body and exit, n
 | `blocks iam users access revoke <userId> [--organization-id] [--dry-run] [--yes] [--json]` | Revokes org access for a user. |
 
 Command segments joined by a space also accept a colon
-(`iam:users:access:grant` etc.); both forms resolve to the same handler. Use the
-top-level `blocks --help` for command discovery rather than adding `--help` to a
-subcommand, which may run normal command logic.
+(`iam:users:access:grant` etc.); both forms resolve to the same handler. Use
+`blocks help iam users --json` for the family and `blocks help iam users <command> --json`
+for one command's flags, rather than adding `--help` to a subcommand, which may
+run normal command logic.
 
 Example — deactivating a user from the CLI, dry-run first:
 

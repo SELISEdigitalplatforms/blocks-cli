@@ -1,0 +1,798 @@
+{
+  "init": {
+    "summary": "Create local Blocks workspace files: blocks.json, data schema/rules folders, and .env.example."
+  },
+  "doctor": {
+    "summary": "Inspect cached Node.js, OIDC config, token, optional project, and storage health.",
+    "details": "Account-only mode is valid. Performs no token refresh, network request, or state write."
+  },
+  "login": {
+    "summary": "Device-code login.",
+    "details": "Prints a verification URL and user code, opens the browser to the verification page when possible so you only need to click approve, then polls until the device is authorized; bootstraps a missing named profile without importing credentials, stores account access and refresh tokens, and makes that account active. If a project was previously selected, re-impersonates it automatically; otherwise lists projects and prompts you to run 'blocks use <tenantId>'."
+  },
+  "auth status": {
+    "summary": "Show only whether account/project access and refresh tokens are missing, valid, expired, or available.",
+    "details": "Does not print account config values."
+  },
+  "auth refresh": {
+    "summary": "Force account token refresh, or project token refresh with --project."
+  },
+  "auth remove": {
+    "summary": "Clear cached tokens and stored local credentials for that account.",
+    "positional": "<account>",
+    "details": "The packaged default OS account is restored from package defaults."
+  },
+  "logout": {
+    "summary": "Revoke the current refresh token when possible and remove local session data."
+  },
+  "projects create": {
+    "summary": "Create a new Blocks project via /os/v4/Project/Create using the account token (no project needs to be selected yet).",
+    "positional": "<name>",
+    "details": "Creates exactly one application, always in the 'dev' environment -- environment, domain, cookie domain, and production flag are fixed and not configurable here; the domain sent is a placeholder the platform discards and replaces with the one it assigns. Confirms first because it accepts the Blocks terms on your behalf. Refuses a name already used by another project unless --allow-duplicate-name is passed. Verifies the result against Project/Gets and prints the new tenantId, tenantGroupId, and assigned domain. Does not select the project -- run 'blocks use <tenantId>' next. If the account is in project mode, temporarily stops that session for the account-level create call and restores it afterward."
+  },
+  "projects list": {
+    "summary": "List accessible Blocks projects via /os/v4/Project/Gets.",
+    "details": "Uses the impersonated project session when a project is selected, otherwise the account token. Read-only."
+  },
+  "projects get": {
+    "summary": "Read one project from Project/Gets.",
+    "positional": "[tenantId]",
+    "details": "Uses selected project when tenantId is omitted. Pass --deployment to also include the environment, tenantGroupId, and linked repo assets (from Project/GetAsset) that 'release deploy' uses to resolve its target. Read-only."
+  },
+  "use": {
+    "summary": "Save the selected project tenant for the resolved account and in blocks.json, then immediately impersonate it.",
+    "positional": "<project-tenant-id>",
+    "details": "If a different project was selected, stops that impersonation first to reclaim a fresh account refresh token before starting the new one."
+  },
+  "deselect": {
+    "summary": "Stop the active impersonation (restoring a fresh account refresh token), then clear that account's selected project tenant and blocks.json entry...",
+    "details": "Stop the active impersonation (restoring a fresh account refresh token), then clear that account's selected project tenant and blocks.json entry and drop its cached impersonation token. Run 'blocks use <tenantId>' again to reselect and re-impersonate."
+  },
+  "iam me": {
+    "summary": "Read the current user from IAM (bootstrapping/CLI operator identity, not a project resource).",
+    "details": "The server resolves this to the root identity either way, so the impersonated project session works too."
+  },
+  "iam users list": {
+    "summary": "Query users.",
+    "details": "--filter merges a raw JSON filter object over the convenience flags."
+  },
+  "iam users get": {
+    "summary": "Read one IAM user by id.",
+    "positional": "<id>"
+  },
+  "iam users create": {
+    "summary": "Create an IAM user.",
+    "details": "Requires --email or --user-name; omit --password to let the user set their own via activation mail."
+  },
+  "iam users update": {
+    "summary": "Update an existing IAM user's profile fields, roles, or permissions.",
+    "positional": "<id>"
+  },
+  "iam users activate": {
+    "summary": "Enable a disabled IAM user account.",
+    "positional": "<userId>",
+    "details": "Not the same as the user completing their own activation link."
+  },
+  "iam users deactivate": {
+    "summary": "Disable an IAM user account, suspending their access.",
+    "positional": "<userId>"
+  },
+  "iam users access grant": {
+    "summary": "Grant roles or permissions to an IAM user.",
+    "positional": "<userId>"
+  },
+  "iam users access revoke": {
+    "summary": "Revoke an IAM user's roles and permissions.",
+    "positional": "<userId>"
+  },
+  "iam users exists": {
+    "summary": "Check whether an IAM user with this email exists.",
+    "positional": "<email>"
+  },
+  "iam email available": {
+    "summary": "Check whether an email address is free to register.",
+    "positional": "<email>"
+  },
+  "iam roles list": {
+    "summary": "List IAM roles defined in the project."
+  },
+  "iam roles get": {
+    "summary": "Read one IAM role by id.",
+    "positional": "<id>"
+  },
+  "iam roles create": {
+    "summary": "Create an IAM role.",
+    "details": "Role hierarchy keys off --parent-role-slug, not itemId."
+  },
+  "iam roles update": {
+    "summary": "Update an IAM role's name, description, or parent.",
+    "positional": "<itemId>"
+  },
+  "iam roles assign-permissions": {
+    "summary": "Add or remove permissions on a role, addressed by slug.",
+    "positional": "<slug>",
+    "details": "Resolves permission resource strings to itemIds first."
+  },
+  "iam roles assignable": {
+    "summary": "List the roles the current caller is allowed to assign to others."
+  },
+  "iam permissions list": {
+    "summary": "List IAM permissions.",
+    "details": "--type is ResourceType (0-3), --severity is PermissionSeverity (0 None, 1 Critical .. 4 Low)."
+  },
+  "iam permissions get": {
+    "summary": "Read one IAM permission by id.",
+    "positional": "<id>"
+  },
+  "iam permissions create": {
+    "summary": "Create an IAM permission definition."
+  },
+  "iam permissions update": {
+    "summary": "Update an IAM permission definition, including archiving it.",
+    "positional": "<id> [same flags as create, plus"
+  },
+  "iam permissions by-severity": {
+    "summary": "--type is IAM's ResourceType: 0 None, 1 Endpoint, 2 FrontendAction, 3 DataProtection.",
+    "details": "--severity is PermissionSeverity, ordered most-severe-first, not least: 0 None, 1 Critical, 2 High, 3 Medium, 4 Low."
+  },
+  "iam resources groups": {
+    "summary": "List IAM resource groups.",
+    "details": "Read-only."
+  },
+  "iam resources features": {
+    "summary": "List IAM feature flags for the active user context.",
+    "details": "Read-only."
+  },
+  "iam organizations list": {
+    "summary": "List organizations in the project."
+  },
+  "iam organizations get": {
+    "summary": "Read one organization by id.",
+    "positional": "<id>"
+  },
+  "iam organizations create": {
+    "summary": "Create an organization.",
+    "details": "Organizations are a tenant-isolation boundary."
+  },
+  "iam organizations update": {
+    "summary": "Update an organization's profile and locale settings.",
+    "positional": "<id>"
+  },
+  "iam organizations my": {
+    "summary": "List the signed-in user's own organizations.",
+    "details": "Source for an org switcher."
+  },
+  "iam organizations config get": {
+    "summary": "Read the tenant's organization policy, including isMultiOrgEnabled."
+  },
+  "iam organizations config save": {
+    "summary": "Save the tenant's organization policy.",
+    "details": "Boolean flags only turn settings on; use --body to switch one off."
+  },
+  "iam signup-settings get": {
+    "summary": "Read the tenant's signup policy.",
+    "details": "Public endpoint."
+  },
+  "iam signup-settings save": {
+    "summary": "Save the tenant's signup policy.",
+    "details": "Boolean flags only turn settings on; use --body to switch one off."
+  },
+  "mfa config get": {
+    "summary": "Read the tenant's MFA policy."
+  },
+  "mfa config save": {
+    "summary": "Save the tenant's MFA policy."
+  },
+  "mfa totp setup": {
+    "summary": "Start TOTP enrollment for the impersonated user."
+  },
+  "mfa totp verify-setup": {
+    "summary": "Confirm TOTP enrollment.",
+    "positional": "<code>"
+  },
+  "mfa totp enable": {
+    "summary": "Composed enrollment: totp setup -> (scan the printed QR/secret, enter the code -- interactively prompted if --code is omitted) -> totp...",
+    "details": "Composed enrollment: totp setup -> (scan the printed QR/secret, enter the code -- interactively prompted if --code is omitted) -> totp verify-setup -> method set --mfa-type <n> -> backup-codes generate. One sitting, one confirmation. Non-interactive callers must pass --code or receive interactive_input_required. --mfa-type is required and not defaulted: pass IAM UserMfaType 1 for TOTP (the same value plain mfa method set expects)."
+  },
+  "mfa generate": {
+    "summary": "Send an OTP challenge; returns an mfaId to pass to resend/verify."
+  },
+  "mfa resend": {
+    "summary": "Re-send a pending OTP challenge for an existing mfaId.",
+    "positional": "<mfaId>"
+  },
+  "mfa verify": {
+    "summary": "Verify an OTP or step-up challenge.",
+    "positional": "<mfaId> <code>",
+    "details": "--auth-type is the UserMfaType that issued it."
+  },
+  "mfa method set": {
+    "summary": "Switch the impersonated user's active MFA method.",
+    "details": "IAM only branches on 1 (TOTP) and 2 (Email) here -- any other value falls through to its disable path and turns the user's MFA off. Use 'blocks mfa disable' when that is what you mean."
+  },
+  "mfa disable": {
+    "summary": "Disable MFA for the impersonated user."
+  },
+  "mfa backup-codes list": {
+    "summary": "Returns { remaining: <count> } only -- the codes themselves are shown once, at generate."
+  },
+  "mfa backup-codes generate": {
+    "summary": "Mint a fresh set of MFA backup codes, invalidating existing ones.",
+    "details": "Shown once."
+  },
+  "mfa backup-codes use": {
+    "summary": "Consume one MFA backup code.",
+    "positional": "<userId> <code>",
+    "details": "Anonymous endpoint, hence the explicit userId."
+  },
+  "mail config list": {
+    "summary": "List SMTP/inbound mail configurations for the selected project."
+  },
+  "mail config get": {
+    "summary": "Read one mail configuration by name.",
+    "positional": "<name>"
+  },
+  "mail config save": {
+    "summary": "Upsert: omit --configuration-id to create; pass it to update."
+  },
+  "mail config delete": {
+    "summary": "Delete a mail configuration.",
+    "positional": "<configurationId>"
+  },
+  "mail config duplicate": {
+    "summary": "Copy an existing mail configuration into a new one.",
+    "positional": "<configurationId>"
+  },
+  "mail template list": {
+    "summary": "List mail templates, optionally filtered by configuration."
+  },
+  "mail template get": {
+    "summary": "Read one mail template by itemId.",
+    "positional": "<itemId>"
+  },
+  "mail template save": {
+    "summary": "Upsert: omit --item-id to create; pass it to update."
+  },
+  "mail template delete": {
+    "summary": "Delete a mail template.",
+    "positional": "<itemId>"
+  },
+  "mail template clone": {
+    "summary": "Copy a mail template into a new one.",
+    "positional": "<itemId>"
+  },
+  "mail mailbox list": {
+    "summary": "List mailbox messages.",
+    "details": "Filters are date, status, search and direction only; there is no --configuration-id."
+  },
+  "mail mailbox get": {
+    "summary": "Read one mailbox message by id.",
+    "positional": "<messageId>"
+  },
+  "mail send": {
+    "summary": "Send an email through the tenant's default mail configuration (/logic/v4/Mail/Send).",
+    "details": "--project-key defaults to the selected project."
+  },
+  "mail sendtoany": {
+    "summary": "Same as mail send but via /logic/v4/Mail/SendToAny, which lets the mail provider route the send (e.g.",
+    "positional": "[same flags as mail send, plus",
+    "details": "mark it --is-test-mail)."
+  },
+  "notification list": {
+    "summary": "List notification channel configurations."
+  },
+  "notification get": {
+    "summary": "Read one notification channel configuration.",
+    "positional": "<itemId>"
+  },
+  "notification save": {
+    "summary": "Pass --update when saving over an existing notification configuration."
+  },
+  "notification delete": {
+    "summary": "Delete a notification channel configuration.",
+    "positional": "<itemId>"
+  },
+  "notifier notify": {
+    "summary": "Push a notification to specific users/roles, or everyone matching a subscription filter.",
+    "details": "Target with at least one of --user-ids/--roles/--subscription-filters."
+  },
+  "notifier list": {
+    "summary": "List the signed-in user's notifications (GetNotifications).",
+    "details": "Read-only."
+  },
+  "notifier unread": {
+    "summary": "Read unread notifications matching a subscription filter.",
+    "details": "Sent as query parameters even though swagger documents this endpoint as GET with a JSON body -- the Fetch spec forbids a body on GET. Read-only."
+  },
+  "notifier mark-read": {
+    "summary": "Mark one notification as read.",
+    "positional": "<id>"
+  },
+  "notifier mark-all-read": {
+    "summary": "Mark every notification as read for the caller."
+  },
+  "secrets get": {
+    "summary": "Read the stored value for one secret key.",
+    "positional": "<secretKey>",
+    "details": "Response is unredacted; treat as sensitive."
+  },
+  "secrets save": {
+    "summary": "Upsert: omit --item-id to create, pass it to update.",
+    "details": "--key-value-pairs is a flat JSON object of provider-specific fields, e.g. --key-value-pairs '{\"isEnable\":\"true\",\"provider\":\"recaptcha\",\"captchaKey\":\"...\",\"captchaSecret\":\"...\"}'."
+  },
+  "storage config list": {
+    "summary": "List storage backend configurations."
+  },
+  "storage config get": {
+    "summary": "Read one storage backend configuration by name.",
+    "positional": "<name>"
+  },
+  "storage config save": {
+    "summary": "Upsert: omit --item-id to create; pass --update to update."
+  },
+  "storage config delete": {
+    "summary": "Delete a storage backend configuration.",
+    "positional": "<name>"
+  },
+  "auth idp list": {
+    "summary": "List the project's identity providers."
+  },
+  "auth idp get": {
+    "summary": "Read one identity provider by id.",
+    "positional": "<id>"
+  },
+  "auth idp create": {
+    "summary": "--client-id <id> [--client-secret] [--display-name] [--issuer] Apple-specific fields (teamId, keyId, privateKey, appleAudience) go in...",
+    "details": "--client-id <id> [--client-secret] [--display-name] [--issuer] Apple-specific fields (teamId, keyId, privateKey, appleAudience) go in --body/--file so no private key lands in shell history. IAM's create endpoint stores issuer/jwksUri/wellKnownUrl but drops authorizationUrl/tokenUrl/userInfoUrl -- set those with 'idp update' afterward."
+  },
+  "auth idp update": {
+    "summary": "provider/providerType/protocol/clientId are immutable: omit them, or echo the existing values exactly if you also pass --body/--file.",
+    "positional": "<id> [same flags as create, all optional]",
+    "details": "The only endpoint that persists authorizationUrl/tokenUrl/userInfoUrl -- create accepts and drops them, and update never re-runs discovery, so values set here stick. Use it to repair a provider whose authorizationUrl came back null: '/idp/initiate' builds its redirect from that field, so hosted login goes nowhere without it. Read the endpoint values from the tenant's discovery document rather than composing them by hand."
+  },
+  "auth idp delete": {
+    "summary": "Irreversible; also deletes the related OIDC client registration.",
+    "positional": "<id>"
+  },
+  "auth idp status": {
+    "summary": "Enable/disable a provider without deleting its configuration.",
+    "positional": "<id>"
+  },
+  "auth config get": {
+    "summary": "Read the tenant's AuthController configuration, including isOidcEnabled."
+  },
+  "auth config save": {
+    "summary": "Save AuthController config.",
+    "details": "Fetches and merges current values first. Enabling OIDC requires accountActionBaseUrl."
+  },
+  "auth client-credentials list": {
+    "summary": "clientSecret is included in list responses; treat CLI output as sensitive."
+  },
+  "auth client-credentials save": {
+    "summary": "Omit --item-id to create; pass it to update.",
+    "details": "The response's clientSecret is shown once and is not retrievable again afterward."
+  },
+  "auth client-credentials delete": {
+    "summary": "Delete a machine-to-machine client credential.",
+    "positional": "<id>"
+  },
+  "auth oidc-clients list": {
+    "summary": "List registered OAuth 2.0 / OIDC client applications for the tenant.",
+    "details": "client_secret is excluded from list/get responses."
+  },
+  "auth oidc-clients get": {
+    "summary": "Read one OIDC client registration.",
+    "positional": "<clientId>",
+    "details": "Never returns client_secret."
+  },
+  "auth oidc-clients save": {
+    "summary": "Upsert: omit --item-id to register a new client, pass it to update an existing one.",
+    "details": "The response's client_secret is shown once and is not retrievable again afterward. --client-type is not optional in practice: IAM derives tokenEndpointAuthMethod from it, so omitting it stores a browser/SPA client as confidential (\"client_secret_post\") and lets it request the client_credentials grant. Pass --client-type public for any PKCE/browser client. --register-as-identity-provider creates the linked identity provider in the same call. Its authorize/token/userinfo/jwks/issuer values are filled from the discovery document. When omitted, --external-discovery-endpoint defaults to external provider or non-standard IAM base URL."
+  },
+  "auth oidc-clients delete": {
+    "summary": "Irreversible; revokes all tokens issued to the client.",
+    "positional": "<clientId>"
+  },
+  "auth oidc-clients rotate-secret": {
+    "summary": "Generates a new client_secret, shown once; the old secret stops working immediately.",
+    "positional": "<clientId>"
+  },
+  "data validate": {
+    "summary": "Validate local blocks/data/schemas/*.json and blocks/data/rules.json before pushing.",
+    "details": "Local-only."
+  },
+  "data schema list": {
+    "summary": "List project schemas via /data/v4/schemas using an impersonated project token.",
+    "details": "Read-only. Page defaults are 1/100; fails clearly on an unexpected response shape instead of treating it as an empty list."
+  },
+  "data schema pull": {
+    "summary": "Download every project schema (paging through all of them) into blocks/data/schemas/*.json.",
+    "details": "Strips the API id, project identifiers, and platform-managed fields so the file is portable and re-pushable as-is. Writes local files only."
+  },
+  "data schema push": {
+    "summary": "Create or update project schemas via /data/v4/schemas/define.",
+    "details": "Mutating. Looks up the destination project's schema by name -- never trusts a local id/itemId, which may belong to another project -- and uses PUT with the destination id when found, POST otherwise. Warns when a local id is ignored; fails clearly instead of treating an empty response as success."
+  },
+  "data rules pull": {
+    "summary": "Download data-access policies into blocks/data/rules.json in the CLI's portable format (schemaName, no itemId/schemaId).",
+    "details": "Writes local files only."
+  },
+  "data rules deploy": {
+    "summary": "Apply schema security and data-access policies.",
+    "details": "Mutating; supports dry-run and confirmation. Resolves each policy's destination schema id and any existing policy id by name -- never reuses a source-project id."
+  },
+  "data reload": {
+    "summary": "Reload Data schema configuration so staged schema/rule changes become live.",
+    "details": "Mutating; calls POST /data/v4/schema-configurations/reload."
+  },
+  "data sync": {
+    "summary": "Composed flow: validate local schemas/rules, then data schema push -> data rules deploy -> data reload, so pushed changes actually go live in one...",
+    "details": "Composed flow: validate local schemas/rules, then data schema push -> data rules deploy -> data reload, so pushed changes actually go live in one step. Validation runs first and hard-fails before anything is sent if it finds errors. Prints 3 separate step outputs (one per underlying command), not one combined document. One confirmation covers the whole flow."
+  },
+  "data config get": {
+    "summary": "Read the project's data-source configuration.",
+    "details": "Defaults to Blocks-managed storage."
+  },
+  "data config create": {
+    "summary": "Point the Data Gateway at an external database.",
+    "details": "Rare and deliberate."
+  },
+  "data config update": {
+    "summary": "Update an existing data-source configuration."
+  },
+  "data schema get": {
+    "summary": "Non-JSON output also prints the schema's exact GraphQL operation names -- generated names are naive string concatenation, not English...",
+    "positional": "<id>",
+    "details": "Non-JSON output also prints the schema's exact GraphQL operation names -- generated names are naive string concatenation, not English pluralization (e.g. Company -> getCompanys/Companys, not Companies)."
+  },
+  "data schema get-by-name": {
+    "summary": "Full field-level detail by collection name (info-by-name).",
+    "positional": "<schemaName>"
+  },
+  "data schema aggregation": {
+    "summary": "Schemas plus an access-level summary (Public/User/Custom x Read/Write/Edit/Delete)."
+  },
+  "data schema change-logs": {
+    "summary": "Unadapted schema change logs; data reload clears these."
+  },
+  "data schema delete": {
+    "summary": "Irreversible.",
+    "positional": "<id>"
+  },
+  "data schema info list": {
+    "summary": "Entity-type schema collections with basic info.",
+    "details": "--schema-type: 1 Entity, 2 Dto. There is no 0."
+  },
+  "data schema info save": {
+    "summary": "Create schema metadata only (no fields yet) - pair with data schema fields."
+  },
+  "data schema info update": {
+    "summary": "Update schema metadata without touching field definitions."
+  },
+  "data schema fields": {
+    "summary": "Add/update field definitions; the 'fields' array (name/type/isArray/isPIIData/ isUniqueData/description) goes in --body/--file, e.g.",
+    "details": "--body '{\"fields\":[{\"name\":\"email\",\"type\":\"string\"}]}'."
+  },
+  "data rules policy get": {
+    "summary": "Read all data-access policies for one schema.",
+    "positional": "<schemaName>"
+  },
+  "data rules policy delete": {
+    "summary": "Delete one data-access policy without a full rules pull and deploy.",
+    "positional": "<itemId>"
+  },
+  "data validation list": {
+    "summary": "List field-level validation rules."
+  },
+  "data validation get": {
+    "summary": "Read one validation rule by id.",
+    "positional": "<validationId>"
+  },
+  "data validation by-schema": {
+    "summary": "List validation rules for one schema.",
+    "positional": "<schemaId>"
+  },
+  "data validation by-schema-field": {
+    "summary": "List validation rules for one field of one schema.",
+    "positional": "<schemaId> <fieldName>"
+  },
+  "data validation save": {
+    "summary": "--body '<json>' (must include a \"validations\" array, e.g.",
+    "details": "'{\"validations\":[{\"type\":1,\"value\":\"^[0-9]+$\",\"isActive\":true}]}') Upsert: omit --item-id to create, pass it to update."
+  },
+  "data validation delete": {
+    "summary": "Delete a validation rule.",
+    "positional": "<validationId>"
+  },
+  "data files get": {
+    "summary": "Download a file from the storage object tree.",
+    "positional": "<fileId>"
+  },
+  "data files get-many": {
+    "summary": "Download several files by id in one call.",
+    "positional": "<fileId...>"
+  },
+  "data files info": {
+    "summary": "List file metadata records with paging and sorting."
+  },
+  "data files upload": {
+    "summary": "Cloud: create file/version metadata, then PUT bytes to the returned URL.",
+    "details": "Local: one multipart request. The file appears in the object tree without registration."
+  },
+  "data files presigned-upload-url": {
+    "summary": "Mutating cloud step 1: creates metadata/version and returns uploadUrl/fileId."
+  },
+  "data files upload-to-url": {
+    "summary": "--content-type <type> [--blob-type BlockBlob] [--no-blob-type-header] Step 2.",
+    "details": "Provider-direct PUT - no Blocks auth headers by design."
+  },
+  "data files upload-to-local-storage": {
+    "summary": "One-call alternative to the two commands above, for local-storage-backed projects."
+  },
+  "data files update-additional-info": {
+    "summary": "Replace a file's additional properties.",
+    "positional": "<itemId>"
+  },
+  "data files delete": {
+    "summary": "Defaults to moving the file to trash; --permanent removes bytes and metadata.",
+    "positional": "<fileId>"
+  },
+  "data files list": {
+    "summary": "List object-tree entries under a directory, with cursor paging."
+  },
+  "data files search": {
+    "summary": "Search the object tree by name.",
+    "positional": "<query>"
+  },
+  "data files trash": {
+    "summary": "List soft-deleted object-tree entries."
+  },
+  "data files shared": {
+    "summary": "List object-tree entries shared with the caller."
+  },
+  "data files restore": {
+    "summary": "Restore a trashed object-tree entry.",
+    "positional": "<resourceId>"
+  },
+  "data files purge": {
+    "summary": "Permanently delete a trashed entry.",
+    "positional": "<resourceId>",
+    "details": "Irreversible."
+  },
+  "data files directory-create": {
+    "summary": "Create a directory in the object tree.",
+    "positional": "<name>"
+  },
+  "data files directory-get": {
+    "summary": "Read one directory's metadata.",
+    "positional": "<directoryId>"
+  },
+  "data files directory-update": {
+    "summary": "Rename or re-describe a directory.",
+    "positional": "<directoryId>"
+  },
+  "data files directory-delete": {
+    "summary": "Delete a directory.",
+    "positional": "<directoryId>",
+    "details": "Trashes by default; --permanent removes data."
+  },
+  "data files directory-move": {
+    "summary": "Move a directory under a different parent.",
+    "positional": "<directoryId>"
+  },
+  "data files versions": {
+    "summary": "List a file's stored versions.",
+    "positional": "<fileId>"
+  },
+  "data files create-version": {
+    "summary": "Add a new version to an existing file.",
+    "positional": "<fileId>"
+  },
+  "data files copy": {
+    "summary": "Copy a file into another directory.",
+    "positional": "<fileId>"
+  },
+  "data files move": {
+    "summary": "Move a file into another directory.",
+    "positional": "<fileId>"
+  },
+  "data files rename": {
+    "summary": "Rename a file.",
+    "positional": "<fileId>"
+  },
+  "data files access-list": {
+    "summary": "List the access policies attached to a resource.",
+    "positional": "<resourceId>"
+  },
+  "data files access-resolve": {
+    "summary": "Resolve the effective access a principal has on a resource, including inherited policies.",
+    "positional": "<resourceId>"
+  },
+  "data files access-grant": {
+    "summary": "--principal-type User|Role|Everyone|Organization",
+    "positional": "<resourceId>"
+  },
+  "data files access-update": {
+    "summary": "Update one access policy on a resource.",
+    "positional": "<resourceId>"
+  },
+  "data files access-revoke": {
+    "summary": "Remove one access policy from a resource.",
+    "positional": "<resourceId>"
+  },
+  "data files inheritance": {
+    "summary": "Turn access-policy inheritance on or off for a resource.",
+    "positional": "<resourceId>"
+  },
+  "data files share": {
+    "summary": "Share a resource with a principal.",
+    "positional": "<resourceId>"
+  },
+  "localization validate": {
+    "summary": "Validate a local i18n JSON dictionary.",
+    "details": "Supports nested JSON input and validates the flattened key/value set locally."
+  },
+  "localization push": {
+    "summary": "Create or update Localization keys from a local i18n JSON dictionary via /localization/v4/Key/SaveKeys.",
+    "details": "Creates the module first when it is missing."
+  },
+  "localization pull": {
+    "summary": "Download published cloud localization via /localization/v4/Key/GetCloudUilmFile and write a local JSON dictionary."
+  },
+  "localization assistant translation-suggestion": {
+    "summary": "--destination-language <culture> [--current-language]"
+  },
+  "localization config get-webhook": {
+    "summary": "Read the tenant's localization change webhook."
+  },
+  "localization config save-webhook": {
+    "summary": "--secret <s> --header-key <k> [--item-id <id>] [--is-disabled]"
+  },
+  "localization glossary save": {
+    "summary": "Create or update a glossary term.",
+    "details": "Upsert on --item-id."
+  },
+  "localization glossary list": {
+    "summary": "List glossary terms."
+  },
+  "localization glossary get": {
+    "summary": "Read one glossary term.",
+    "positional": "<itemId>"
+  },
+  "localization glossary suggested": {
+    "summary": "Get AI-suggested glossary terms for an entry.",
+    "positional": "<itemId>"
+  },
+  "localization glossary delete": {
+    "summary": "Delete a glossary term.",
+    "positional": "<itemId>"
+  },
+  "localization key save": {
+    "summary": "Create or update one localization key.",
+    "details": "Upsert on --item-id."
+  },
+  "localization key list": {
+    "summary": "Search localization keys across modules and languages."
+  },
+  "localization key get-by-names": {
+    "summary": "Look up localization keys by name.",
+    "positional": "<keyName...>"
+  },
+  "localization key get": {
+    "summary": "Read one localization key by itemId.",
+    "positional": "<itemId>"
+  },
+  "localization key delete": {
+    "summary": "Delete one localization key.",
+    "positional": "<itemId>"
+  },
+  "localization key delete-keys": {
+    "summary": "Delete several localization keys in one call.",
+    "positional": "<itemId...>"
+  },
+  "localization key get-timeline": {
+    "summary": "Read the change history for a localization entity."
+  },
+  "localization key get-localization-timeline": {
+    "summary": "Read the tenant-wide localization change history."
+  },
+  "localization key get-timeline-by-operation-id": {
+    "summary": "Read the change history for one async operation.",
+    "positional": "<operationId>",
+    "details": "Use with translate-and-export --wait."
+  },
+  "localization key get-uilm-file": {
+    "summary": "Read a generated UILM language file for a module and language."
+  },
+  "localization key generate-uilm-file": {
+    "summary": "Generate a UILM language file for a module."
+  },
+  "localization key translate-all": {
+    "summary": "Trigger AI machine translation for every untranslated key in a module.",
+    "details": "Async."
+  },
+  "localization key translate-key": {
+    "summary": "Trigger AI machine translation for one key.",
+    "positional": "<keyId>"
+  },
+  "localization key translate-keys": {
+    "summary": "Trigger AI machine translation for several keys.",
+    "positional": "<keyId...>"
+  },
+  "localization key translate-and-export": {
+    "summary": "Composed flow: translate-all -> generate-uilm-file -> uilm-export.",
+    "details": "Without --wait, fires all 3 back to back (same as running them by hand). With --wait, polls GetTimelineByOperationId (using a generated messageCoRelationId) between translate and generate, since translation runs async and there's no documented explicit \"done\" field to check -- it stops once the timeline entry count settles across 2 polls, or times out with a clear next-step message. Prints one output block per step, not a single combined document."
+  },
+  "localization key uilm-import": {
+    "summary": "Import a previously exported UILM file by file id.",
+    "positional": "<fileId>"
+  },
+  "localization key uilm-export": {
+    "summary": "--output-type: 0 Json (default), 1 Xml, 2 Text, 3 Xlsx, 4 Csv, 5 Xlf."
+  },
+  "localization key get-uilm-exported-files": {
+    "summary": "List previously exported UILM files."
+  },
+  "localization key get-language-file-generation-history": {
+    "summary": "List past UILM language-file generation runs."
+  },
+  "localization key rollback": {
+    "summary": "Roll back one localization timeline entry.",
+    "positional": "<itemId>"
+  },
+  "localization language save": {
+    "summary": "Add or update a language in the tenant's catalog."
+  },
+  "localization language list": {
+    "summary": "List languages in the tenant's catalog."
+  },
+  "localization language list-for-tenant": {
+    "summary": "List languages enabled for the current tenant."
+  },
+  "localization language delete": {
+    "summary": "Remove a language from the tenant's catalog.",
+    "positional": "<languageName>"
+  },
+  "localization language set-default": {
+    "summary": "Set the tenant's default language.",
+    "positional": "<languageName>"
+  },
+  "localization module save": {
+    "summary": "Create or update a localization module.",
+    "details": "Upsert on --item-id."
+  },
+  "localization module list": {
+    "summary": "List localization modules."
+  },
+  "localization module list-for-tenant": {
+    "summary": "List localization modules for the current tenant."
+  },
+  "localization module tag-glossary": {
+    "summary": "Attach glossary terms to a localization module.",
+    "positional": "<moduleId>"
+  },
+  "release deploy": {
+    "summary": "Deploy the selected project's environment.",
+    "details": "Resolves everything from state you already have: the repo linked to this project (Project/GetAsset) and that repo's connected branch (Build/repo-details) -- no --repo-id needed. Aborts if the connected branch doesn't match this environment's name. Pass --domain to also set the custom deployment domain before deploying. Pass --wait to poll release status on the resulting build until it reaches a terminal state (or --timeout elapses, default 900s) instead of returning immediately with just a build id. Mutating; no artifact upload is performed by this CLI."
+  },
+  "release status": {
+    "summary": "Read Release build status by build id using an impersonated project token.",
+    "positional": "<buildId>",
+    "details": "Read-only."
+  },
+  "release builds list": {
+    "summary": "List Release build details for a repository using an impersonated project token.",
+    "positional": "[repoId]",
+    "details": "When repoId is omitted, resolves it from the selected project's linked repo assets (Project/GetAsset, preferring project auth) -- auto-picked if there's exactly one, otherwise you're prompted to choose. Non-interactive callers must pass repoId/--repo-id or receive interactive_input_required. Read-only."
+  },
+  "release builds get": {
+    "summary": "Alias for release status.",
+    "positional": "<buildId>",
+    "details": "Read-only."
+  },
+  "new web": {
+    "summary": "Create a Vite React starter app that talks to Blocks exclusively through @seliseblocks/client (a single createBlocksClient() instance) using the...",
+    "positional": "<name>",
+    "details": "Create a Vite React starter app that talks to Blocks exclusively through @seliseblocks/client (a single createBlocksClient() instance) using the SDK hosted IdP flow: blocksClient.auth.idp.redirectToProvider() on login click and blocksClient.auth.idp.callback() on /login/callback. Includes route guards, auto-refresh through auth.oidc.refreshToken(), live auth/iam/data/localization SDK examples, environment config, and safe .gitignore defaults. Uses the selected project (see 'use') unless --x-blocks-key overrides it. --app-domain and --client-id are resolved from the project when omitted: if the project has one domain it's used automatically, otherwise you're prompted to choose; the OIDC client is picked from a list of the project's existing clients, or you can create a minimal one (display name + redirect URI, active, registered as a Blocks OIDC identity provider) on the spot, or skip and register one later from the portal or 'auth oidc-clients save'. Non-interactive callers must provide --app-domain and --client-id or receive interactive_input_required. When a client id resolves, the command checks AuthController and may enable OIDC login. In non-interactive runs, pass --yes only after approving that possible tenant mutation; failure stops before scaffold files are written. If --blocks-api-url is omitted, it is derived from the app domain: https://blocksapi.<registrable-domain> (for example, app domain https://dqrsf.slsblx.com uses https://blocksapi.slsblx.com). Pass a different Data/IAM/Localization/OS gateway URL explicitly only if your project uses a non-default one. --oidc-url defaults to https://iam.seliseblocks.com."
+  }
+}

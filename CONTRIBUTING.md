@@ -39,7 +39,23 @@ Run all package tests plus the skill and CLI contract linters:
 npm test
 ```
 
-The root test gate includes `blocks-skills/lint.mjs` and checks that project-authenticated requests carry an explicit tenant id and composed commands forward account/project/API context.
+The root test gate includes `blocks-skills/lint.mjs` and checks that project-authenticated requests carry an explicit tenant id and composed commands forward account/project/API context. It also verifies that the generated command catalog is current.
+
+## Command catalog
+
+`blocks --help --json`, `blocks help <family>`, and `blocks help <command>` are served from `blocks-cli/src/lib/command-catalog.ts`, which is **generated** — do not edit it by hand.
+
+- `blocks-cli/command-docs.json` is the hand-maintained part: one `summary`, plus optional `positional` and `details`, per command.
+- Everything else (`flags`, `scope`, `mutating`, `family`) is derived from `blocks-cli/src/index.ts` and each command's own source, so help output cannot drift from behavior.
+
+After adding or changing a command:
+
+```bash
+npm run generate:catalog     # rewrites command-catalog.ts
+npm run lint:catalog         # verifies it is current (also part of npm test)
+```
+
+Adding a command without a `command-docs.json` entry fails the gate, as does leaving the catalog stale.
 
 Build all packages:
 

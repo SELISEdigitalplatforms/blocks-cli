@@ -3339,3 +3339,76 @@ async function startJsonServer(handler) {
     url: `http://127.0.0.1:${address.port}`
   };
 }
+
+test("help index lists every registered command without the full text help", async () => {
+  const { cwd, configDir } = await makeWorkspace();
+  const env = testEnv(configDir, { BLOCKS_SECRET_STORE: "file" });
+
+  const index = run(["--help", "--json"], { cwd, env });
+  assert.equal(index.status, 0, index.stderr);
+  const parsed = JSON.parse(index.stdout);
+  const listed = Object.values(parsed.families).flat();
+  assert.equal(parsed.commandCount, listed.length);
+
+  const full = run(["--help"], { cwd, env });
+  assert.ok(
+    index.stdout.length * 3 < full.stdout.length,
+    `index (${index.stdout.length}B) should be far smaller than the text help (${full.stdout.length}B)`
+  );
+});
+
+test("help resolves one command's flags without running it", async () => {
+  const { cwd, configDir } = await makeWorkspace();
+  const env = testEnv(configDir, { BLOCKS_SECRET_STORE: "file" });
+
+  const result = run(["help", "mail", "mailbox", "list", "--json"], { cwd, env });
+  assert.equal(result.status, 0, result.stderr);
+  const entry = JSON.parse(result.stdout);
+  assert.equal(entry.name, "mail mailbox list");
+  assert.equal(entry.scope, "project");
+  assert.equal(entry.mutating, false);
+  // the flag list is derived from source, so a stale doc example cannot survive here
+  assert.ok(entry.flags.includes("page-number"));
+  assert.ok(!entry.flags.includes("configuration-id"));
+});
+
+test("help never executes the command it describes", async () => {
+  const { cwd, configDir } = await makeWorkspace();
+  const env = testEnv(configDir, { BLOCKS_SECRET_STORE: "file" });
+
+  // 'login --help' would perform a real device login; 'help login' must not.
+  const result = run(["help", "login"], { cwd, env });
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stdout, /blocks login/);
+  assert.doesNotMatch(result.stdout, /Authorize this device|Waiting for approval/);
+});
+
+test("help reports scope and mutation from source, not prose", async () => {
+  const { cwd, configDir } = await makeWorkspace();
+  const env = testEnv(configDir, { BLOCKS_SECRET_STORE: "file" });
+
+  const me = JSON.parse(run(["help", "iam", "me", "--json"], { cwd, env }).stdout);
+  assert.equal(me.scope, "project-or-account");
+
+  const create = JSON.parse(run(["help", "projects", "create", "--json"], { cwd, env }).stdout);
+  assert.equal(create.scope, "account");
+  assert.equal(create.mutating, true);
+
+  // object-tree.ts exports 23 handlers from one file; scoping must be per-handler
+  const resolve = JSON.parse(run(["help", "data", "files", "access-resolve", "--json"], { cwd, env }).stdout);
+  assert.equal(resolve.mutating, false);
+  assert.ok(resolve.flags.length < 5, `expected a narrow flag list, got ${resolve.flags.length}`);
+});
+
+test("help falls back to a family and fails clearly on an unknown target", async () => {
+  const { cwd, configDir } = await makeWorkspace();
+  const env = testEnv(configDir, { BLOCKS_SECRET_STORE: "file" });
+
+  const family = JSON.parse(run(["help", "mfa", "backup-codes", "--json"], { cwd, env }).stdout);
+  assert.equal(family.family, "mfa backup-codes");
+  assert.equal(family.commands.length, 3);
+
+  const unknown = run(["help", "nope", "--json"], { cwd, env });
+  assert.equal(unknown.status, 1);
+  assert.match(unknown.stderr, /unknown_help_target/);
+});
