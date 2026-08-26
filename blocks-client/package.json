@@ -27,7 +27,7 @@
   "files": [
     "dist",
     "README.md",
-    "AI_USAGE_GUIDE.md",
+    "AGENT_GUIDE.md",
     "LICENSE"
   ],
   "scripts": {

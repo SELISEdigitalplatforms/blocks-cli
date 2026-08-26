@@ -54,7 +54,7 @@ blocks doctor --json
 
 The CLI uses supported Blocks APIs and stores local auth state through OS-aware credential storage. Do not inspect local token/config files directly; use `blocks auth status` and `blocks doctor` for diagnostics.
 
-See [`blocks-cli/README.md`](blocks-cli/README.md) for the full command overview.
+Run `blocks help` for the full command reference, or see [`blocks-cli/README.md`](blocks-cli/README.md) for setup and account/project details.
 
 ## SDK Quick Start
 
@@ -77,12 +77,12 @@ See [`blocks-client/README.md`](blocks-client/README.md) for SDK setup and runti
 
 ## AI Agent Usage
 
-AI agents should start with [`docs/AI_START_GUIDE.md`](docs/AI_START_GUIDE.md). It routes agents based on whether they are bootstrapping setup, building a Blocks app, operating the CLI, using the SDK, or maintaining this monorepo.
+AI agents should start with [`docs/AI_ROUTING_GUIDE.md`](docs/AI_ROUTING_GUIDE.md). It routes agents based on whether they are bootstrapping setup, building a Blocks app, operating the CLI, using the SDK, or maintaining this monorepo.
 
 Use these package-specific guides for exact contracts:
 
-- [`blocks-cli/AI_USAGE_GUIDE.md`](blocks-cli/AI_USAGE_GUIDE.md)
-- [`blocks-client/AI_USAGE_GUIDE.md`](blocks-client/AI_USAGE_GUIDE.md)
+- [`blocks-cli/AGENT_GUIDE.md`](blocks-cli/AGENT_GUIDE.md)
+- [`blocks-client/AGENT_GUIDE.md`](blocks-client/AGENT_GUIDE.md)
 
 ## Development
 

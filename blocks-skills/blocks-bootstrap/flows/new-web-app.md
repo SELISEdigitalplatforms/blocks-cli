@@ -18,7 +18,7 @@ blocks new web <appName> \
 
 Leave `--blocks-api-url` off unless the project uses a non-default gateway. The scaffold derives it from the app domain, and passing a wrong one by hand is harder to notice than leaving it out.
 
-Once it resolves the client id, it checks the project's auth config and turns on `isOidcEnabled` if needed, using the resolved OIDC URL as `accountActionBaseUrl` when none exists. Failure or missing non-interactive approval stops before local files are scaffolded.
+Failure or missing non-interactive approval stops before local files are scaffolded.
 
 ## Then work inside the app
 

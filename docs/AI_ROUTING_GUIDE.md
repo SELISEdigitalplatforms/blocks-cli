@@ -1,4 +1,4 @@
-# Blocks AI Start Guide
+# Blocks AI Routing Guide
 
 Use this guide as the first stop when an AI agent can enter the Blocks workflow from any position. It routes the agent to the right source of truth without assuming the user starts from a clean install, a selected project, or a scaffolded app.
 
@@ -15,7 +15,7 @@ If a token pair is valid **and** a project is selected, the setup this guide
 exists to establish is already done. **Skip the rest of this file** and go
 straight to the skill for the capability the user asked about — data,
 localization, IAM, mail, storage, release, notifications. Each skill states its
-own prerequisites and links the one `blocks-cli/AI_USAGE_GUIDE.md` section it
+own prerequisites and links the one `blocks-cli/AGENT_GUIDE.md` section it
 pairs with.
 
 Read on only when one of these is true:
@@ -37,40 +37,24 @@ Identify which job the user is asking for:
 |---|---|---|
 | New user, unknown login/project/app state | Install/probe first, then follow setup/bootstrap guidance | Do not proceed until the CLI exists; then detect login, project selection, `blocks init`, OIDC client, and app scaffold gaps. |
 | Building or changing a Blocks application | The package guide for the surface being changed | Package guides own command and SDK contracts for app work. |
-| Writing frontend app code with the SDK | `blocks-client/AI_USAGE_GUIDE.md` | The client guide owns SDK rules and method map. |
-| Running CLI/admin/project operations | `blocks-cli/AI_USAGE_GUIDE.md` | The CLI guide owns exact flags, command behavior, and failure handling. |
-| Maintaining this monorepo's packages | Package README, package `AI_USAGE_GUIDE.md`, then source/tests | Source is allowed only when the task is about the packages themselves. |
+| Writing frontend app code with the SDK | `blocks-client/AGENT_GUIDE.md` | The client guide owns SDK rules and method map. |
+| Running CLI/admin/project operations | `blocks-cli/AGENT_GUIDE.md` | The CLI guide owns exact flags, command behavior, and failure handling. |
+| Maintaining this monorepo's packages | Package README, package `AGENT_GUIDE.md`, then source/tests | Source is allowed only when the task is about the packages themselves. |
 | Debugging an error | The error's package guide | Avoid bypassing supported CLI/package paths with raw API calls. |
 
 ## Install Commands
 
-Install the CLI globally where the agent or developer will run terminal operations:
+**Ask the user before installing the global CLI — never install it automatically.**
 
 ```bash
 npm install -g @seliseblocks/cli-os@latest
 blocks --version
 ```
 
-Do not install the global CLI automatically. If `blocks --version` fails with "not recognized" or "command not found", ask the user whether to install it:
-
-```bash
-npm install -g @seliseblocks/cli-os@latest
-```
-
-If the task is maintaining this monorepo instead of operating on a user Blocks app, do not require the global CLI. Use the source checkout after installing/building dependencies:
-
-```bash
-cd blocks-cli
-npm install
-npm run build
-node bin/run.js --version
-```
-
-Install or update the SDK inside a user application:
-
-```bash
-npm install @seliseblocks/client@latest
-```
+If the task is maintaining this monorepo instead of operating on a user Blocks
+app, use the source checkout instead (`blocks-cli/README.md`'s Development
+section) and skip the global install. See `blocks-client/README.md` for
+installing the SDK inside a user application.
 
 ## Universal Probe
 
@@ -82,9 +66,8 @@ blocks auth status --json
 blocks doctor --json
 ```
 
-For command discovery use `blocks --help --json` (names by family), then
-`blocks help <family>` or `blocks help <command> --json`. The full text help is
-~47 KB and cannot be read in part; prefer the scoped queries.
+For command discovery, see `blocks-cli/AGENT_GUIDE.md`'s "Looking commands up
+cheaply" — it also covers why not to use `<command> --help`.
 
 If `blocks` is missing, stop the probe and ask before installing the global package.
 
@@ -92,11 +75,13 @@ Do not read local CLI storage files directly. If local auth or project state is 
 
 ## Agent Context
 
-Three rules apply before any routing decision:
+Two rules apply before any routing decision:
 
 - **Leave `BLOCKS_CONFIG_DIR` alone.** It is the whole isolation boundary. Never set, unset, or guess it.
 - **Never silently choose a configured account.** If no account is known, ask.
-- **Pass `--account <name>` and `--project <tenantId>` explicitly** once both are known. Only interactive local use should rely on `activeAccount` and its saved selection.
+
+Once both are known, pass `--account <name>` and `--project <tenantId>`
+explicitly — see `blocks-cli/AGENT_GUIDE.md`'s "AI agent startup" for why.
 
 The `blocks-bootstrap` skill owns the rest: how to read the four token states,
 the account/project token exchange, login, and Code Studio launcher context.
@@ -106,7 +91,7 @@ Go there rather than re-deriving any of it here.
 
 ### I have nothing installed
 
-Read `blocks-cli/AI_USAGE_GUIDE.md`, ask the user before installing the CLI with the command above, then verify `blocks --version` before attempting Data, IAM, Localization, Release, storage, mail, notification, or app-code work.
+Read `blocks-cli/AGENT_GUIDE.md`, ask the user before installing the CLI with the command above, then verify `blocks --version` before attempting Data, IAM, Localization, Release, storage, mail, notification, or app-code work.
 
 ### I am logged in but no project is selected
 
@@ -127,27 +112,27 @@ Use the matching Blocks skill as the routing and safety layer, then the CLI or c
 
 | Task | Guide |
 |---|---|
-| Data schema/rules/configuration | `blocks-cli/AI_USAGE_GUIDE.md` |
-| Runtime CRUD/GraphQL in app code | `blocks-client/AI_USAGE_GUIDE.md` |
+| Data schema/rules/configuration | `blocks-cli/AGENT_GUIDE.md` |
+| Runtime CRUD/GraphQL in app code | `blocks-client/AGENT_GUIDE.md` |
 | Files/DMS upload/download | `blocks-skills/blocks-data-storage/SKILL.md`, then the CLI or client guide for the chosen surface |
-| Runtime translations in app code | `blocks-client/AI_USAGE_GUIDE.md` |
-| Translation authoring/push/pull | `blocks-cli/AI_USAGE_GUIDE.md` |
-| Hosted login callback/login button | `blocks-client/AI_USAGE_GUIDE.md` |
-| OIDC client/identity provider setup | `blocks-cli/AI_USAGE_GUIDE.md` |
-| Current user's account/profile/password | `blocks-client/AI_USAGE_GUIDE.md` |
+| Runtime translations in app code | `blocks-client/AGENT_GUIDE.md` |
+| Translation authoring/push/pull | `blocks-cli/AGENT_GUIDE.md` |
+| Hosted login callback/login button | `blocks-client/AGENT_GUIDE.md` |
+| OIDC client/identity provider setup | `blocks-cli/AGENT_GUIDE.md` |
+| Current user's account/profile/password | `blocks-client/AGENT_GUIDE.md` |
 | Admin user management | `blocks-skills/blocks-iam-users/SKILL.md`, then the CLI or client guide |
 | Roles and permissions | `blocks-skills/blocks-iam-access-control/SKILL.md`, then the CLI or client guide |
 | MFA | `blocks-skills/blocks-iam-mfa/SKILL.md`, then the CLI or client guide |
 | Organizations/signup settings | `blocks-skills/blocks-iam-organizations/SKILL.md`, then the CLI or client guide |
 | Local HTTPS dev loop | Scaffolded app README/scripts |
-| Release deployment | `blocks-cli/AI_USAGE_GUIDE.md` |
-| Secrets | `blocks-cli/AI_USAGE_GUIDE.md` |
-| Mail settings/templates | `blocks-cli/AI_USAGE_GUIDE.md` |
-| Notification channel configuration | `blocks-cli/AI_USAGE_GUIDE.md` |
+| Release deployment | `blocks-cli/AGENT_GUIDE.md` |
+| Secrets | `blocks-cli/AGENT_GUIDE.md` |
+| Mail settings/templates | `blocks-cli/AGENT_GUIDE.md` |
+| Notification channel configuration | `blocks-cli/AGENT_GUIDE.md` |
 | Sending/reading notifications | `blocks-skills/blocks-notifier/SKILL.md`, then the CLI or client guide |
-| Storage provider configuration | `blocks-cli/AI_USAGE_GUIDE.md` |
+| Storage provider configuration | `blocks-cli/AGENT_GUIDE.md` |
 
-Then use `blocks-client/AI_USAGE_GUIDE.md` for app-code method rules and `blocks-cli/AI_USAGE_GUIDE.md` for terminal command flags.
+Then use `blocks-client/AGENT_GUIDE.md` for app-code method rules and `blocks-cli/AGENT_GUIDE.md` for terminal command flags.
 
 If the app already exists and needs the SDK, install or update it from the app root:
 
@@ -182,7 +167,7 @@ Only run the real mutation with `--yes` after the user approves the exact action
 This is package-source work, not consumer app work:
 
 1. Read the package README.
-2. Read the package `AI_USAGE_GUIDE.md`.
+2. Read the package `AGENT_GUIDE.md`.
 3. Inspect the source and tests.
 4. Make the smallest correct change.
 5. Run the relevant package tests.
@@ -204,20 +189,19 @@ On Windows PowerShell, use `npm.cmd` if script execution policy blocks `npm`.
 
 Use the highest-level source that answers the question:
 
-1. `blocks-cli/AI_USAGE_GUIDE.md` for CLI command contracts.
-2. `blocks-client/AI_USAGE_GUIDE.md` for SDK app-code contracts.
+1. `blocks-cli/AGENT_GUIDE.md` for CLI command contracts.
+2. `blocks-client/AGENT_GUIDE.md` for SDK app-code contracts.
 3. Package source/tests only when maintaining this monorepo's packages.
 
 Do not duplicate business logic in generated apps. Use `blocks` commands for supported admin/project operations and `@seliseblocks/client` for supported app-code operations.
 
 ## Guardrails
 
-- Never expose local CLI tokens, refresh tokens, client secrets, cookies, JWTs, connection strings, or private credentials.
-- Never inspect CLI local storage files directly.
+Beyond the repo-wide rules already in `AGENTS.md` and each package's
+`AGENT_GUIDE.md` (secrets/credentials, local storage files, `/v4` routes,
+`x-blocks-key`):
+
 - Never use raw `fetch`/`curl` against Blocks APIs when the CLI or SDK supports the capability.
-- Do not add `/api` after `/v4` in SDK routes.
-- SDK app code sends `x-blocks-key`, never `ProjectKey` or `projectKey`.
-- Frontend code must not contain client secrets.
 - Treat GraphQL responses with an `errors` array as failures even if HTTP status is 200.
 - Keep local storage in apps for UI drafts/preferences or explicit demo data only, not real backend data.
 - Verify with tests, build, read-only health checks, or targeted searches before calling work complete.

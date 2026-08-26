@@ -6,7 +6,7 @@ Framework-neutral TypeScript SDK for SELISE Blocks frontend and app-runtime code
 
 Admin/control-plane work belongs in `@seliseblocks/cli-os`: project setup, schema/rules deploy, release deploy, and AI/admin terminal workflows.
 
-For AI agents and automation, see [AI_USAGE_GUIDE.md](AI_USAGE_GUIDE.md).
+For AI agents and automation, see [AGENT_GUIDE.md](AGENT_GUIDE.md).
 
 ## Install
 
@@ -177,15 +177,9 @@ const selectedKeys = await blocks.localization.keysByNames({
 
 ## API Surface
 
-- `blocks.auth`: AuthController login, social login, refresh, org switch, logout, signup, recovery, activation, auth config, user codes, client credentials, identity providers.
-- `blocks.auth.idp`: hosted IdP initiate, browser redirect, callback, UI config.
-- `blocks.auth.oidc`: refresh-token and client-credentials token endpoint helpers.
-- `blocks.iam`: current user, users, roles, permissions, resources, organizations, signup settings (`blocks.iam.signupSettings`).
-- `blocks.data`: schema reads, validation reads, GraphQL gateway execution, file/directory/object-tree storage helpers, and runtime collection CRUD.
-- `blocks.localization`: tenant language/module discovery, UILM dictionary loading, selected key lookup, simple `t()` lookup.
-- `blocks.mfa`: tenant MFA policy read/save, TOTP enrollment, OTP generate/resend/verify, method switch, disable, and backup codes.
-- `blocks.mail`: `send`/`sendToAny` transactional email through the tenant's configured mail provider.
-- `blocks.notifier`: `notify`, `getNotifications`, `getUnreadNotificationsBySubscriptionFilter`, `markNotificationAsRead`, `markAllNotificationAsRead`.
+See [`AGENT_GUIDE.md`](AGENT_GUIDE.md)'s Service Map for the full method-level
+list under `blocks.auth`, `blocks.iam`, `blocks.data`, `blocks.localization`,
+`blocks.mfa`, `blocks.mail`, and `blocks.notifier`.
 
 Professional class names are exported for advanced typing and adapters: `BlocksAuthenticationClient`, `BlocksIAMClient`, `BlocksDataClient`, `BlocksLocalizationClient`, `BlocksMfaClient`, `BlocksMailClient`, and `BlocksNotifierClient`. `BlocksApiError` is exported for typed error handling - every non-2xx response from `http.request`/`http.external` throws it, exposing `status`, `statusText`, and the parsed `body`:
 

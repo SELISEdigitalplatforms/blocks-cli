@@ -113,7 +113,7 @@ blocks auth remove <account>
 blocks login --account <account>
 ```
 
-Use `blocks logout` to revoke the current refresh token when possible and remove local session data. Use `blocks auth refresh --json` to force account token refresh, and `blocks auth refresh --project --json` after a project session already exists.
+Use `blocks logout`, `blocks auth refresh [--project] --json` as needed — see `blocks help auth` for exact behavior.
 
 For Code Studio, authorization happens before launch: the portal backend must
 validate portal user identity plus `x-blocks-key` plus the requested Studio
@@ -154,13 +154,13 @@ List projects:
 blocks projects list --json
 ```
 
-Create a project when none suitable exists (ask the user first - it accepts the Blocks terms on their behalf):
+Create a project when none suitable exists (ask the user first - it accepts the Blocks terms on their behalf; see `blocks help projects create` for exact behavior — dev-only environment, terms confirmation, session handling):
 
 ```bash
 blocks projects create "<project name>" --json      # add --dry-run first to show the payload
 ```
 
-It always creates exactly one application in the `dev` environment; environment, domain, cookie domain, and production flag are fixed. Adding further environments remains portal-only. If the account is in project mode, the command temporarily stops that session and restores it after creation. It does not select the new project; run `blocks use <tenantId>` with the returned id.
+It does not select the new project; run `blocks use <tenantId>` with the returned id.
 
 Select a project:
 
@@ -191,7 +191,7 @@ blocks use <projectTenantId>   # if not already selected
 blocks new web <appName>
 ```
 
-This is interactive when a value isn't already known: if the project has more than one registered domain you're prompted to choose; the OIDC client is offered as a pick-list of the project's existing clients, plus "create a new one now" (prompts only for display name + production redirect URI, defaulting to `https://<appDomain>/login/callback`, and automatically adds `https://<appDomain>:5173/login/callback` for local development) or "skip, register later." Do not fabricate a client id or domain value yourself.
+This is interactive when a value isn't already known (domain pick-list; OIDC client pick-list, create-new, or skip — see `blocks help new web` for the exact prompts). Do not fabricate a client id or domain value yourself.
 
 **An AI agent running this non-interactively cannot answer these prompts.** The CLI fails with `interactive_input_required` instead of waiting on stdin. Before running `new web`, gather the values yourself and pass them explicitly:
 
@@ -242,20 +242,13 @@ blocks iam me --json
 
 Every other command below is strictly project-scoped: it requires a selected project and always calls IAM through an impersonated project token. If no project is selected, it fails with `project_not_selected`.
 
-Command families (run `blocks help <command> --json` for exact flags on any of these):
-
-- `iam users *`, `iam email available` - list/get/create/update/activate/deactivate, access grant/revoke, existence and email-availability checks.
-- `iam roles *` - list/get/create/update, assign-permissions, assignable. `assign-permissions` accepts permission resource strings and resolves them to itemIds before sending IAM's id-based mutation.
-- `iam permissions *` - list/get/create/update, by-severity.
-- `iam resources *` - resource groups and feature flags (read-only).
-- `iam organizations *` - list/get/create/update, `my`, and organization config get/save.
-- `iam signup-settings *` - get/save tenant signup policy.
-- `mfa config *`, `mfa totp *`, `mfa generate`/`resend`/`verify`, `mfa method set`, `mfa disable`, `mfa backup-codes *` - tenant MFA policy plus enrollment/verification/backup-code flows. `mfa method set` is guarded by `--dry-run`/confirmation and only switches on `1`/`2`; every other value makes IAM disable the user's MFA. Configuration boolean flags preserve explicit `--flag=false` values.
-- `mfa totp enable --mfa-type <n>` - composed TOTP enrollment: `totp setup` → prints the QR/secret → `totp verify-setup` → `method set` → `backup-codes generate`, one confirmation. Prefer this over running the individual steps. `--mfa-type` is required and not defaulted - pass `1`, IAM's `UserMfaType` value for TOTP (`0` None, `1` TOTP, `2` Email, `3` Sms and `4` WhatsApp are declared but have no provider). The same enum drives `--auth-type`, `--user-mfa-type`, and a client's `--allowed-mfa-methods`. **Prompts interactively for the verification code unless `--code <c>` is given** - an agent running non-interactively must supply `--code`, or the command fails with `interactive_input_required`. Deliberately excludes `mfa config save` (a separate tenant-wide admin policy, not part of one user's enrollment).
-- `auth idp *` - identity provider (SSO/OIDC) configuration: list/get/create/update/delete/status.
-- `auth config *` - AuthController tenant config (token lifetimes, lockout policy, etc.).
-- `auth client-credentials *` - machine-to-machine client credentials: list/save/delete.
-- `auth oidc-clients *` - OIDC client app registrations: list/get/save (upsert)/delete/rotate-secret.
+See `blocks help iam`, `blocks help mfa`, and `blocks help auth` for the full
+family list, summaries, and flags — every family (`iam users`, `iam roles`,
+`iam permissions`, `iam resources`, `iam organizations`, `iam signup-settings`,
+`mfa config`/`totp`/`generate`/`resend`/`verify`/`method set`/`disable`/
+`backup-codes`, `auth idp`, `auth config`, `auth client-credentials`,
+`auth oidc-clients`, including the composed `mfa totp enable`) is covered
+there and cannot drift from behavior the way prose can.
 
 Rules:
 
@@ -337,13 +330,7 @@ It validates first and hard-fails with no API calls made if schemas or the rules
 
 ### Raw Data API
 
-`validate`/`schema list`/`schema pull`/`schema push`/`rules pull`/`rules deploy`/`reload` above cover the common file-oriented workflow. The rest of `/data/v4/*` is exposed directly, project-scoped with an impersonated project token only. Run `blocks help <command> --json` for exact flags; command families:
-
-- `data schema get`/`get-by-name`/`aggregation`/`change-logs`/`delete` - single-schema lookup by id or collection name, access-level aggregation summary, unadapted change logs (cleared by `data reload`), and irreversible delete. `schema get` also prints the schema's exact GraphQL operation names in non-`--json` output; do not guess pluralized names -- generated names are naive string concatenation (`Company` -> `getCompanys`, not `getCompanies`), read them from `querySchema`/`mutationSchemas` instead.
-- `data schema info list`/`save`/`update` + `data schema fields` - a two-step alternative to `schema push` (create/update schema metadata, then add/update field definitions separately). Prefer the file-oriented `schema push` workflow for normal authoring; use these only for a targeted metadata or field-only change without touching the local schema JSON.
-- `data rules policy get`/`delete` - read or delete one data-access policy without a full `rules pull`/edit/`rules deploy` round-trip.
-- `data validation list`/`get`/`by-schema`/`by-schema-field`/`save`/`delete` - field-level validation rules. No file-oriented workflow exists for these (no local JSON file to pull/push). `save` is an upsert (omit `--item-id` to create, pass it to update) and requires a `validations` array passed via `--body`/`--file` - there's no scalar flag for it, e.g. `--body '{"validations":[{"type":1,"value":"^[0-9]+$","isActive":true}]}'`.
-- `data files *` - permission-aware storage object tree: upload/download, directory CRUD/move, cursor list/search, versions, copy/move/rename, trash/restore/purge, shared objects, and access policies/inheritance.
+`validate`/`schema list`/`schema pull`/`schema push`/`rules pull`/`rules deploy`/`reload` above cover the common file-oriented workflow. The rest of `/data/v4/*` is exposed directly, project-scoped with an impersonated project token only — see `blocks help data` for the full family list (schema get/get-by-name/aggregation/change-logs/delete, schema info/fields, rules policy, validation, files) and `blocks help <command> --json` for exact flags.
 
 Same rules as everywhere else: `--dry-run` before any mutating command, then `--yes` only after explicit approval.
 
@@ -437,18 +424,7 @@ Use Localization gateway v4 paths without `/api`: `/localization/v4/Module/Gets`
 
 ### Raw Localization API
 
-`validate`/`push`/`pull` above cover the common i18n file workflow. Every other `/localization/v4/*` endpoint is also exposed directly, project-scoped with an impersonated project token only (never the account token). Run `blocks help <command> --json` for exact flags; command families:
-
-- `localization assistant translation-suggestion` - AI translation suggestion for a single string (`--source-text`, `--destination-language`, optional glossary/context flags).
-- `localization config get-webhook`/`save-webhook` - tenant webhook config for localization change notifications.
-- `localization glossary save`/`list`/`get`/`suggested`/`delete` - glossary term CRUD and AI-suggested glossary lookup.
-- `localization key save`/`list`/`get-by-names`/`get`/`delete`/`delete-keys` - key CRUD and search beyond the bulk `push`/`pull` flow.
-- `localization key get-timeline`/`get-localization-timeline`/`get-timeline-by-operation-id`/`rollback` - key/tenant change history and rollback.
-- `localization key get-uilm-file`/`generate-uilm-file`/`uilm-import`/`uilm-export`/`get-uilm-exported-files`/`get-language-file-generation-history` - UILM language-file generation and import/export jobs.
-- `localization key translate-all`/`translate-key`/`translate-keys` - trigger AI machine translation for a module or specific keys.
-- `localization key translate-and-export --module-id <id> [--wait]` - composed: `translate-all` → `generate-uilm-file` → `uilm-export`. Prefer this over running the three by hand. `--wait` polls translation progress first via a self-generated correlation id (translation is async and has no documented "done" field, so this is a best-effort heuristic - it prints the raw response every poll); without `--wait` it just fires all three back to back like running them manually in sequence.
-- `localization language save`/`list`/`list-for-tenant`/`delete`/`set-default` - tenant language catalog management.
-- `localization module save`/`list`/`list-for-tenant`/`tag-glossary` - module CRUD and glossary tagging.
+`validate`/`push`/`pull` above cover the common i18n file workflow. Every other `/localization/v4/*` endpoint is also exposed directly, project-scoped with an impersonated project token only (never the account token) — see `blocks help localization` for the full family list (assistant, config, glossary, key CRUD/search/timeline/translate/UILM, language, module — including the composed `translate-and-export`) and `blocks help <command> --json` for exact flags.
 
 Same rules as everywhere else: `--dry-run` before any mutating command, then `--yes` only after explicit approval; rich payloads accept `--body '<json>'`/`--file <path.json>` on top of the documented convenience flags. `localization config save-webhook`'s `--secret` is redacted in `--dry-run` output only - treat the live response as a secret.
 

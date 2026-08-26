@@ -20,6 +20,17 @@
 //    describe CLI commands and SDK methods, never the wire protocol behind
 //    them; citing a path is exactly the kind of detail that could tempt a
 //    raw fetch/curl bypass every skill already forbids.
+// 5. No PLAIN-TEXT references to monorepo-only paths either (`blocks-cli/...`,
+//    `blocks-client/...`, `docs/AI_...`, `command-docs.json`) -- check 3 only
+//    catches these as markdown links. A distributed skill has no access to
+//    this repo's other folders at all, not even the published npm packages'
+//    own root files under a `blocks-cli/`-style prefix (that prefix is this
+//    monorepo's layout, not the installed package's). Point to a live
+//    `blocks help <command>` instead, or restate the fact locally.
+// 6. Possible prose duplication of blocks-cli/command-docs.json (WARN only,
+//    never fails the build -- word-shingle overlap is a heuristic, and some
+//    overlap is legitimate skill-specific depth, not waste; a human decides
+//    whether to trim it, same as the manual sweep that motivated this check).
 // Exit 0 = clean, 1 = problems found (all listed, not just the first).
 import { readdirSync, readFileSync, existsSync, statSync } from "node:fs";
 import { dirname, join, relative } from "node:path";
@@ -33,6 +44,7 @@ const DESCRIPTION_HARD_LIMIT = 1024;
 const DESCRIPTION_WARN_LIMIT = 700;
 const NAME_LIMIT = 64;
 const ENDPOINT_PATTERN = /\/(iam|data|os|logic|release|localization)\/v4\/[A-Za-z0-9/{}._-]*/g;
+const MONOREPO_PATH_PATTERN = /\b(?:blocks-cli|blocks-client|blocks-skills)\/[A-Za-z0-9_.\/-]*|\bdocs\/AI_[A-Za-z_]*\.md|\bcommand-docs\.json\b/g;
 const cliIndexPath = join(skillsDir, "..", "blocks-cli", "src", "index.ts");
 const registeredCommands = existsSync(cliIndexPath)
   ? [...readFileSync(cliIndexPath, "utf8").matchAll(/^\s*"([a-z0-9:-]+)"\s*:/gm)]
@@ -44,6 +56,84 @@ const skillDirs = readdirSync(skillsDir, { withFileTypes: true })
   .filter((entry) => entry.isDirectory())
   .map((entry) => entry.name)
   .sort();
+
+// --- Duplication check setup (warn-only, see checkDuplication below) -------
+const SHINGLE_SIZE = 7;
+const MIN_WORDS = 10;
+const OVERLAP_THRESHOLD = 0.6;
+
+const commandDocsPath = join(skillsDir, "..", "blocks-cli", "command-docs.json");
+const commandDocs = existsSync(commandDocsPath) ? JSON.parse(readFileSync(commandDocsPath, "utf8")) : {};
+
+function normalizeSentence(text) {
+  return text
+    .replace(/`([^`]*)`/g, "$1")
+    .replace(/\[([^\]]*)\]\([^)]*\)/g, "$1")
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function splitSentences(text) {
+  return text
+    .split(/```[\s\S]*?```/g) // drop fenced code blocks first
+    .join(" ")
+    .split(/(?<=[.!?])\s+|\r?\n+/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
+
+function shingleSet(normalized) {
+  const words = normalized.split(" ").filter(Boolean);
+  if (words.length < MIN_WORDS) return null;
+  const set = new Set();
+  for (let i = 0; i <= words.length - SHINGLE_SIZE; i++) set.add(words.slice(i, i + SHINGLE_SIZE).join(" "));
+  return set;
+}
+
+function overlapRatio(a, b) {
+  let hits = 0;
+  for (const shingle of a) if (b.has(shingle)) hits++;
+  return hits / Math.min(a.size, b.size);
+}
+
+const referenceSentences = [];
+for (const [command, doc] of Object.entries(commandDocs)) {
+  for (const field of ["summary", "details"]) {
+    if (!doc[field]) continue;
+    for (const sentence of splitSentences(doc[field])) {
+      const shingles = shingleSet(normalizeSentence(sentence));
+      if (shingles) referenceSentences.push({ command, field, sentence, shingles });
+    }
+  }
+}
+
+function checkDuplication(filePath) {
+  if (referenceSentences.length === 0) return;
+
+  const raw = readFileSync(filePath, "utf8");
+  const rel = relative(skillsDir, filePath);
+
+  for (const sentence of splitSentences(raw)) {
+    const shingles = shingleSet(normalizeSentence(sentence));
+    if (!shingles) continue;
+
+    let best = null;
+    for (const ref of referenceSentences) {
+      const ratio = overlapRatio(shingles, ref.shingles);
+      if (ratio >= OVERLAP_THRESHOLD && (!best || ratio > best.ratio)) best = { ...ref, ratio };
+    }
+
+    if (best) {
+      const snippet = sentence.length > 100 ? `${sentence.slice(0, 100)}...` : sentence;
+      warnings.push(
+        `${rel}: possibly duplicates command-docs.json["${best.command}"].${best.field} ` +
+          `(${Math.round(best.ratio * 100)}% word-shingle overlap) -- "${snippet}"`
+      );
+    }
+  }
+}
 
 for (const skillName of skillDirs) {
   const skillPath = join(skillsDir, skillName);
@@ -58,19 +148,22 @@ for (const skillName of skillDirs) {
   for (const markdownPath of markdownFiles(skillPath)) {
     checkLinksInFile(skillName, markdownPath);
     checkEndpointsInFile(markdownPath);
+    checkMonorepoPathReferences(markdownPath);
     checkTextHygiene(markdownPath);
     checkExecutableCommands(markdownPath);
+    checkDuplication(markdownPath);
   }
 }
 
 const consumerDocs = [
   join(skillsDir, "..", "blocks-cli", "README.md"),
-  join(skillsDir, "..", "blocks-cli", "AI_USAGE_GUIDE.md"),
-  join(skillsDir, "..", "docs", "AI_START_GUIDE.md")
+  join(skillsDir, "..", "blocks-cli", "AGENT_GUIDE.md"),
+  join(skillsDir, "..", "docs", "AI_ROUTING_GUIDE.md")
 ];
 for (const markdownPath of consumerDocs.filter(existsSync)) {
   checkTextHygiene(markdownPath);
   checkExecutableCommands(markdownPath);
+  checkDuplication(markdownPath);
 }
 
 function markdownFiles(directory) {
@@ -170,6 +263,21 @@ function checkEndpointsInFile(filePath) {
 
   for (const match of raw.matchAll(ENDPOINT_PATTERN)) {
     errors.push(`${rel}: raw API endpoint path '${match[0]}' -- describe the CLI command/SDK method instead, never the wire path`);
+  }
+}
+
+function checkMonorepoPathReferences(filePath) {
+  const raw = readFileSync(filePath, "utf8");
+  const rel = relative(skillsDir, filePath);
+
+  for (const match of raw.matchAll(MONOREPO_PATH_PATTERN)) {
+    errors.push(
+      `${rel}: references monorepo-only path '${match[0]}' -- a distributed skill has ` +
+        `no access to this repo's other folders (not even a published package's own ` +
+        `README/AGENT_GUIDE under a 'blocks-cli/'-style prefix, since that prefix is this ` +
+        `monorepo's layout, not the installed package's). Point to a live ` +
+        `'blocks help <command>' instead, or restate the fact locally.`
+    );
   }
 }
 
