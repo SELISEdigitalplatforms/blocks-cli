@@ -7,6 +7,9 @@ description: "Work with SELISE Blocks RBAC (roles & permissions) via `blocks iam
 
 This skill covers **permission and role definitions** in SELISE Blocks — the RBAC model itself, not who has which role (that's the blocks-iam-users skill). Everything goes through either `blocks iam roles/permissions *` (CLI) or `blocksClient.iam.*` from **`@seliseblocks/client`**, the single SDK instance every `blocks new web` scaffold wires up at `src/lib/blocks/client.ts` and exports as `blocksClient`. No raw `fetch`/`curl` for either surface.
 
+For CLI work, if account or project context is unknown, use blocks-bootstrap
+first. Do not add login or project-selection logic to this skill.
+
 ```ts
 import { blocksClient } from "../../lib/blocks/client";
 ```

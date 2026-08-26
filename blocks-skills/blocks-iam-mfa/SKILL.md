@@ -12,6 +12,9 @@ Two different things live under "MFA," and this skill covers both without confla
 
 Source of truth: the `@seliseblocks/client` SDK's `mfa` namespace and the `blocks mfa *` CLI command family — this skill surfaces their documented behavior, it doesn't add new capability.
 
+For CLI work, if account or project context is unknown, use blocks-bootstrap
+first. Do not infer an account or tenant inside an MFA workflow.
+
 ## Scope: this vs. the other IAM skills
 
 - **This skill** — the signed-in user's own MFA enrollment/verification, and tenant-wide MFA policy configuration (`config`/`saveConfig`).

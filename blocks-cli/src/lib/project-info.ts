@@ -1,6 +1,6 @@
 import { blocksRequest } from "./api.js";
 import { requestContext } from "./request-context.js";
-import { selectedProject } from "./workspace.js";
+import { optionalSelectedProject, selectedProject } from "./workspace.js";
 
 export type ProjectRecord = {
   applications?: Array<{ domain?: string }>;
@@ -28,9 +28,22 @@ export type TenantAssetResponse = {
 // tenant, so the impersonated project session works here too. Prefer it when
 // a project is selected (avoids an extra account-session refresh mid-project
 // work); fall back to the account token when nothing is selected yet.
-export async function listProjectGroups(flags: Record<string, string | boolean>): Promise<ProjectGroupRecord[]> {
+export async function listProjectGroups(
+  flags: Record<string, string | boolean>,
+  options: { accountOnly?: boolean } = {}
+): Promise<ProjectGroupRecord[]> {
+  if (options.accountOnly) {
+    return blocksRequest<ProjectGroupRecord[]>("/os/v4/Project/Gets", {
+      accountAuth: true,
+      query: { page: 0, pageSize: 100, tenantGroupId: "" },
+      ...requestContext(flags)
+    });
+  }
+
+  const projectTenantId = await optionalSelectedProject(flags);
   return blocksRequest<ProjectGroupRecord[]>("/os/v4/Project/Gets", {
     preferImpersonatedProjectAuth: true,
+    projectTenantId,
     query: { page: 0, pageSize: 100, tenantGroupId: "" },
     ...requestContext(flags)
   });
@@ -67,8 +80,10 @@ export async function getProjectAssets(
   tenantGroupId: string,
   flags: Record<string, string | boolean>
 ): Promise<TenantAssetResponse> {
+  const projectTenantId = await optionalSelectedProject(flags);
   return blocksRequest<TenantAssetResponse>("/os/v4/Project/GetAsset", {
     preferImpersonatedProjectAuth: true,
+    projectTenantId,
     query: { page: 0, pageSize: 100, tenantGroupId },
     ...requestContext(flags)
   });

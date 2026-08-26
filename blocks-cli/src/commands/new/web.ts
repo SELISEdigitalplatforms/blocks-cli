@@ -1,15 +1,15 @@
 import { parseFlags, stringFlag } from "../../lib/args.js";
 import { blocksRequest } from "../../lib/api.js";
 import { confirmMutation } from "../../lib/confirm.js";
-import { defaults, readConfig, writeConfig } from "../../lib/config.js";
-import { apiUrlFromAppDomain } from "../../lib/domains.js";
+import { defaults } from "../../lib/config.js";
+import { apiUrlFromAppDomain, oidcRedirectUrisFromAppDomain } from "../../lib/domains.js";
 import { CliActionableError } from "../../lib/errors.js";
 import { withBlocksIdentityProviderDiscovery } from "../../lib/oidc-discovery.js";
 import { findProjectByTenantId, ProjectRecord } from "../../lib/project-info.js";
 import { promptText, selectFromList } from "../../lib/prompt.js";
 import { requestContext } from "../../lib/request-context.js";
 import { scaffoldWebProject } from "../../lib/scaffold-web/index.js";
-import { parseCommand, readWorkspaceConfig, selectedProject, writeWorkspaceConfig } from "../../lib/workspace.js";
+import { parseCommand, readWorkspaceConfig, saveSelectedProject, selectedProject, writeWorkspaceConfig } from "../../lib/workspace.js";
 
 export async function newWeb(argv: string[]): Promise<void> {
   const { args, flags } = parseCommand(argv);
@@ -44,18 +44,9 @@ export async function newWeb(argv: string[]): Promise<void> {
   });
 
   try {
-    const config = await readConfig();
-    await writeConfig({
-      ...config,
-      selectedProject: {
-        ...config.selectedProject,
-        appDomain,
-        name,
-        tenantId
-      }
-    });
+    await saveSelectedProject(tenantId, stringFlag(flags, "account") || undefined, { appDomain, name });
   } catch (error) {
-    console.warn(`Warning: could not update global CLI project selection: ${(error as Error).message}`);
+    console.warn(`Warning: could not update account project selection: ${(error as Error).message}`);
   }
 
   const workspace = await readWorkspaceConfig();
@@ -211,9 +202,9 @@ async function createOidcClientInteractively(
   appName: string,
   flags: Record<string, string | boolean>
 ): Promise<string> {
-  const defaultRedirect = `https://${appDomain}/login/callback`;
+  const [defaultRedirect, localRedirect] = oidcRedirectUrisFromAppDomain(appDomain);
   const displayName = (await promptText(`OIDC client display name [${appName}]: `)) || appName;
-  const redirectUri = (await promptText(`Redirect URI [${defaultRedirect}]: `)) || defaultRedirect;
+  const redirectUri = (await promptText(`Production redirect URI [${defaultRedirect}]: `)) || defaultRedirect;
 
   // clientType drives IAM's tokenEndpointAuthMethod: omitting it stores this browser
   // app as confidential ("client_secret_post") and lets it request client_credentials.
@@ -227,7 +218,7 @@ async function createOidcClientInteractively(
     clientType: "public",
     isActive: true,
     isAutoRedirect: true,
-    redirectUris: [redirectUri],
+    redirectUris: [...new Set([redirectUri, localRedirect])],
     registerAsIdentityProvider: true,
     requirePkce: true,
     scope: "openid profile"

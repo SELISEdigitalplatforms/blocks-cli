@@ -5,6 +5,10 @@ description: "Send transactional email via the SDK's `blocksClient.mail.send()`/
 
 # Blocks Mail
 
+For CLI work, use blocks-bootstrap first when account or project context is
+unknown. Mail operations must not choose or repair authentication context as a
+side effect.
+
 Blocks mail has **two distinct surfaces that don't fully overlap**:
 
 - **SDK — `blocksClient.mail.send()` / `sendToAny()`** — the only mail operations exposed to app code. Use this when the question is "how do I send an email from my app."
@@ -34,7 +38,7 @@ await blocksClient.mail.send({
 
 ## CLI — administering mail (`blocks mail config|template|mailbox *`)
 
-Everything under `mail config`, `mail template`, and `mail mailbox` is project-scoped: every command requires an impersonated project session, resolving the target project from whichever project is selected with `blocks use <tenantId>`, the workspace's `blocks.json`, or an explicit `--project <tenantId>`. There is no account-level mode for any mail command, including `mail send`/`mail sendtoany`.
+Everything under `mail config`, `mail template`, and `mail mailbox` is project-scoped: every command requires an impersonated project session. Project resolution is an explicit `--project <tenantId>`, then the workspace's `blocks.json`, then the resolved account's selection from `blocks use <tenantId>`. There is no account-level mode for any mail command, including `mail send`/`mail sendtoany`.
 
 ### `mail config` — SMTP/inbound provider configuration
 

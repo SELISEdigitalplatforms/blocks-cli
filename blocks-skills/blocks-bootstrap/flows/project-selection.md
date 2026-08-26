@@ -2,7 +2,10 @@
 
 Three ways in, one exit: a project is selected and verified. Pick the branch that matches what the user already gave you — do not walk them through the others.
 
-Everything below needs the CLI logged in first. If `blocks auth status --json` shows the account tokens `missing` or `expired` with no refresh, go back and run `blocks login`.
+Everything below needs a usable account or project token pair for the resolved
+account. Missing account tokens are normal while a valid project pair exists.
+If all tokens are missing, return to the bootstrap skill: log in explicitly for
+local use, or require launcher bootstrap for Code Studio.
 
 ## Branch A — the user supplied an x-blocks-key
 
@@ -74,7 +77,8 @@ blocks deselect
 blocks use <x-blocks-key>
 ```
 
-`deselect` drops both the selection and its cached impersonation token; reselecting the same key forces a fresh one.
+`deselect` exchanges the project pair for a fresh account pair and clears the
+account-specific selection; reselecting exchanges back to a fresh project pair.
 
 One failure that looks like this but is not: `impersonation_invalid_client` means the account's OIDC client is not registered for impersonation. Re-selecting will not fix it — check `blocks auth config get` and have an admin register it.
 

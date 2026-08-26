@@ -22,7 +22,7 @@ export async function writeLocalizationDictionary(path: string, dictionary: Loca
   await writeFile(path, `${JSON.stringify(sortDictionary(dictionary), null, 2)}\n`);
 }
 
-export function validateLocalizationDictionary(dictionary: LocalizationDictionary): string[] {
+export function validateLocalizationDictionary(dictionary: LocalizationDictionary, moduleName?: string): string[] {
   const errors: string[] = [];
   const keys = Object.keys(dictionary);
   if (!keys.length) errors.push("Localization dictionary is empty.");
@@ -30,6 +30,9 @@ export function validateLocalizationDictionary(dictionary: LocalizationDictionar
   for (const key of keys) {
     if (!/^[A-Za-z0-9][A-Za-z0-9._:-]*$/.test(key)) {
       errors.push(`Invalid key '${key}'. Use letters, numbers, dot, dash, underscore, or colon.`);
+    }
+    if (moduleName && key.toLowerCase().startsWith(`${moduleName.toLowerCase()}.`)) {
+      errors.push(`Redundant module prefix in key '${key}'. The module '${moduleName}' already provides the namespace; use '${key.slice(moduleName.length + 1)}'.`);
     }
     if (!dictionary[key].trim()) errors.push(`Key '${key}' has an empty value.`);
   }

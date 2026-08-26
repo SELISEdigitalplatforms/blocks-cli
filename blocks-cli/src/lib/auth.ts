@@ -1,7 +1,7 @@
 import {
   AccountProfile,
-  getAccountProfile,
   readConfig,
+  resolveAccountProfile,
   TokenSet,
   writeConfig
 } from "./config.js";
@@ -9,6 +9,7 @@ import { applyAccountToken, applyProjectToken, isExpiring, TokenResponse } from 
 import { readTokenStore, writeTokenStore } from "./token-store.js";
 import { getClientSecret } from "./secret-store.js";
 import { CliActionableError } from "./errors.js";
+import { withAuthTransitionLock } from "./auth-lock.js";
 
 export type AccountSession = {
   accessToken: string;
@@ -29,6 +30,12 @@ export type SessionOptions = {
   // recover from a 401 that the local expiry check didn't predict (early
   // server-side revocation, clock skew), instead of failing the command.
   forceRefresh?: boolean;
+};
+
+export type AccountModeResult<T> = {
+  previousProject?: string;
+  restoreError?: Error;
+  result: T;
 };
 
 export type DeviceAuthorizationResponse = {
@@ -180,114 +187,32 @@ function throwIfTooManyTransientErrors(count: number, cause: unknown): void {
 }
 
 export async function getAccountSession(accountOverride?: string, options: SessionOptions = {}): Promise<AccountSession> {
-  let config = await readConfig();
-  let store = await readTokenStore();
-  const { name, profile } = getAccountProfile(config, accountOverride);
-  const token = store.accounts[name]?.account;
-
-  if (!token?.accessToken || !token.accountTenant) {
-    throw new Error(`Account '${name}' is not logged in. Run 'blocks login' first.`);
-  }
-
-  if (!options.forceRefresh && !isExpiring(token.expiresAt)) {
-    return {
-      accessToken: token.accessToken,
-      account: name,
-      accountTenant: token.accountTenant,
-      profile
-    };
-  }
-
-  if (!token.refreshToken) {
-    throw new Error(`Account '${name}' token expired and no refresh token is available. Run 'blocks login' again.`);
-  }
-
-  const refreshed = await refreshToken(profile.oidcUrl, profile.clientId, token.refreshToken, await getClientSecret(name), profile.rootTenantId ?? token.accountTenant);
-  const next = applyAccountToken(config, store, name, profile.clientId, refreshed);
-  config = next.config;
-  store = next.store;
-  await writeConfig(config);
-  await writeTokenStore(store);
-
-  const refreshedToken = store.accounts[name]!.account!;
-  return {
-    accessToken: refreshedToken.accessToken,
-    account: name,
-    accountTenant: refreshedToken.accountTenant!,
-    profile
-  };
-}
-
-export async function selectProject(tenantId: string): Promise<void> {
   const config = await readConfig();
-  await writeConfig({
-    ...config,
-    selectedProject: {
-      ...config.selectedProject,
-      tenantId
-    }
-  });
+  const store = await readTokenStore();
+  const { name, profile } = await resolveAccountProfile(config, accountOverride);
+  const token = store.accounts[name]?.account;
+  if (!options.forceRefresh && !isExpiring(token?.expiresAt)) {
+    if (token?.accessToken && token.accountTenant) return accountSessionFromToken(name, profile, token);
+  }
+
+  return await withAuthTransitionLock(() => getAccountSessionUnlocked(name, options));
 }
 
 export async function getImpersonatedProjectSession(accountOverride?: string, tenantOverride?: string, options: SessionOptions = {}): Promise<ProjectSession> {
-  let config = await readConfig();
-  let store = await readTokenStore();
-  const { name, profile } = getAccountProfile(config, accountOverride);
-  const tenantId = tenantOverride ?? config.selectedProject?.tenantId;
+  const config = await readConfig();
+  const store = await readTokenStore();
+  const { name, profile } = await resolveAccountProfile(config, accountOverride);
+  const tenantId = tenantOverride ?? profile.selectedProject?.tenantId;
   if (!tenantId) {
     throw new Error("No project selected. Run 'blocks use <tenantId>' first.");
   }
 
   const projectToken = store.accounts[name]?.projects?.[tenantId];
   if (!options.forceRefresh && projectToken?.accessToken && !isExpiring(projectToken.expiresAt)) {
-    return {
-      accessToken: projectToken.accessToken,
-      account: name,
-      accountTenant: store.accounts[name]?.account?.accountTenant ?? profile.rootTenantId ?? tenantId,
-      tenantId
-    };
+    return projectSessionFromToken(name, tenantId, projectToken, profile.rootTenantId);
   }
 
-  if (projectToken?.refreshToken) {
-    const refreshed = await refreshToken(profile.oidcUrl, profile.clientId, projectToken.refreshToken, await getClientSecret(name), profile.rootTenantId ?? tenantId);
-    const next = applyProjectToken(config, store, name, tenantId, refreshed);
-    config = next.config;
-    store = next.store;
-    await writeConfig(config);
-    await writeTokenStore(store);
-
-    return projectSessionFromToken(name, tenantId, store.accounts[name]!.projects![tenantId], store.accounts[name]?.account?.accountTenant ?? profile.rootTenantId);
-  }
-
-  const account = await getAccountSession(name, options);
-  config = await readConfig();
-  store = await readTokenStore();
-  const rootRefresh = store.accounts[name]?.account?.refreshToken;
-  if (!rootRefresh) {
-    throw new Error(`Project impersonation needs a fresh account refresh token. Run 'blocks login' again.`);
-  }
-
-  const data = await impersonateProject({
-    accessToken: account.accessToken,
-    accountTenant: account.accountTenant,
-    apiUrl: profile.apiUrl,
-    clientId: profile.clientId,
-    refreshToken: rootRefresh,
-    tenantId
-  });
-
-  const next = applyProjectToken(config, store, name, tenantId, data);
-  const token = next.store.accounts[name]?.account;
-  if (token) {
-    next.store.accounts[name]!.account = {
-      ...token,
-      refreshToken: undefined
-    };
-  }
-
-  await writeConfig(next.config);
-  await writeTokenStore(next.store);
-  return projectSessionFromToken(name, tenantId, next.store.accounts[name]!.projects![tenantId], account.accountTenant);
+  return await withAuthTransitionLock(() => getImpersonatedProjectSessionUnlocked(name, tenantId, options));
 }
 
 // Ends the active project impersonation and restores a fresh, refreshable
@@ -298,32 +223,209 @@ export async function getImpersonatedProjectSession(accountOverride?: string, te
 // token back. No-ops if no project is selected or nothing was ever
 // impersonated for it.
 export async function stopProjectImpersonation(accountOverride?: string, tenantOverride?: string): Promise<void> {
+  await withAuthTransitionLock(() => stopProjectImpersonationUnlocked(accountOverride, tenantOverride));
+}
+
+export async function withAccountMode<T>(
+  accountOverride: string | undefined,
+  operation: (account: AccountSession) => Promise<T>,
+  options: { restoreProject?: boolean } = { restoreProject: true }
+): Promise<AccountModeResult<T>> {
+  return await withAuthTransitionLock(async () => {
+    const config = await readConfig();
+    const store = await readTokenStore();
+    const { name } = await resolveAccountProfile(config, accountOverride);
+    const previousProject = currentProjectTenant(store, name);
+
+    if (previousProject) await stopProjectImpersonationUnlocked(name, previousProject);
+    const account = await getAccountSessionUnlocked(name);
+
+    let result!: T;
+    let operationError: unknown;
+    try {
+      result = await operation(account);
+    } catch (error) {
+      operationError = error;
+    }
+
+    let restoreError: Error | undefined;
+    if (previousProject && options.restoreProject !== false) {
+      try {
+        await getImpersonatedProjectSessionUnlocked(name, previousProject);
+      } catch (error) {
+        restoreError = error instanceof Error ? error : new Error(String(error));
+      }
+    }
+
+    if (operationError !== undefined) {
+      if (restoreError) {
+        throw new AggregateError([operationError, restoreError], "Account operation failed and the previous project session could not be restored.");
+      }
+      throw operationError;
+    }
+
+    return { previousProject, restoreError, result };
+  });
+}
+
+export async function storeAccountLogin(
+  account: string,
+  profile: AccountProfile,
+  token: TokenResponse
+): Promise<void> {
+  requireRefreshToken(token, "Account login");
+  await withAuthTransitionLock(async () => {
+    const config = await readConfig();
+    const store = await readTokenStore();
+    const next = applyAccountToken(config, store, account, profile.clientId, token, { activateAccount: true });
+    await writeConfig(next.config);
+    await writeTokenStore(next.store);
+  });
+}
+
+export async function logoutCurrentSession(
+  accountOverride?: string,
+  tenantOverride?: string
+): Promise<{ hadTokens: boolean; warning?: string }> {
+  return await withAuthTransitionLock(async () => {
+    const config = await readConfig();
+    const store = await readTokenStore();
+    const { name, profile } = await resolveAccountProfile(config, accountOverride);
+    const hadTokens = Boolean(store.accounts[name]?.account || currentProjectTenant(store, name));
+    let warning: string | undefined;
+
+    try {
+      const projectTenant = currentProjectTenant(store, name, tenantOverride);
+      if (projectTenant) {
+        const project = await getImpersonatedProjectSessionUnlocked(name, projectTenant);
+        const latest = await readTokenStore();
+        const refreshToken = latest.accounts[name]?.projects?.[projectTenant]?.refreshToken;
+        if (refreshToken) await postLogout(profile.apiUrl, project.accessToken, project.accountTenant, refreshToken);
+      } else if (store.accounts[name]?.account) {
+        const account = await getAccountSessionUnlocked(name);
+        const latest = await readTokenStore();
+        const refreshToken = latest.accounts[name]?.account?.refreshToken;
+        if (refreshToken) await postLogout(profile.apiUrl, account.accessToken, account.accountTenant, refreshToken);
+      }
+    } catch (error) {
+      warning = error instanceof Error ? error.message : String(error);
+    }
+
+    const latest = await readTokenStore();
+    if (latest.accounts[name]) {
+      const { [name]: _removed, ...accounts } = latest.accounts;
+      await writeTokenStore({ accounts });
+    }
+    return { hadTokens, warning };
+  });
+}
+
+async function getAccountSessionUnlocked(accountOverride?: string, options: SessionOptions = {}): Promise<AccountSession> {
   const config = await readConfig();
-  const { name, profile } = getAccountProfile(config, accountOverride);
-  const tenantId = tenantOverride ?? config.selectedProject?.tenantId;
+  const store = await readTokenStore();
+  const { name, profile } = await resolveAccountProfile(config, accountOverride);
+  const token = store.accounts[name]?.account;
+
+  if (!token?.accessToken || !token.accountTenant) {
+    if (currentProjectTenant(store, name)) {
+      throw new CliActionableError(
+        `Account '${name}' is currently impersonating a project.`,
+        "account_session_suspended",
+        "Run 'blocks deselect' before an account-only operation."
+      );
+    }
+    throw new Error(`Account '${name}' is not logged in. Run 'blocks login' first.`);
+  }
+
+  if (!options.forceRefresh && !isExpiring(token.expiresAt)) return accountSessionFromToken(name, profile, token);
+  if (!token.refreshToken) {
+    throw new Error(`Account '${name}' token expired and no refresh token is available. Run 'blocks login' again.`);
+  }
+
+  const refreshed = await refreshToken(profile.oidcUrl, profile.clientId, token.refreshToken, await getClientSecret(name), profile.rootTenantId ?? token.accountTenant);
+  const next = applyAccountToken(config, store, name, profile.clientId, refreshed);
+  await writeConfig(next.config);
+  await writeTokenStore(next.store);
+  return accountSessionFromToken(name, profile, next.store.accounts[name]!.account!);
+}
+
+async function getImpersonatedProjectSessionUnlocked(
+  accountOverride?: string,
+  tenantOverride?: string,
+  options: SessionOptions = {}
+): Promise<ProjectSession> {
+  const config = await readConfig();
+  const { name, profile } = await resolveAccountProfile(config, accountOverride);
+  const tenantId = tenantOverride ?? profile.selectedProject?.tenantId;
+  if (!tenantId) throw new Error("No project selected. Run 'blocks use <tenantId>' first.");
+
+  let store = await readTokenStore();
+  let projectToken = store.accounts[name]?.projects?.[tenantId];
+  if (!options.forceRefresh && projectToken?.accessToken && !isExpiring(projectToken.expiresAt)) {
+    return projectSessionFromToken(name, tenantId, projectToken, profile.rootTenantId);
+  }
+
+  if (projectToken?.refreshToken) {
+    const refreshed = await refreshToken(profile.oidcUrl, profile.clientId, projectToken.refreshToken, await getClientSecret(name), profile.rootTenantId ?? tenantId);
+    const next = applyProjectToken(config, store, name, tenantId, refreshed);
+    await writeConfig(next.config);
+    await writeTokenStore(next.store);
+    return projectSessionFromToken(name, tenantId, next.store.accounts[name]!.projects![tenantId], profile.rootTenantId);
+  }
+
+  const currentProject = currentProjectTenant(store, name);
+  if (currentProject && currentProject !== tenantId) {
+    await stopProjectImpersonationUnlocked(name, currentProject);
+    store = await readTokenStore();
+    projectToken = store.accounts[name]?.projects?.[tenantId];
+  }
+
+  const account = await getAccountSessionUnlocked(name, options);
+  store = await readTokenStore();
+  const rootRefresh = store.accounts[name]?.account?.refreshToken;
+  if (!rootRefresh) throw new Error("Project impersonation needs a fresh account refresh token. Run 'blocks login' again.");
+
+  const data = await impersonateProject({
+    accessToken: account.accessToken,
+    accountTenant: account.accountTenant,
+    apiUrl: profile.apiUrl,
+    clientId: profile.clientId,
+    refreshToken: rootRefresh,
+    tenantId
+  });
+  requireRefreshToken(data, "Project impersonation");
+  const next = applyProjectToken(config, store, name, tenantId, data);
+  await writeConfig(next.config);
+  await writeTokenStore(next.store);
+  return projectSessionFromToken(name, tenantId, next.store.accounts[name]!.projects![tenantId], profile.rootTenantId ?? account.accountTenant);
+}
+
+async function stopProjectImpersonationUnlocked(accountOverride?: string, tenantOverride?: string): Promise<void> {
+  const config = await readConfig();
+  const { name, profile } = await resolveAccountProfile(config, accountOverride);
+  const store = await readTokenStore();
+  const tenantId = currentProjectTenant(store, name, tenantOverride) ?? profile.selectedProject?.tenantId;
   if (!tenantId) return;
 
-  const store = await readTokenStore();
-  if (!store.accounts[name]?.projects?.[tenantId]?.refreshToken) return;
-
-  // The stop endpoint requires a currently-valid bearer token to authenticate
-  // the call, so refresh the project session first if it's expiring.
-  const project = await getImpersonatedProjectSession(name, tenantId);
+  const storedProject = store.accounts[name]?.projects?.[tenantId];
+  if (!storedProject) return;
+  if (!storedProject.refreshToken) {
+    throw new CliActionableError(
+      `Project session '${tenantId}' has no refresh token and cannot be stopped safely.`,
+      "project_refresh_token_missing",
+      `blocks login --account ${name}`
+    );
+  }
+  const project = await getImpersonatedProjectSessionUnlocked(name, tenantId);
   const beforeStop = await readTokenStore();
   const projectToken = beforeStop.accounts[name]?.projects?.[tenantId];
   if (!projectToken?.refreshToken) return;
 
   const refreshed = await postStopImpersonation(profile.apiUrl, project.accessToken, project.accountTenant, projectToken.refreshToken);
-
+  requireRefreshToken(refreshed, "Stop impersonation");
   const latestConfig = await readConfig();
   const latestStore = await readTokenStore();
   const next = applyAccountToken(latestConfig, latestStore, name, profile.clientId, refreshed);
-  const { [tenantId]: _removed, ...remainingProjects } = next.store.accounts[name]?.projects ?? {};
-  next.store.accounts[name] = {
-    ...next.store.accounts[name],
-    projects: remainingProjects
-  };
-
   await writeConfig(next.config);
   await writeTokenStore(next.store);
 }
@@ -346,25 +448,14 @@ async function postStopImpersonation(apiUrl: string, accessToken: string, accoun
   throw new Error(data.error_description ?? data.error ?? `Stop impersonation failed with HTTP ${response.status}`);
 }
 
-export async function revokeCurrentSession(accountOverride?: string): Promise<void> {
-  const config = await readConfig();
-  const store = await readTokenStore();
-  const { name, profile } = getAccountProfile(config, accountOverride);
-  const accountToken = store.accounts[name]?.account;
-  const projectRefresh = config.selectedProject?.tenantId
-    ? store.accounts[name]?.projects?.[config.selectedProject.tenantId]?.refreshToken
-    : undefined;
-  const refreshToken = projectRefresh ?? accountToken?.refreshToken;
-
-  if (!accountToken?.accessToken || !accountToken.accountTenant || !refreshToken) return;
-
-  const response = await fetch(new URL("/iam/v4/api/auth/logout", profile.apiUrl), {
+async function postLogout(apiUrl: string, accessToken: string, accountTenant: string, refreshToken: string): Promise<void> {
+  const response = await fetch(new URL("/iam/v4/api/auth/logout", apiUrl), {
     body: JSON.stringify({ refresh_token: refreshToken }),
     headers: {
       Accept: "application/json",
-      Authorization: `Bearer ${accountToken.accessToken}`,
+      Authorization: `Bearer ${accessToken}`,
       "Content-Type": "application/json",
-      "x-blocks-key": accountToken.accountTenant
+      "x-blocks-key": accountTenant
     },
     method: "POST"
   });
@@ -373,6 +464,26 @@ export async function revokeCurrentSession(accountOverride?: string): Promise<vo
     const body = await response.text();
     throw new Error(`Logout revoke failed with HTTP ${response.status}${body ? `: ${body}` : ""}`);
   }
+}
+
+function accountSessionFromToken(name: string, profile: AccountProfile, token: TokenSet): AccountSession {
+  return {
+    accessToken: token.accessToken,
+    account: name,
+    accountTenant: token.accountTenant!,
+    profile
+  };
+}
+
+function currentProjectTenant(store: Awaited<ReturnType<typeof readTokenStore>>, account: string, preferred?: string): string | undefined {
+  const projects = store.accounts[account]?.projects ?? {};
+  if (preferred && projects[preferred]) return preferred;
+  return Object.entries(projects).find(([, token]) => Boolean(token.refreshToken))?.[0]
+    ?? Object.keys(projects)[0];
+}
+
+function requireRefreshToken(response: TokenResponse, operation: string): void {
+  if (!response.refresh_token) throw new Error(`${operation} did not return a refresh token.`);
 }
 
 async function refreshToken(oidcUrl: string, clientId: string, refreshToken: string, clientSecret?: string, rootTenantId?: string): Promise<TokenResponse> {

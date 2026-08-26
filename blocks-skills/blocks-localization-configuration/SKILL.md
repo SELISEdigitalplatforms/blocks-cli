@@ -14,7 +14,7 @@ Translations (i18n) for a Blocks project's static UI text — labels, titles, bu
 | Command | What it does |
 |---|---|
 | `blocks localization validate --module <name> --language <culture> [--file <path>] [--json]` | Validates a local i18n JSON dictionary. **Local-only, no API call.** |
-| `blocks localization push --module <name> --language <culture> [--file <path>] [--route <route>] [--context <text>] [--dry-run] [--yes] [--json]` | Creates/updates keys from the local dictionary. If the module doesn't exist yet, creates it first — **this is the only way this tooling creates a module.** Mutating. |
+| `blocks localization push --module <name> --language <culture> [--file <path>] [--route <route>] [--context <text>] [--dry-run] [--yes] [--json]` | Creates/updates keys from the local dictionary. If the module doesn't exist yet, creates it as a convenience; `localization module save` can also create an empty module directly. Mutating. |
 | `blocks localization pull --module <name> --language <culture> [--out <path>] [--json]` | Downloads the **published** cloud dictionary into a local JSON file. Read-only, overwrites the local file. |
 
 `--module` is the feature-area bundle name (`common`, `login`, `dashboard`, …). `--language` is a culture code (`en`, `de-DE`, `bn-BD`, …) — see the culture-matching gotcha below before picking one.
@@ -30,11 +30,13 @@ blocks/localization/<module>.<language>.json
 for example `blocks/localization/login.de-DE.json`. Pass `--file`/`--out` to override the path. Content is a flat or nested JSON object of string values — nested objects are flattened with `.` before validation/push, so either of these is fine and produces the same keys:
 
 ```json
-{ "login.title": "Anmelden", "login.submit": "Absenden" }
+{ "form.title": "Anmelden", "form.submit": "Absenden" }
 ```
 
+The module already provides the namespace, so do not repeat it in key names: a `login` module uses `title` or `form.title`, not `login.title`.
+
 ```json
-{ "login": { "title": "Anmelden", "submit": "Absenden" } }
+{ "form": { "title": "Anmelden", "submit": "Absenden" } }
 ```
 
 Key names must match `^[A-Za-z0-9][A-Za-z0-9._:-]*$` (letters, numbers, dot, dash, underscore, colon — no spaces) after flattening, and every value must be a non-empty string. `localization validate` enforces exactly this, locally, before anything touches the network.

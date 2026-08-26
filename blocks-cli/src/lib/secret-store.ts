@@ -1,7 +1,8 @@
 import { execFile, spawn } from "node:child_process";
+import { createHash } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { platform } from "node:os";
-import { dirname, join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { promisify } from "node:util";
 import { configDir } from "./config.js";
 
@@ -215,12 +216,12 @@ async function unprotectWindowsSecret(secret: string): Promise<string | undefine
 }
 
 async function setMacSecret(account: string, secret: string): Promise<void> {
-  await execFileAsync("security", ["add-generic-password", "-a", account, "-s", SERVICE, "-w", secret, "-U"]);
+  await execFileAsync("security", ["add-generic-password", "-a", nativeSecretAccount(account), "-s", SERVICE, "-w", secret, "-U"]);
 }
 
 async function getMacSecret(account: string): Promise<string | undefined> {
   try {
-    const { stdout } = await execFileAsync("security", ["find-generic-password", "-a", account, "-s", SERVICE, "-w"]);
+    const { stdout } = await execFileAsync("security", ["find-generic-password", "-a", nativeSecretAccount(account), "-s", SERVICE, "-w"]);
     return stdout.trim() || undefined;
   } catch {
     return undefined;
@@ -229,16 +230,17 @@ async function getMacSecret(account: string): Promise<string | undefined> {
 
 async function removeMacSecret(account: string): Promise<void> {
   if (platform() !== "darwin") return;
-  await execFileAsync("security", ["delete-generic-password", "-a", account, "-s", SERVICE]);
+  await execFileAsync("security", ["delete-generic-password", "-a", nativeSecretAccount(account), "-s", SERVICE]);
 }
 
 async function setLinuxSecret(account: string, secret: string): Promise<void> {
-  await spawnWithInput("secret-tool", ["store", "--label", `Blocks CLI ${account}`, "service", SERVICE, "account", account], secret);
+  const namespacedAccount = nativeSecretAccount(account);
+  await spawnWithInput("secret-tool", ["store", "--label", `Blocks CLI ${namespacedAccount}`, "service", SERVICE, "account", namespacedAccount], secret);
 }
 
 async function getLinuxSecret(account: string): Promise<string | undefined> {
   try {
-    const { stdout } = await execFileAsync("secret-tool", ["lookup", "service", SERVICE, "account", account]);
+    const { stdout } = await execFileAsync("secret-tool", ["lookup", "service", SERVICE, "account", nativeSecretAccount(account)]);
     return stdout.trim() || undefined;
   } catch {
     return undefined;
@@ -247,7 +249,15 @@ async function getLinuxSecret(account: string): Promise<string | undefined> {
 
 async function removeLinuxSecret(account: string): Promise<void> {
   if (platform() !== "linux") return;
-  await execFileAsync("secret-tool", ["clear", "service", SERVICE, "account", account]);
+  await execFileAsync("secret-tool", ["clear", "service", SERVICE, "account", nativeSecretAccount(account)]);
+}
+
+function nativeSecretAccount(account: string): string {
+  const override = process.env.BLOCKS_CONFIG_DIR?.trim();
+  if (!override) return account;
+
+  const namespace = createHash("sha256").update(resolve(override)).digest("hex").slice(0, 16);
+  return `${namespace}:${account}`;
 }
 
 function spawnWithInput(command: string, args: string[], inputText: string): Promise<void> {

@@ -17,6 +17,10 @@ const { data } = await blocksClient.iam.users.get(userId);
 
 ## Two surfaces, same operations: SDK (in-app) and CLI (`blocks iam users *`)
 
+For CLI work, resolve unknown account/project state through blocks-bootstrap
+before using this skill. Never select an account or tenant as a side effect of
+user administration.
+
 There are two legitimate ways to drive full user administration (create, update, deactivate, activate, access grant/revoke) — both are covered by this skill:
 
 - **SDK — `blocksClient.iam.users.*`** — build the capability **as a feature inside a signed-in admin's own app**: the admin is looking at a screen, clicking "Deactivate" on a specific user row, and their own IAM permissions gate whether the call succeeds.
@@ -98,7 +102,10 @@ Mutations — every one supports `--dry-run` (print the request body and exit, n
 | `blocks iam users access grant <userId> [--roles a,b] [--permissions a,b] [--organization-id] [--dry-run] [--yes] [--json]` | Grants roles/permissions/org access (requires at least one of `--roles`/`--permissions`). |
 | `blocks iam users access revoke <userId> [--organization-id] [--dry-run] [--yes] [--json]` | Revokes org access for a user. |
 
-Command segments joined by a space also accept a colon (`iam:users:access:grant` etc.) — both forms resolve to the same handler; `blocks iam users --help`-style docs in the CLI's own `--help` output use the space form shown above.
+Command segments joined by a space also accept a colon
+(`iam:users:access:grant` etc.); both forms resolve to the same handler. Use the
+top-level `blocks --help` for command discovery rather than adding `--help` to a
+subcommand, which may run normal command logic.
 
 Example — deactivating a user from the CLI, dry-run first:
 

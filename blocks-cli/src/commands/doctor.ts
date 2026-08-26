@@ -1,17 +1,20 @@
 import { access } from "node:fs/promises";
 import { getAccountSession } from "../lib/auth.js";
-import { configPath, getAccountProfile, readConfig } from "../lib/config.js";
-import { parseFlags } from "../lib/args.js";
+import { configPath, readConfig, resolveAccountProfile } from "../lib/config.js";
+import { parseFlags, stringFlag } from "../lib/args.js";
 import { writeOutput } from "../lib/output.js";
 import { isExpiring } from "../lib/token.js";
 import { readTokenStore, tokenPath, tokenStoreInfo } from "../lib/token-store.js";
 import { secretPath, secretStoreInfo } from "../lib/secret-store.js";
+import { optionalSelectedProject } from "../lib/workspace.js";
 
 export async function doctor(argv: string[] = []): Promise<void> {
   const { flags } = parseFlags(argv);
   const config = await readConfig();
   let store = await readTokenStore();
   const tokenInfo = await tokenStoreInfo();
+  const accountOverride = stringFlag(flags, "account") || undefined;
+  const tenantId = await optionalSelectedProject(flags);
   let hasFailure = false;
 
   const checks: Array<{ label: string; ok: boolean; detail: string }> = [
@@ -20,7 +23,7 @@ export async function doctor(argv: string[] = []): Promise<void> {
   ];
 
   if (Object.keys(config.accounts).length > 0) {
-    const { name } = getAccountProfile(config);
+    const { name } = await resolveAccountProfile(config, accountOverride, { allowPrompt: false });
     const secretInfo = await secretStoreInfo();
     const accountToken = store.accounts[name]?.account;
     let sessionValid = false;
@@ -38,8 +41,8 @@ export async function doctor(argv: string[] = []): Promise<void> {
     }
 
     const refreshedAccountToken = store.accounts[name]?.account;
-    const projectToken = config.selectedProject?.tenantId
-      ? store.accounts[name]?.projects?.[config.selectedProject.tenantId]
+    const projectToken = tenantId
+      ? store.accounts[name]?.projects?.[tenantId]
       : undefined;
 
     checks.push(
@@ -47,7 +50,7 @@ export async function doctor(argv: string[] = []): Promise<void> {
       { label: "Account session", ok: sessionValid, detail: sessionDetail },
       { label: "Account refresh token", ok: Boolean(refreshedAccountToken?.refreshToken), detail: refreshedAccountToken?.refreshToken ? "available" : "missing" },
       { label: "Account access token cached", ok: Boolean(refreshedAccountToken?.accessToken && !isExpiring(refreshedAccountToken.expiresAt)), detail: refreshedAccountToken?.expiresAt ?? "missing" },
-      { label: "Project selected", ok: Boolean(config.selectedProject?.tenantId), detail: config.selectedProject?.tenantId ?? "missing" },
+      { label: "Project selected", ok: Boolean(tenantId), detail: tenantId ?? "missing" },
       { label: "Project access token cached", ok: Boolean(!projectToken?.accessToken || !isExpiring(projectToken.expiresAt)), detail: projectToken?.expiresAt ?? "not created yet" }
     );
   }

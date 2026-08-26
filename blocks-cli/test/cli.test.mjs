@@ -7,9 +7,18 @@ import { createServer } from "node:http";
 import test from "node:test";
 import { applyAccountToken, applyProjectToken } from "../dist/lib/token.js";
 import { writeConfig as writeConfigFile } from "../dist/lib/config.js";
-import { writeTokenStore } from "../dist/lib/token-store.js";
-import { getAccountSession, pollDeviceToken } from "../dist/lib/auth.js";
+import { readTokenStore, writeTokenStore } from "../dist/lib/token-store.js";
+import {
+  getAccountSession,
+  getImpersonatedProjectSession,
+  logoutCurrentSession,
+  pollDeviceToken,
+  stopProjectImpersonation,
+  withAccountMode
+} from "../dist/lib/auth.js";
+import { withAuthTransitionLock } from "../dist/lib/auth-lock.js";
 import { CliActionableError } from "../dist/lib/errors.js";
+import { oidcRedirectUrisFromAppDomain } from "../dist/lib/domains.js";
 
 const repoRoot = resolve(import.meta.dirname, "..");
 const bin = join(repoRoot, "bin", "run.js");
@@ -35,6 +44,21 @@ test("account token refresh preserves the previous refresh token when the respon
 
   assert.equal(next.store.accounts.default.account.refreshToken, "old-refresh-token");
   assert.equal(next.store.accounts.default.account.accessToken, response.access_token);
+  assert.equal(next.store.accounts.default.projects, undefined);
+});
+
+test("account token refresh does not change the active account", () => {
+  const config = {
+    activeAccount: "alpha",
+    accounts: { alpha: {}, beta: {} }
+  };
+  const response = { access_token: fakeJwt({ tenant_id: "beta-root" }), expires_in: 3600 };
+
+  const refreshed = applyAccountToken(config, { accounts: {} }, "beta", "client-id", response);
+  const loggedIn = applyAccountToken(config, { accounts: {} }, "beta", "client-id", response, { activateAccount: true });
+
+  assert.equal(refreshed.config.activeAccount, "alpha");
+  assert.equal(loggedIn.config.activeAccount, "beta");
 });
 
 test("account tokens prefer the JWT access expiry and record refresh-token expiry", () => {
@@ -76,6 +100,10 @@ test("project token refresh preserves the previous refresh token when the respon
   const store = {
     accounts: {
       default: {
+        account: {
+          accessToken: "old-account-access-token",
+          refreshToken: "old-account-refresh-token"
+        },
         projects: {
           "project-tenant": {
             accessToken: "old-project-access-token",
@@ -94,6 +122,145 @@ test("project token refresh preserves the previous refresh token when the respon
 
   assert.equal(next.store.accounts.default.projects["project-tenant"].refreshToken, "old-project-refresh-token");
   assert.equal(next.store.accounts.default.projects["project-tenant"].accessToken, response.access_token);
+  assert.equal(next.store.accounts.default.account, undefined);
+  assert.deepEqual(Object.keys(next.store.accounts.default.projects), ["project-tenant"]);
+  assert.equal(next.config, config);
+});
+
+test("project selection and deselection persist exactly one refreshable token pair", async () => {
+  await withAuthLifecycleEnv(async ({ configDir }) => {
+    const projectAccess = fakeJwt({ exp: Math.floor(Date.now() / 1000) + 3600, tenant_id: "project-tenant" });
+    const restoredAccountAccess = fakeJwt({ exp: Math.floor(Date.now() / 1000) + 3600, tenant_id: "root-tenant" });
+    await writeLifecycleAccount(configDir);
+    globalThis.fetch = async (input) => {
+      const path = new URL(input).pathname;
+      if (path === "/iam/v4/auth/impersonate") {
+        return jsonResponse({ access_token: projectAccess, expires_in: 3600, refresh_token: "project-refresh" });
+      }
+      if (path === "/iam/v4/auth/impersonation/stop") {
+        return jsonResponse({ access_token: restoredAccountAccess, expires_in: 3600, refresh_token: "restored-account-refresh" });
+      }
+      return jsonResponse({ error: `Unexpected ${path}` }, 404);
+    };
+
+    await getImpersonatedProjectSession("default", "project-tenant");
+    let store = await readTokenStore();
+    assert.equal(store.accounts.default.account, undefined);
+    assert.deepEqual(Object.keys(store.accounts.default.projects), ["project-tenant"]);
+
+    // A command-level --project override can make the live token differ from
+    // the saved selection; deselection must stop the live token session.
+    await stopProjectImpersonation("default", "different-saved-project");
+    store = await readTokenStore();
+    assert.equal(store.accounts.default.projects, undefined);
+    assert.equal(store.accounts.default.account.refreshToken, "restored-account-refresh");
+  });
+});
+
+test("account-only operations stop and restore the previous project session", async () => {
+  await withAuthLifecycleEnv(async ({ configDir }) => {
+    await writeLifecycleProject(configDir);
+    const calls = [];
+    globalThis.fetch = async (input) => {
+      const path = new URL(input).pathname;
+      calls.push(path);
+      if (path === "/iam/v4/auth/impersonation/stop") {
+        return jsonResponse({
+          access_token: fakeJwt({ exp: Math.floor(Date.now() / 1000) + 3600, tenant_id: "root-tenant" }),
+          expires_in: 3600,
+          refresh_token: "account-after-stop"
+        });
+      }
+      if (path === "/iam/v4/auth/impersonate") {
+        return jsonResponse({
+          access_token: fakeJwt({ exp: Math.floor(Date.now() / 1000) + 3600, tenant_id: "project-tenant" }),
+          expires_in: 3600,
+          refresh_token: "project-after-restore"
+        });
+      }
+      if (path === "/api/oidc/token") {
+        return jsonResponse({
+          access_token: fakeJwt({ exp: Math.floor(Date.now() / 1000) + 3600, tenant_id: "root-tenant" }),
+          expires_in: 3600
+        });
+      }
+      return jsonResponse({ error: `Unexpected ${path}` }, 404);
+    };
+
+    const transition = await withAccountMode("default", async (account) => {
+      await getAccountSession(account.account, { forceRefresh: true });
+      const during = await readTokenStore();
+      assert.equal(account.accountTenant, "root-tenant");
+      assert.equal(during.accounts.default.projects, undefined);
+      assert.equal(during.accounts.default.account.refreshToken, "account-after-stop");
+      return "created";
+    });
+
+    assert.equal(transition.result, "created");
+    assert.equal(transition.previousProject, "project-tenant");
+    assert.equal(transition.restoreError, undefined);
+    assert.deepEqual(calls, ["/iam/v4/auth/impersonation/stop", "/api/oidc/token", "/iam/v4/auth/impersonate"]);
+    const after = await readTokenStore();
+    assert.equal(after.accounts.default.account, undefined);
+    assert.equal(after.accounts.default.projects["project-tenant"].refreshToken, "project-after-restore");
+  });
+});
+
+test("forced project refresh uses the project refresh token without an account session", async () => {
+  await withAuthLifecycleEnv(async ({ configDir }) => {
+    await writeLifecycleProject(configDir);
+    let refreshBody;
+    globalThis.fetch = async (input, init) => {
+      const path = new URL(input).pathname;
+      assert.equal(path, "/api/oidc/token");
+      refreshBody = String(init.body);
+      return jsonResponse({
+        access_token: fakeJwt({ exp: Math.floor(Date.now() / 1000) + 3600, tenant_id: "project-tenant" }),
+        expires_in: 3600
+      });
+    };
+
+    await getImpersonatedProjectSession("default", "project-tenant", { forceRefresh: true });
+    assert.match(refreshBody, /refresh_token=project-refresh/);
+    const store = await readTokenStore();
+    assert.equal(store.accounts.default.account, undefined);
+    assert.equal(store.accounts.default.projects["project-tenant"].refreshToken, "project-refresh");
+  });
+});
+
+test("project-mode logout revokes with the matching project access and refresh tokens", async () => {
+  await withAuthLifecycleEnv(async ({ configDir }) => {
+    await writeLifecycleProject(configDir);
+    let authorization;
+    let body;
+    globalThis.fetch = async (_input, init) => {
+      authorization = new Headers(init.headers).get("authorization");
+      body = JSON.parse(String(init.body));
+      return jsonResponse({});
+    };
+
+    const result = await logoutCurrentSession("default", "project-tenant");
+    assert.equal(result.hadTokens, true);
+    assert.match(authorization, /^Bearer /);
+    assert.equal(body.refresh_token, "project-refresh");
+    assert.equal((await readTokenStore()).accounts.default, undefined);
+  });
+});
+
+test("auth transitions are serialized within one config directory", async () => {
+  await withAuthLifecycleEnv(async () => {
+    let active = 0;
+    let maximum = 0;
+    const operation = () => withAuthTransitionLock(async () => {
+      active += 1;
+      maximum = Math.max(maximum, active);
+      await new Promise((resolveDelay) => setTimeout(resolveDelay, 80));
+      active -= 1;
+    });
+
+    await Promise.all([operation(), operation()]);
+    assert.equal(maximum, 1);
+  });
 });
 
 test("account session refresh surfaces a clear next step when the identity provider rejects the refresh token", async () => {
@@ -292,7 +459,7 @@ test("scaffolded web app depends on @seliseblocks/client and has no custom Block
   assert.match(combined, /blocksClient\.auth\.idp\.callback\(callbackUrl\)/, "callback should complete through IdP callback");
   assert.match(combined, /blocksClient\.auth\.oidc\.refreshToken/, "refresh should use the SDK OIDC refresh helper");
   assert.match(combined, /blocksClient\.data\.collection<Asset>\("Asset"/, "expected an Assets CRUD example through Blocks Data");
-  assert.match(combined, /blocksClient\.localization\.load/, "expected localization to load through the Blocks client");
+  assert.match(combined, /blocksClient\.localization\.translations/, "expected localization modules to load through the Blocks client");
   assert.match(combined, /useT\(/, "expected generated UI to consume localization helper");
   assert.doesNotMatch(combined, /blocksFetch\(/, "no generated file should call a custom blocksFetch wrapper");
   assert.doesNotMatch(combined, /fetch\(`\$\{blocksConfig\.apiUrl\}/, "no generated file should hand-rolled fetch() against blocksConfig.apiUrl");
@@ -361,6 +528,15 @@ test("scaffolded web app depends on @seliseblocks/client and has no custom Block
   assert.ok(files.some((file) => file.endsWith("AssetsPage.tsx")), "expected an Assets CRUD page");
   assert.ok(files.some((file) => file.endsWith("DataTable.tsx")), "expected a reusable data table");
   assert.ok(files.some((file) => file.endsWith("LocalizationProvider.tsx")), "expected a localization provider");
+  const commonDictionary = JSON.parse(await readFile(join(appDir, "blocks", "localization", "common.en.json"), "utf8"));
+  const dashboardDictionary = JSON.parse(await readFile(join(appDir, "blocks", "localization", "dashboard.en.json"), "utf8"));
+  const assetsDictionary = JSON.parse(await readFile(join(appDir, "blocks", "localization", "assets.en.json"), "utf8"));
+  assert.equal(commonDictionary.save, "Save");
+  assert.equal(commonDictionary["common.save"], undefined);
+  assert.equal(dashboardDictionary.title, "Dashboard");
+  assert.equal(dashboardDictionary["dashboard.title"], undefined);
+  assert.equal(assetsDictionary.title, "Assets");
+  assert.equal(assetsDictionary["assets.title"], undefined);
   // Each SDK module is exercised in context rather than in one dedicated demo
   // panel: auth/data/localization are already covered above (idp login flow,
   // Assets CRUD, LocalizationProvider); iam is covered through the shared
@@ -368,6 +544,17 @@ test("scaffolded web app depends on @seliseblocks/client and has no custom Block
   assert.match(combined, /blocksClient\.iam\./, "expected an iam example");
 
   await assert.rejects(() => readFile(join(appDir, "src/lib/blocks/pkce.ts"), "utf8"), /ENOENT/, "the hosted IdP scaffold should not generate a local PKCE helper");
+});
+
+test("OIDC redirect URI defaults include production and local HTTPS callbacks", () => {
+  assert.deepEqual(oidcRedirectUrisFromAppDomain("https://demo.example.test"), [
+    "https://demo.example.test/login/callback",
+    "https://demo.example.test:5173/login/callback"
+  ]);
+  assert.deepEqual(oidcRedirectUrisFromAppDomain("demo.example.test"), [
+    "https://demo.example.test/login/callback",
+    "https://demo.example.test:5173/login/callback"
+  ]);
 });
 
 test("fresh workspace dry-run commands do not require data files", async () => {
@@ -1305,6 +1492,23 @@ test("localization validate accepts nested i18n JSON and reports flattened key c
   assert.equal(output.valid, true);
 });
 
+test("localization validate rejects keys redundantly prefixed with the module name", async () => {
+  const { cwd, configDir } = await makeWorkspace();
+  await mkdir(join(cwd, "blocks", "localization"), { recursive: true });
+  await writeFile(join(cwd, "blocks", "localization", "dashboard.en.json"), `${JSON.stringify({
+    "dashboard.title": "Dashboard"
+  }, null, 2)}\n`);
+
+  const result = run(["localization:validate", "--module", "dashboard", "--language", "en", "--json"], {
+    cwd,
+    env: testEnv(configDir, { BLOCKS_SECRET_STORE: "file" })
+  });
+
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /Redundant module prefix in key 'dashboard\.title'/);
+  assert.match(result.stderr, /use 'title'/);
+});
+
 test("localization push uses v4 gateway paths without api segment", async () => {
   const { cwd, configDir } = await makeWorkspace();
   await mkdir(join(cwd, "blocks", "localization"), { recursive: true });
@@ -1393,6 +1597,305 @@ test("prints package version", async () => {
   const result = run(["--version"], { cwd, env: testEnv(configDir, { BLOCKS_SECRET_STORE: "file" }) });
   assert.equal(result.status, 0, result.stderr);
   assert.equal(result.stdout.trim(), pkg.version);
+});
+
+test("explicit account uses only the requested account", async () => {
+  const { cwd, configDir } = await makeWorkspace();
+  await writeConfig(configDir, {
+    activeAccount: "alpha",
+    accounts: {
+      alpha: testAccountProfile("alpha-root"),
+      beta: testAccountProfile("beta-root")
+    }
+  });
+  await writeFile(join(configDir, "tokens.json"), `${JSON.stringify({
+    accounts: {
+      alpha: {
+        account: {
+          accessToken: fakeJwt({ exp: Math.floor(Date.now() / 1000) + 3600, tenant_id: "alpha-root" }),
+          accountTenant: "alpha-root",
+          expiresAt: new Date(Date.now() + 3_600_000).toISOString()
+        }
+      },
+      beta: {
+        account: {
+          accessToken: fakeJwt({ exp: Math.floor(Date.now() / 1000) - 3600, tenant_id: "beta-root" }),
+          accountTenant: "beta-root",
+          expiresAt: new Date(Date.now() - 3_600_000).toISOString()
+        }
+      }
+    }
+  }, null, 2)}\n`);
+
+  const result = run(["auth:status", "--account", "beta", "--json"], {
+    cwd,
+    env: testEnv(configDir, { BLOCKS_SECRET_STORE: "file" })
+  });
+
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(JSON.parse(result.stdout).accountAccessToken, "expired");
+});
+
+test("missing account flag uses active account from the resolved config store", async () => {
+  const { cwd, configDir } = await makeWorkspace();
+  await writeConfig(configDir, {
+    activeAccount: "beta",
+    accounts: {
+      alpha: testAccountProfile("alpha-root"),
+      beta: testAccountProfile("beta-root")
+    }
+  });
+  await writeFile(join(configDir, "tokens.json"), `${JSON.stringify({
+    accounts: {
+      alpha: {},
+      beta: {
+        account: {
+          accessToken: fakeJwt({ exp: Math.floor(Date.now() / 1000) + 3600, tenant_id: "beta-root" }),
+          accountTenant: "beta-root",
+          expiresAt: new Date(Date.now() + 3_600_000).toISOString()
+        }
+      }
+    }
+  }, null, 2)}\n`);
+
+  const result = run(["auth:status", "--json"], {
+    cwd,
+    env: testEnv(configDir, { BLOCKS_SECRET_STORE: "file" })
+  });
+
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(JSON.parse(result.stdout).accountAccessToken, "valid");
+});
+
+test("requested missing account never falls back to active account", async () => {
+  const { cwd, configDir } = await makeWorkspace();
+  await writeConfig(configDir, {
+    activeAccount: "alpha",
+    accounts: { alpha: testAccountProfile("alpha-root") }
+  });
+
+  const result = run(["auth:status", "--account", "missing", "--json"], {
+    cwd,
+    env: testEnv(configDir, { BLOCKS_SECRET_STORE: "file" })
+  });
+
+  assert.equal(result.status, 1);
+  const error = JSON.parse(result.stderr);
+  assert.equal(error.code, "account_not_configured");
+  assert.match(error.message, /current config store/);
+});
+
+test("project flag overrides workspace and stored project without changing either selection", async () => {
+  const { cwd, configDir } = await makeWorkspace();
+  await writeFile(join(cwd, "blocks.json"), `${JSON.stringify({ project: { tenantId: "workspace-project" } }, null, 2)}\n`);
+  await writeAuthContext(configDir, "alpha", "stored-project", {
+    "override-project": fakeJwt({ exp: Math.floor(Date.now() / 1000) + 3600, tenant_id: "override-project" })
+  });
+  const requests = [];
+  const server = await startJsonServer((request) => {
+    requests.push(request);
+    return [{
+      name: "Override",
+      projects: [{ environment: "dev", name: "Override", tenantId: "override-project" }],
+      tenantGroupId: "group-1"
+    }];
+  });
+
+  try {
+    const result = await runAsync([
+      "projects:get", "--project", "override-project", "--api-url", server.url, "--json"
+    ], { cwd, env: testEnv(configDir, { BLOCKS_SECRET_STORE: "file" }) });
+
+    assert.equal(result.status, 0, result.stderr);
+    assert.match(requests[0].headers.authorization, /^Bearer /);
+    assert.equal(JSON.parse(await readFile(join(configDir, "config.json"), "utf8")).accounts.alpha.selectedProject.tenantId, "stored-project");
+    assert.equal(JSON.parse(await readFile(join(cwd, "blocks.json"), "utf8")).project.tenantId, "workspace-project");
+  } finally {
+    await new Promise((resolveClose) => server.close(resolveClose));
+  }
+});
+
+test("accounts in the same config store keep independent selected projects", async () => {
+  const { cwd, configDir } = await makeWorkspace();
+  const alphaToken = fakeJwt({ exp: Math.floor(Date.now() / 1000) + 3600, sub: "alpha", tenant_id: "alpha-project" });
+  const betaToken = fakeJwt({ exp: Math.floor(Date.now() / 1000) + 3600, sub: "beta", tenant_id: "beta-project" });
+  await writeConfig(configDir, {
+    activeAccount: "alpha",
+    accounts: {
+      alpha: { ...testAccountProfile("alpha-root"), selectedProject: { tenantId: "alpha-project" } },
+      beta: { ...testAccountProfile("beta-root"), selectedProject: { tenantId: "beta-project" } }
+    }
+  });
+  await writeFile(join(configDir, "tokens.json"), `${JSON.stringify({
+    accounts: {
+      alpha: {
+        account: { accountTenant: "alpha-root" },
+        projects: { "alpha-project": { accessToken: alphaToken, expiresAt: new Date(Date.now() + 3_600_000).toISOString() } }
+      },
+      beta: {
+        account: { accountTenant: "beta-root" },
+        projects: { "beta-project": { accessToken: betaToken, expiresAt: new Date(Date.now() + 3_600_000).toISOString() } }
+      }
+    }
+  }, null, 2)}\n`);
+  const authorizations = [];
+  const server = await startJsonServer((request) => {
+    authorizations.push(request.headers.authorization);
+    return [];
+  });
+
+  try {
+    const alpha = await runAsync(["projects:list", "--account", "alpha", "--api-url", server.url, "--json"], {
+      cwd,
+      env: testEnv(configDir, { BLOCKS_SECRET_STORE: "file" })
+    });
+    const beta = await runAsync(["projects:list", "--account", "beta", "--api-url", server.url, "--json"], {
+      cwd,
+      env: testEnv(configDir, { BLOCKS_SECRET_STORE: "file" })
+    });
+
+    assert.equal(alpha.status, 0, alpha.stderr);
+    assert.equal(beta.status, 0, beta.stderr);
+    assert.deepEqual(authorizations, [`Bearer ${alphaToken}`, `Bearer ${betaToken}`]);
+  } finally {
+    await new Promise((resolveClose) => server.close(resolveClose));
+  }
+});
+
+test("use and deselect operate on the account selected by login without account flags", async () => {
+  const { cwd, configDir } = await makeWorkspace();
+  const server = await startJsonServer((request) => {
+    if (request.url === "/iam/v4/auth/impersonate") {
+      return {
+        access_token: fakeJwt({ exp: Math.floor(Date.now() / 1000) + 3600, tenant_id: "active-project" }),
+        expires_in: 3600,
+        refresh_token: "active-project-refresh"
+      };
+    }
+    if (request.url === "/iam/v4/auth/impersonation/stop") {
+      return {
+        access_token: fakeJwt({ exp: Math.floor(Date.now() / 1000) + 3600, tenant_id: "active-account-root" }),
+        expires_in: 3600,
+        refresh_token: "restored-account-refresh"
+      };
+    }
+    return rawResponse(404, { error: `Unexpected ${request.url}` });
+  });
+  await writeConfig(configDir, {
+    activeAccount: "active-account",
+    accounts: {
+      "active-account": {
+        ...testAccountProfile("active-account-root"),
+        apiUrl: server.url
+      }
+    }
+  });
+  await writeFile(join(configDir, "tokens.json"), `${JSON.stringify({
+    accounts: {
+      "active-account": {
+        account: {
+          accessToken: fakeJwt({ exp: Math.floor(Date.now() / 1000) + 3600, tenant_id: "active-account-root" }),
+          accountTenant: "active-account-root",
+          expiresAt: new Date(Date.now() + 3_600_000).toISOString(),
+          refreshToken: "active-account-refresh"
+        }
+      }
+    }
+  }, null, 2)}\n`);
+  const env = testEnv(configDir, { BLOCKS_SECRET_STORE: "file" });
+  try {
+    const useResult = await runAsync(["use", "active-project"], { cwd, env });
+    assert.equal(useResult.status, 0, useResult.stderr);
+    let config = JSON.parse(await readFile(join(configDir, "config.json"), "utf8"));
+    assert.equal(config.activeAccount, "active-account");
+    assert.equal(config.accounts["active-account"].selectedProject.tenantId, "active-project");
+
+    const deselectResult = await runAsync(["deselect"], { cwd, env });
+    assert.equal(deselectResult.status, 0, deselectResult.stderr);
+    config = JSON.parse(await readFile(join(configDir, "config.json"), "utf8"));
+    assert.equal(config.activeAccount, "active-account");
+    assert.equal(config.accounts["active-account"].selectedProject, undefined);
+  } finally {
+    await new Promise((resolveClose) => server.close(resolveClose));
+  }
+});
+
+test("BLOCKS_CONFIG_DIR isolates active account and token state", async () => {
+  const first = await makeWorkspace();
+  const second = await makeWorkspace();
+  await writeAuthContext(first.configDir, "alpha");
+  await writeConfig(second.configDir, {
+    activeAccount: "beta",
+    accounts: { beta: testAccountProfile("beta-root") }
+  });
+
+  const firstStatus = run(["auth:status", "--json"], {
+    cwd: first.cwd,
+    env: testEnv(first.configDir, { BLOCKS_SECRET_STORE: "file" })
+  });
+  const secondStatus = run(["auth:status", "--json"], {
+    cwd: second.cwd,
+    env: testEnv(second.configDir, { BLOCKS_SECRET_STORE: "file" })
+  });
+
+  assert.equal(firstStatus.status, 0, firstStatus.stderr);
+  assert.equal(secondStatus.status, 0, secondStatus.stderr);
+  assert.equal(JSON.parse(firstStatus.stdout).accountAccessToken, "valid");
+  assert.equal(JSON.parse(secondStatus.stdout).accountAccessToken, "missing");
+});
+
+test("two config directories can use the same project with different accounts", async () => {
+  const first = await makeWorkspace();
+  const second = await makeWorkspace();
+  const firstProjectToken = fakeJwt({ exp: Math.floor(Date.now() / 1000) + 3600, sub: "alpha-user", tenant_id: "shared-project" });
+  const secondProjectToken = fakeJwt({ exp: Math.floor(Date.now() / 1000) + 3600, sub: "beta-user", tenant_id: "shared-project" });
+  await writeAuthContext(first.configDir, "alpha", "shared-project", { "shared-project": firstProjectToken });
+  await writeAuthContext(second.configDir, "beta", "shared-project", { "shared-project": secondProjectToken });
+  const authorizations = [];
+  const server = await startJsonServer((request) => {
+    authorizations.push(request.headers.authorization);
+    return [];
+  });
+
+  try {
+    const firstResult = await runAsync(["projects:list", "--api-url", server.url, "--json"], {
+      cwd: first.cwd,
+      env: testEnv(first.configDir, { BLOCKS_SECRET_STORE: "file" })
+    });
+    const secondResult = await runAsync(["projects:list", "--api-url", server.url, "--json"], {
+      cwd: second.cwd,
+      env: testEnv(second.configDir, { BLOCKS_SECRET_STORE: "file" })
+    });
+
+    assert.equal(firstResult.status, 0, firstResult.stderr);
+    assert.equal(secondResult.status, 0, secondResult.stderr);
+    assert.deepEqual(authorizations, [`Bearer ${firstProjectToken}`, `Bearer ${secondProjectToken}`]);
+  } finally {
+    await new Promise((resolveClose) => server.close(resolveClose));
+  }
+});
+
+test("non-interactive missing context fails clearly without prompting", async () => {
+  const missingAccount = await makeWorkspace();
+  await writeConfig(missingAccount.configDir, {
+    activeAccount: "removed",
+    accounts: { available: testAccountProfile("available-root") }
+  });
+  const accountResult = run(["projects:list", "--json"], {
+    cwd: missingAccount.cwd,
+    env: testEnv(missingAccount.configDir, { BLOCKS_SECRET_STORE: "file" })
+  });
+  assert.equal(accountResult.status, 1);
+  assert.equal(JSON.parse(accountResult.stderr).code, "account_not_selected");
+
+  const missingProject = await makeWorkspace();
+  await writeAuthContext(missingProject.configDir, "alpha");
+  const projectResult = run(["data:config:get", "--json"], {
+    cwd: missingProject.cwd,
+    env: testEnv(missingProject.configDir, { BLOCKS_SECRET_STORE: "file" })
+  });
+  assert.equal(projectResult.status, 1);
+  assert.equal(JSON.parse(projectResult.stderr).code, "project_not_selected");
 });
 
 test("fresh auth status hides packaged account defaults", async () => {
@@ -1778,7 +2281,7 @@ test("projects create rejects a name the backend validator would reject", async 
 
 test("projects create fails loudly on a 200 response carrying isSuccess false", async () => {
   const { cwd, configDir } = await makeWorkspace();
-  await writeProjectAuth(configDir);
+  await writeProjectAuth(configDir, { accountOnly: true });
   const server = await startJsonServer((request) => {
     if (request.url?.startsWith("/os/v4/Project/Gets")) return [];
     return { errors: { Name: "Project Name must be between 3 and 100 characters." }, isSuccess: false };
@@ -1802,7 +2305,7 @@ test("projects create fails loudly on a 200 response carrying isSuccess false", 
 
 test("projects create refuses a duplicate project name unless allowed", async () => {
   const { cwd, configDir } = await makeWorkspace();
-  await writeProjectAuth(configDir);
+  await writeProjectAuth(configDir, { accountOnly: true });
   const requests = [];
   const server = await startJsonServer((request) => {
     requests.push(request.url);
@@ -1842,7 +2345,7 @@ test("projects create names the positional form when no name is given", async ()
 
 test("projects create --allow-duplicate-name skips the name lookup entirely", async () => {
   const { cwd, configDir } = await makeWorkspace();
-  await writeProjectAuth(configDir);
+  await writeProjectAuth(configDir, { accountOnly: true });
   const urls = [];
   const server = await startJsonServer((request) => {
     urls.push(request.url);
@@ -1876,7 +2379,7 @@ test("projects create --allow-duplicate-name skips the name lookup entirely", as
 
 test("projects create verifies the new dev tenant against Project/Gets", async () => {
   const { cwd, configDir } = await makeWorkspace();
-  await writeProjectAuth(configDir);
+  await writeProjectAuth(configDir, { accountOnly: true });
   const created = [];
   const server = await startJsonServer((request, body) => {
     if (request.url?.startsWith("/os/v4/Project/Gets")) {
@@ -1922,6 +2425,104 @@ test("projects create verifies the new dev tenant against Project/Gets", async (
   }
 });
 
+test("projects create stops and restores an active project session", async () => {
+  const { cwd, configDir } = await makeWorkspace();
+  const calls = [];
+  const server = await startJsonServer((request) => {
+    const path = request.url?.split("?")[0];
+    calls.push(path);
+    if (path === "/iam/v4/auth/impersonation/stop") {
+      return {
+        access_token: fakeJwt({ exp: Math.floor(Date.now() / 1000) + 3600, tenant_id: "root-tenant" }),
+        expires_in: 3600,
+        refresh_token: "account-after-stop"
+      };
+    }
+    if (path === "/os/v4/Project/Create") return { errors: null, isSuccess: true, tenantGroupId: "new-group" };
+    if (path === "/os/v4/Project/Gets") {
+      return [{
+        name: "New Project",
+        projects: [{ environment: "dev", name: "New Project", tenantId: "Dnew-group" }],
+        tenantGroupId: "new-group"
+      }];
+    }
+    if (path === "/iam/v4/auth/impersonate") {
+      return {
+        access_token: fakeJwt({ exp: Math.floor(Date.now() / 1000) + 3600, tenant_id: "project-tenant" }),
+        expires_in: 3600,
+        refresh_token: "restored-project-refresh"
+      };
+    }
+    return rawResponse(404, { error: `Unexpected ${path}` });
+  });
+  await writeProjectModeAuth(configDir, server.url);
+
+  try {
+    const result = await runAsync([
+      "projects", "create", "New Project",
+      "--allow-duplicate-name",
+      "--api-url", server.url,
+      "--yes",
+      "--json"
+    ], { cwd, env: testEnv(configDir, { BLOCKS_SECRET_STORE: "file" }) });
+
+    assert.equal(result.status, 0, `${result.stderr}\nCalls: ${calls.join(", ")}`);
+    assert.deepEqual(calls, [
+      "/iam/v4/auth/impersonation/stop",
+      "/os/v4/Project/Create",
+      "/os/v4/Project/Gets",
+      "/iam/v4/auth/impersonate"
+    ]);
+  } finally {
+    await new Promise((resolveClose) => server.close(resolveClose));
+  }
+});
+
+test("projects create reports restoration failure without retrying a successful create", async () => {
+  const { cwd, configDir } = await makeWorkspace();
+  let creates = 0;
+  const server = await startJsonServer((request) => {
+    const path = request.url?.split("?")[0];
+    if (path === "/iam/v4/auth/impersonation/stop") {
+      return {
+        access_token: fakeJwt({ exp: Math.floor(Date.now() / 1000) + 3600, tenant_id: "root-tenant" }),
+        expires_in: 3600,
+        refresh_token: "account-after-stop"
+      };
+    }
+    if (path === "/os/v4/Project/Create") {
+      creates += 1;
+      return { errors: null, isSuccess: true, tenantGroupId: "new-group" };
+    }
+    if (path === "/os/v4/Project/Gets") {
+      return [{
+        name: "New Project",
+        projects: [{ environment: "dev", name: "New Project", tenantId: "Dnew-group" }],
+        tenantGroupId: "new-group"
+      }];
+    }
+    if (path === "/iam/v4/auth/impersonate") return rawResponse(500, { error: "restore failed" });
+    return rawResponse(404, { error: `Unexpected ${path}` });
+  });
+  await writeProjectModeAuth(configDir, server.url);
+
+  try {
+    const result = await runAsync([
+      "projects", "create", "New Project",
+      "--allow-duplicate-name",
+      "--api-url", server.url,
+      "--yes",
+      "--json"
+    ], { cwd, env: testEnv(configDir, { BLOCKS_SECRET_STORE: "file" }) });
+
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(creates, 1);
+    assert.match(result.stderr, /was created, but project session 'project-tenant' could not be restored/);
+  } finally {
+    await new Promise((resolveClose) => server.close(resolveClose));
+  }
+});
+
 async function makeWorkspace() {
   const base = await mkdtemp(join(tmpdir(), "blocks-cli-test-"));
   const cwd = join(base, "workspace");
@@ -1935,7 +2536,48 @@ async function writeConfig(configDir, config) {
   await writeFile(join(configDir, "config.json"), `${JSON.stringify(config, null, 2)}\n`);
 }
 
-async function writeProjectAuth(configDir) {
+function testAccountProfile(rootTenantId) {
+  return {
+    apiUrl: "https://api.example.test",
+    clientId: "client-id",
+    createdAt: "2026-01-01T00:00:00.000Z",
+    oidcUrl: "https://iam.example.test",
+    osUrl: "https://api.example.test",
+    rootTenantId,
+    scope: "openid profile offline_access",
+    updatedAt: "2026-01-01T00:00:00.000Z"
+  };
+}
+
+async function writeAuthContext(configDir, accountName, selectedProject, projectTokens = {}) {
+  const rootTenantId = `${accountName}-root`;
+  await writeConfig(configDir, {
+    activeAccount: accountName,
+    accounts: {
+      [accountName]: {
+        ...testAccountProfile(rootTenantId),
+        selectedProject: selectedProject ? { tenantId: selectedProject } : undefined
+      }
+    }
+  });
+  await writeFile(join(configDir, "tokens.json"), `${JSON.stringify({
+    accounts: {
+      [accountName]: {
+        account: {
+          accessToken: fakeJwt({ exp: Math.floor(Date.now() / 1000) + 3600, tenant_id: rootTenantId }),
+          accountTenant: rootTenantId,
+          expiresAt: new Date(Date.now() + 3_600_000).toISOString()
+        },
+        projects: Object.fromEntries(Object.entries(projectTokens).map(([tenantId, accessToken]) => [tenantId, {
+          accessToken,
+          expiresAt: new Date(Date.now() + 3_600_000).toISOString()
+        }]))
+      }
+    }
+  }, null, 2)}\n`);
+}
+
+async function writeProjectAuth(configDir, { accountOnly = false } = {}) {
   await writeConfig(configDir, {
     accounts: {
       default: {
@@ -1945,7 +2587,7 @@ async function writeProjectAuth(configDir) {
         rootTenantId: "root-tenant"
       }
     },
-    selectedProject: { tenantId: "project-tenant" }
+    selectedProject: accountOnly ? undefined : { tenantId: "project-tenant" }
   });
   await writeFile(join(configDir, "tokens.json"), `${JSON.stringify({
     accounts: {
@@ -1957,7 +2599,7 @@ async function writeProjectAuth(configDir) {
           refreshToken: "account-refresh-token",
           tokenType: "Bearer"
         },
-        projects: {
+        projects: accountOnly ? undefined : {
           "project-tenant": {
             accessToken: fakeJwt({ tenant_id: "project-tenant" }),
             accountTenant: "root-tenant",
@@ -1973,6 +2615,102 @@ async function writeProjectAuth(configDir) {
 
 async function writeSecretStore(configDir, store) {
   await writeFile(join(configDir, "secrets.json"), `${JSON.stringify(store, null, 2)}\n`);
+}
+
+async function writeProjectModeAuth(configDir, apiUrl) {
+  await writeConfig(configDir, {
+    activeAccount: "studio",
+    accounts: {
+      studio: {
+        ...testAccountProfile("root-tenant"),
+        apiUrl,
+        selectedProject: { tenantId: "project-tenant" }
+      }
+    }
+  });
+  await writeFile(join(configDir, "tokens.json"), `${JSON.stringify({
+    accounts: {
+      studio: {
+        projects: {
+          "project-tenant": {
+            accessToken: fakeJwt({ exp: Math.floor(Date.now() / 1000) + 3600, tenant_id: "project-tenant" }),
+            expiresAt: new Date(Date.now() + 3_600_000).toISOString(),
+            refreshToken: "project-refresh"
+          }
+        }
+      }
+    }
+  }, null, 2)}\n`);
+}
+
+async function withAuthLifecycleEnv(operation) {
+  const { configDir } = await makeWorkspace();
+  const originalConfigDir = process.env.BLOCKS_CONFIG_DIR;
+  const originalSecretStore = process.env.BLOCKS_SECRET_STORE;
+  const originalFetch = globalThis.fetch;
+  process.env.BLOCKS_CONFIG_DIR = configDir;
+  process.env.BLOCKS_SECRET_STORE = "file";
+
+  try {
+    await operation({ configDir });
+  } finally {
+    globalThis.fetch = originalFetch;
+    if (originalConfigDir === undefined) delete process.env.BLOCKS_CONFIG_DIR;
+    else process.env.BLOCKS_CONFIG_DIR = originalConfigDir;
+    if (originalSecretStore === undefined) delete process.env.BLOCKS_SECRET_STORE;
+    else process.env.BLOCKS_SECRET_STORE = originalSecretStore;
+  }
+}
+
+async function writeLifecycleAccount(configDir) {
+  await writeLifecycleConfig(configDir);
+  await writeTokenStore({
+    accounts: {
+      default: {
+        account: {
+          accessToken: fakeJwt({ exp: Math.floor(Date.now() / 1000) + 3600, tenant_id: "root-tenant" }),
+          accountTenant: "root-tenant",
+          expiresAt: new Date(Date.now() + 3_600_000).toISOString(),
+          refreshToken: "account-refresh",
+          tokenType: "Bearer"
+        }
+      }
+    }
+  });
+}
+
+async function writeLifecycleProject(configDir) {
+  await writeLifecycleConfig(configDir);
+  await writeTokenStore({
+    accounts: {
+      default: {
+        projects: {
+          "project-tenant": {
+            accessToken: fakeJwt({ exp: Math.floor(Date.now() / 1000) + 3600, tenant_id: "project-tenant" }),
+            expiresAt: new Date(Date.now() + 3_600_000).toISOString(),
+            refreshToken: "project-refresh",
+            tokenType: "Bearer"
+          }
+        }
+      }
+    }
+  });
+}
+
+async function writeLifecycleConfig(configDir) {
+  await writeConfigFile({
+    activeAccount: "default",
+    accounts: {
+      default: {
+        apiUrl: "https://api.example.test",
+        clientId: "client-id",
+        oidcUrl: "https://iam.example.test",
+        rootTenantId: "root-tenant",
+        selectedProject: { tenantId: "project-tenant" },
+        scope: "openid profile offline_access"
+      }
+    }
+  });
 }
 
 async function collectFiles(dir) {

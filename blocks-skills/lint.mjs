@@ -33,6 +33,12 @@ const DESCRIPTION_HARD_LIMIT = 1024;
 const DESCRIPTION_WARN_LIMIT = 700;
 const NAME_LIMIT = 64;
 const ENDPOINT_PATTERN = /\/(iam|data|os|logic|release|localization)\/v4\/[A-Za-z0-9/{}._-]*/g;
+const cliIndexPath = join(skillsDir, "..", "blocks-cli", "src", "index.ts");
+const registeredCommands = existsSync(cliIndexPath)
+  ? [...readFileSync(cliIndexPath, "utf8").matchAll(/^\s*"([a-z0-9:-]+)"\s*:/gm)]
+      .map((match) => match[1].replaceAll(":", " "))
+      .sort((a, b) => b.length - a.length)
+  : [];
 
 const skillDirs = readdirSync(skillsDir, { withFileTypes: true })
   .filter((entry) => entry.isDirectory())
@@ -49,19 +55,22 @@ for (const skillName of skillDirs) {
   }
 
   checkFrontmatter(skillName, skillMdPath);
-  checkLinksInFile(skillName, skillMdPath);
-  checkEndpointsInFile(skillMdPath);
-
-  const flowsDir = join(skillPath, "flows");
-  if (existsSync(flowsDir) && statSync(flowsDir).isDirectory()) {
-    for (const entry of readdirSync(flowsDir, { withFileTypes: true })) {
-      if (entry.isFile() && entry.name.endsWith(".md")) {
-        const flowPath = join(flowsDir, entry.name);
-        checkLinksInFile(skillName, flowPath);
-        checkEndpointsInFile(flowPath);
-      }
-    }
+  for (const markdownPath of markdownFiles(skillPath)) {
+    checkLinksInFile(skillName, markdownPath);
+    checkEndpointsInFile(markdownPath);
+    checkTextHygiene(markdownPath);
+    checkExecutableCommands(markdownPath);
   }
+}
+
+function markdownFiles(directory) {
+  const files = [];
+  for (const entry of readdirSync(directory, { withFileTypes: true })) {
+    const path = join(directory, entry.name);
+    if (entry.isDirectory()) files.push(...markdownFiles(path));
+    else if (entry.isFile() && entry.name.endsWith(".md")) files.push(path);
+  }
+  return files;
 }
 
 function checkFrontmatter(skillName, skillMdPath) {
@@ -151,6 +160,55 @@ function checkEndpointsInFile(filePath) {
 
   for (const match of raw.matchAll(ENDPOINT_PATTERN)) {
     errors.push(`${rel}: raw API endpoint path '${match[0]}' -- describe the CLI command/SDK method instead, never the wire path`);
+  }
+}
+
+function checkTextHygiene(filePath) {
+  const raw = readFileSync(filePath, "utf8");
+  const rel = relative(skillsDir, filePath);
+
+  if (/&#x20;|&nbsp;/i.test(raw)) {
+    errors.push(`${rel}: encoded whitespace entity found -- use normal Markdown whitespace`);
+  }
+
+  for (const marker of ["â€”", "â€“", "â†’", "Â"]) {
+    if (raw.includes(marker)) errors.push(`${rel}: likely UTF-8 mojibake '${marker}'`);
+  }
+
+  for (const match of raw.matchAll(/`(blocks\s+[^`\r\n]*--help[^`\r\n]*)`/g)) {
+    const invocation = match[1].replace(/\s+/g, " ").trim();
+    if (invocation !== "blocks --help") {
+      errors.push(`${rel}: unsafe subcommand help probe '${invocation}' -- use top-level 'blocks --help'`);
+    }
+  }
+
+  if (/globally selected project/i.test(raw)) {
+    errors.push(`${rel}: obsolete global project-selection model -- selection belongs to the resolved account`);
+  }
+}
+
+function checkExecutableCommands(filePath) {
+  if (registeredCommands.length === 0) return;
+
+  const raw = readFileSync(filePath, "utf8");
+  const rel = relative(skillsDir, filePath);
+  for (const fence of raw.matchAll(/```(?:bash|sh|shell|powershell)?\r?\n([\s\S]*?)```/gi)) {
+    for (const sourceLine of fence[1].split(/\r?\n/)) {
+      const line = sourceLine.trim().replace(/^\$\s+/, "");
+      if (!line.startsWith("blocks ")) continue;
+
+      const invocation = line.split(/\s+#/, 1)[0].replaceAll(":", " ").replace(/\s+/g, " ").trim();
+      if (invocation === "blocks --help" || invocation === "blocks --version") continue;
+
+      const commandText = invocation.slice("blocks ".length);
+      if (commandText.startsWith("<") || /(^|\s)<command>(\s|$)/.test(commandText) || commandText.includes("*")) continue;
+      const registered = registeredCommands.some(
+        (command) => commandText === command || commandText.startsWith(`${command} `)
+      );
+      if (!registered) {
+        errors.push(`${rel}: executable example is not a registered CLI command: '${line}'`);
+      }
+    }
   }
 }
 

@@ -14,7 +14,7 @@ export async function localizationPush(argv: string[]): Promise<void> {
   const route = stringFlag(flags, "route");
   const context = stringFlag(flags, "context");
   const dictionary = await readLocalizationDictionary(file);
-  const errors = validateLocalizationDictionary(dictionary);
+  const errors = validateLocalizationDictionary(dictionary, moduleName);
   if (errors.length) throw new Error(`Localization validation failed:\n${errors.join("\n")}`);
 
   const keys = Object.entries(dictionary).map(([keyName, value]) => ({

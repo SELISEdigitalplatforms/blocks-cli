@@ -23,10 +23,12 @@ The current CLI and SDK follow the backend's file, directory, and object resourc
 
 ```bash
 blocks --version
-blocks data files --help
+blocks --help
 ```
 
-- Use `blocks data files *` for terminal/admin work and inspect `blocks --help` for exact flags.
+- Use `blocks data files *` for terminal/admin work and inspect the top-level
+  `blocks --help` for exact flags. Do not probe a subcommand with `--help`;
+  subcommands do not consistently treat it as help and may execute real logic.
 - Use `blocksClient.data.files` for bytes, metadata, versions, and file operations.
 - Use `blocksClient.data.directories` for directory create/get/update/delete/move.
 - Use `blocksClient.data.objects` for browse/search/trash/shared/restore/share/access/inheritance.

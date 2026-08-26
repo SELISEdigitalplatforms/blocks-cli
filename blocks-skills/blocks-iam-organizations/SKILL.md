@@ -1,6 +1,6 @@
 ---
 name: blocks-iam-organizations
-description: "Work with organizations (multi-tenant workspaces) via `iam.organizations`/`iam.signupSettings`/`auth.switchOrganization` (SDK, in-app) or `blocks iam organizations *`/`iam signup-settings *` (CLI, project-scoped, `--dry-run`→`--yes`) — never raw fetch/curl. Covers the org switcher, switching active org context (SDK/app-only, no CLI equivalent), public signup policy, and — human-confirmed only — creating/editing organizations and org/signup config. Use for 'org switcher', 'switch organization', 'multi-org', 'create/update an organization', 'organization settings', 'signup settings'. Users/roles within an org are blocks-iam-users/blocks-iam-access-control; SSO/OIDC client setup is blocks-bootstrap, portal-optional now."
+description: "Manage Blocks organizations and signup policy through the SDK (`iam.organizations`, `iam.signupSettings`, `auth.switchOrganization`) or project-scoped CLI (`blocks iam organizations *`, `iam signup-settings *`). Use for org switchers, active-org switching, multi-org settings, organization CRUD, and signup policy. Switching is SDK-only; CLI mutations require dry-run and explicit approval. Route user/role management to the IAM user/access-control skills."
 ---
 
 # Blocks IAM — Organizations

@@ -1,6 +1,10 @@
 import { createInterface } from "node:readline/promises";
 import { stdin as input, stdout as output } from "node:process";
 
+export function isInteractive(): boolean {
+  return Boolean(input.isTTY && output.isTTY);
+}
+
 export async function promptText(message: string): Promise<string> {
   const rl = createInterface({ input, output });
   try {

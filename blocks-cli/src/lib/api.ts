@@ -1,5 +1,5 @@
 import { getAccountSession, getImpersonatedProjectSession } from "./auth.js";
-import { getAccountProfile, readConfig } from "./config.js";
+import { readConfig, resolveAccountProfile } from "./config.js";
 
 type RequestOptions = {
   accountAuth?: boolean;
@@ -19,7 +19,7 @@ type RequestOptions = {
 
 export async function blocksRequest<T>(path: string, options: RequestOptions = {}): Promise<T> {
   const config = await readConfig();
-  const { profile } = getAccountProfile(config, options.accountName);
+  const { name: accountName, profile } = await resolveAccountProfile(config, options.accountName);
   const baseUrl = options.apiUrl ?? profile.apiUrl;
   const url = buildUrl(baseUrl, path);
 
@@ -42,13 +42,13 @@ export async function blocksRequest<T>(path: string, options: RequestOptions = {
     const headers: Record<string, string> = { ...baseHeaders };
 
     if (options.accountAuth) {
-      const account = await getAccountSession(options.accountName, { forceRefresh });
+      const account = await getAccountSession(accountName, { forceRefresh });
       headers.Authorization = `Bearer ${account.accessToken}`;
       headers["x-blocks-key"] = account.accountTenant;
     }
 
     if (options.impersonatedProjectAuth) {
-      const project = await getImpersonatedProjectSession(options.accountName, options.projectTenantId, { forceRefresh });
+      const project = await getImpersonatedProjectSession(accountName, options.projectTenantId, { forceRefresh });
       headers.Authorization = `Bearer ${project.accessToken}`;
       // The impersonated token is minted and signed by the root tenant's IdP --
       // its JWKS only exists under the root tenant, so signature validation
@@ -59,13 +59,13 @@ export async function blocksRequest<T>(path: string, options: RequestOptions = {
     }
 
     if (options.preferImpersonatedProjectAuth) {
-      const tenantId = options.projectTenantId ?? config.selectedProject?.tenantId;
+      const tenantId = options.projectTenantId;
       if (tenantId) {
-        const project = await getImpersonatedProjectSession(options.accountName, tenantId, { forceRefresh });
+        const project = await getImpersonatedProjectSession(accountName, tenantId, { forceRefresh });
         headers.Authorization = `Bearer ${project.accessToken}`;
         headers["x-blocks-key"] = project.accountTenant;
       } else {
-        const account = await getAccountSession(options.accountName, { forceRefresh });
+        const account = await getAccountSession(accountName, { forceRefresh });
         headers.Authorization = `Bearer ${account.accessToken}`;
         headers["x-blocks-key"] = account.accountTenant;
       }

@@ -58,7 +58,25 @@ blocks doctor --json
 
 If `blocks` is missing, stop the probe and ask before installing the global package.
 
-Do not read local CLI storage files directly. If auth or project state is broken, use CLI commands such as `blocks login`, `blocks auth remove <account>`, `blocks projects list --json`, and `blocks use <tenantId>`.
+Do not read local CLI storage files directly. If local auth or project state is broken, use CLI commands such as `blocks login --account <account>`, `blocks auth remove <account>`, `blocks projects list --account <account> --json`, and `blocks use <tenantId> --account <account>`.
+
+## Agent Context
+
+For ordinary local work, leave `BLOCKS_CONFIG_DIR` unchanged and use the user's
+normal OS-scoped CLI context. If login is required, run
+`blocks login --account <name>`, relay the device verification URL/code, and
+wait for user approval. If no account is known, ask; never choose a different
+configured account silently.
+
+For Code Studio, the launcher must set a session-isolated
+`BLOCKS_CONFIG_DIR` before the agent starts. Never change it or fall back to OS
+state. Missing authentication means the Studio bootstrap is missing; report that
+condition instead of reading or copying credentials. The current CLI supports
+device login but does not yet provide unattended Studio bootstrap.
+
+Once account and project are known, non-interactive agent commands should pass
+`--account <name>` and `--project <tenantId>` explicitly. Interactive local
+commands may use `activeAccount` and its account-specific project selection.
 
 ## Start From Common Positions
 

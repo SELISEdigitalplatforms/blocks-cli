@@ -9,7 +9,7 @@ export async function localizationValidate(argv: string[]): Promise<void> {
   const language = stringFlag(flags, "language", { required: true });
   const file = stringFlag(flags, "file", { defaultValue: await defaultLocalizationPath(moduleName, language) });
   const dictionary = await readLocalizationDictionary(file);
-  const errors = validateLocalizationDictionary(dictionary);
+  const errors = validateLocalizationDictionary(dictionary, moduleName);
 
   if (errors.length) throw new Error(`Localization validation failed:\n${errors.join("\n")}`);
 

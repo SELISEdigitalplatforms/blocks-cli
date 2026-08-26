@@ -1,17 +1,27 @@
 import { parseFlags, stringFlag } from "../lib/args.js";
-import { getImpersonatedProjectSession, pollDeviceToken, requestDeviceAuthorization } from "../lib/auth.js";
-import { getAccountProfile, readConfig, writeConfig } from "../lib/config.js";
+import { getImpersonatedProjectSession, pollDeviceToken, requestDeviceAuthorization, storeAccountLogin } from "../lib/auth.js";
+import { createAccountProfile, readConfig, resolveAccountProfile, writeConfig } from "../lib/config.js";
 import { openBrowser } from "../lib/open-browser.js";
 import { listProjectGroups } from "../lib/project-info.js";
-import { applyAccountToken } from "../lib/token.js";
-import { readTokenStore, writeTokenStore } from "../lib/token-store.js";
 import { readWorkspaceConfig } from "../lib/workspace.js";
 
 export async function login(argv: string[]): Promise<void> {
   const { flags } = parseFlags(argv);
-  const accountOverride = stringFlag(flags, "account");
-  const config = await readConfig();
-  const { name, profile } = getAccountProfile(config, accountOverride);
+  const accountOverride = stringFlag(flags, "account").trim();
+  let config = await readConfig();
+
+  if (accountOverride && !config.accounts[accountOverride]) {
+    config = {
+      ...config,
+      accounts: {
+        ...config.accounts,
+        [accountOverride]: createAccountProfile()
+      }
+    };
+    await writeConfig(config);
+  }
+
+  const { name, profile } = await resolveAccountProfile(config, accountOverride || undefined);
 
   const device = await requestDeviceAuthorization(profile);
   console.log("Authorize this device:");
@@ -32,16 +42,13 @@ export async function login(argv: string[]): Promise<void> {
   const token = await pollDeviceToken(profile, device, {
     onWait: (seconds) => console.log(`Checking for approval in ${seconds}s...`)
   });
+  await storeAccountLogin(name, profile, token);
   const latest = await readConfig();
-  const latestStore = await readTokenStore();
-  const next = applyAccountToken(latest, latestStore, name, profile.clientId, token);
-  await writeConfig(next.config);
-  await writeTokenStore(next.store);
 
   console.log("Login done.");
 
   const workspace = await readWorkspaceConfig();
-  const rememberedTenantId = workspace.project?.tenantId ?? next.config.selectedProject?.tenantId;
+  const rememberedTenantId = workspace.project?.tenantId ?? latest.accounts[name]?.selectedProject?.tenantId;
 
   if (rememberedTenantId) {
     try {

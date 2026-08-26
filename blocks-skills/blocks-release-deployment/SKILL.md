@@ -5,7 +5,9 @@ description: "Trigger and inspect SELISE Blocks Release builds/deploys entirely 
 
 # Blocks Release — Deployment
 
-Trigger and read Release builds through `blocks release *`. This is **100% CLI, no SDK equivalent** — `@seliseblocks/client` (`createBlocksClient()`) exposes only `auth`, `data`, `iam`, and `localization`; there is no `release` namespace anywhere in the SDK. Never write a frontend/app-code path for this — it's always a terminal command.
+Trigger and read Release builds through `blocks release *`. This is **100% CLI,
+no SDK equivalent**: `@seliseblocks/client` has no `release` namespace. Never
+write a frontend/app-code path for this; use the terminal command.
 
 **Prerequisite:** a project is selected (`blocks use <tenantId>`) and that project has a repo linked from the Blocks portal — see the blocks-bootstrap skill. There is no local config file for release settings; `blocks init` only scaffolds `blocks/data/schemas/`, `blocks/data/rules.json`, and `.env.example` — it has no release-related output at all. `deploy` and `builds list` both resolve which repo to act on directly from the project's linked assets (see below), not from any file on disk.
 

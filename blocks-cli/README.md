@@ -19,8 +19,70 @@ your browser to the verification page when possible so you only need to
 click approve, then polls until approved):
 
 ```bash
-blocks login
+blocks login --account <name>
 ```
+
+`--account` selects exactly that named profile. Login creates missing profile
+metadata from the packaged defaults, but never copies credentials from another
+account or config store.
+
+## Account, project, and session context
+
+The CLI resolves its state directory from `BLOCKS_CONFIG_DIR` when that variable
+is non-empty. Otherwise it uses the normal per-user OS config directory. Config,
+OAuth tokens, client secrets, active account, and selected project all stay in
+that resolved store; the CLI does not detect whether it is running locally or in
+a VM.
+
+Account resolution is `--account` first, then `activeAccount` from the resolved
+store. An explicit missing account fails without falling back. If no valid active
+account exists, an interactive terminal asks which configured account to use and
+stores that choice as active; non-interactive commands fail with an actionable
+error.
+
+Project resolution is `--project`, then `blocks.json`'s `project.tenantId`, then
+the selected account's `selectedProject` from the resolved store. An interactive terminal asks for a
+tenant id only when none is available; non-interactive commands fail. A
+`--project` override applies only to that command and does not change the saved
+selection. Successful login establishes `activeAccount`, so normal usage is
+`blocks use <tenantId>` followed later by `blocks deselect`; both operate on
+that active account.
+
+For Code Studio, the portal backend must validate the portal identity,
+`x-blocks-key`, and requested Studio application/project before creating a
+session. `x-blocks-key` identifies a tenant/project; it does not prove user
+permission. The launcher must provide a unique session/user-specific
+`BLOCKS_CONFIG_DIR`. A new directory starts without imported tokens and requires
+an explicit login or approved bootstrap.
+
+Each account persists exactly one refreshable authentication mode in its
+resolved store: either the account access/refresh pair, or one project's
+impersonated access/refresh pair. `blocks use` exchanges account mode for project
+mode. `blocks deselect` exchanges project mode back to account mode. Account-only
+operations such as project creation temporarily stop impersonation and restore
+the previous project afterward. These exchanges are locked per config directory
+so concurrent CLI processes cannot overwrite each other's token transition.
+
+```mermaid
+flowchart TD
+  L[blocks login --account name] --> A[Account access token + refresh token]
+  A --> U[blocks use tenantId]
+  U --> I[IAM impersonate]
+  I --> P[One project access token + refresh token]
+  P --> R[Project API calls and project refresh]
+  P --> D[blocks deselect]
+  D --> S[IAM stop impersonation]
+  S --> A
+  P --> C[Account-only operation]
+  C --> S
+  A --> O[Run operation]
+  O --> I
+```
+
+On a shared machine, local terminals without an override use the normal OS
+config directory. Every Studio launcher supplies a different
+`BLOCKS_CONFIG_DIR`, so two portal users can use the same tenant on the same VM
+without sharing active account, project selection, client secret, or tokens.
 
 For source development in this repository:
 
@@ -42,8 +104,8 @@ Global options available on every command:
 | `--version` | Print CLI version. |
 | `--json` | Print machine-readable JSON where supported. |
 | `--api-url <url>` | Override the Blocks API URL for this command. |
-| `--account <name>` | Use a named account profile; default is implicit. |
-| `--project <tenantId>` | Use a project tenant for project-scoped commands. |
+| `--account <name>` | Use exactly this account from the resolved config store. |
+| `--project <tenantId>` | Override the project for this command without changing the saved selection. |
 | `--dry-run` | Show planned mutation without calling the API. |
 | `--yes` | Skip mutation confirmation after explicit approval. |
 
@@ -51,16 +113,16 @@ Global options available on every command:
 |---|---|
 | `blocks init` | Create local Blocks workspace files: `blocks.json`, data schema/rules folders, and `.env.example`. |
 | `blocks doctor [--json]` | Check Node.js, OIDC config, token cache, selected project, and config file locations. Does not mutate cloud resources. |
-| `blocks login` | Device-code login. Prints a verification URL and user code, opens the browser to the verification page when possible so you only need to click approve, then polls until the device is authorized; stores account tokens and auto-refreshes later. |
+| `blocks login [--account <name>]` | Device-code login. Explicitly bootstraps a missing named profile without importing credentials from another store, stores account tokens, and makes the successfully logged-in account active. |
 | `blocks auth status [--json]` | Show only whether account/project access and refresh tokens are missing, valid, expired, or available. Does not print account config values. |
-| `blocks auth refresh [--project] [--json]` | Force account token refresh, or project token refresh with `--project`. |
+| `blocks auth refresh [--project] [--json]` | Force account token refresh, temporarily restoring the active project afterward, or directly refresh the project token with `--project`. |
 | `blocks auth remove <account>` | Clear cached tokens and stored local credentials for that account. The packaged default OS account is restored from package defaults. |
 | `blocks logout` | Revoke the current refresh token when possible and remove local session data. |
 | `blocks projects list [--json]` | List accessible Blocks projects via `/os/v4/Project/Gets` using the account token. Read-only. |
 | `blocks projects get [tenantId] [--deployment] [--json]` | Read one project from `Project/Gets`. Uses selected project when `tenantId` is omitted. Pass `--deployment` to also include the environment, tenantGroupId, and linked repo assets that `release deploy` resolves internally. Read-only. |
-| `blocks projects create <name> [--allow-duplicate-name] [--yes] [--dry-run] [--json]` | Create a new project via `/os/v4/Project/Create` with the account token (no project needs to be selected). Always creates **exactly one application, in the `dev` environment** - environment, domain, cookie domain, and production flag are not configurable, and the domain sent is a placeholder the platform replaces with the one it assigns. Confirms first because it accepts the Blocks terms on your behalf. Refuses a name already used by another project unless `--allow-duplicate-name` is passed, then verifies the result against `Project/Gets` and prints the new `tenantId`, `tenantGroupId`, and assigned domain. Does not select the project - run `blocks use <tenantId>` next. |
-| `blocks use <tenantId>` | Save the selected project tenant globally and in `blocks.json` when present. Does not call cloud APIs. |
-| `blocks deselect` | Clear the selected project tenant (globally and in `blocks.json`) and drop its cached impersonation token. Use this to recover when an impersonated project token has expired or failed, then run `blocks use <tenantId>` again to reselect and re-impersonate. |
+| `blocks projects create <name> [--allow-duplicate-name] [--yes] [--dry-run] [--json]` | Create a new project via `/os/v4/Project/Create` with account authentication. If a project session is active, the CLI stops it, creates and verifies the project, then restores it. Always creates **exactly one application, in the `dev` environment** - environment, domain, cookie domain, and production flag are not configurable, and the domain sent is a placeholder the platform replaces with the one it assigns. Confirms first because it accepts the Blocks terms on your behalf. Refuses a name already used by another project unless `--allow-duplicate-name` is passed. Does not select the new project. |
+| `blocks use <tenantId>` | Prepare the project session for `activeAccount`, then save its selected tenant and update `blocks.json` when present. `--account` remains an explicit automation override. |
+| `blocks deselect` | Stop the live impersonation session, exchange its project refresh token for a new account token pair, and clear the resolved account's project selection and `blocks.json`. |
 | `blocks iam me [--json]` | Read the current user from IAM using the account token (CLI operator identity, not a project resource). |
 | `blocks iam users *`, `iam email available`, `iam roles *`, `iam permissions *`, `iam resources *`, `iam organizations *`, `iam signup-settings *` | Full IAM admin surface for the selected project (users, roles, permissions, resource metadata, organizations and their config, signup settings). Project-scoped: requires a selected project and always uses an impersonated project token, never the account token. Mutating commands support `--dry-run`/`--yes`; rich payloads accept `--body '<json>'`/`--file <path>` on top of common convenience flags. Run `blocks --help` for the full command/flag list. |
 | `blocks mfa config *`, `mfa totp *`, `mfa generate`, `mfa resend`, `mfa verify`, `mfa method set`, `mfa disable`, `mfa backup-codes *` | Project-scoped MFA admin and self-service surface (tenant MFA policy, TOTP enrollment, OTP challenge/verify, method switch, backup codes). Same project-selection and impersonation-only rules as IAM above. |
@@ -95,7 +157,7 @@ Global options available on every command:
 | `blocks release status <buildId> [--json]` | Read Release build status by build id. Read-only. |
 | `blocks release builds list [repoId] [--repo-id <repoId>] [--json]` | List Release build details for a repository. When `repoId` is omitted, resolves it from the selected project's linked repo assets - auto-picked if there's exactly one, otherwise you're prompted to choose. Read-only. |
 | `blocks release builds get <buildId> [--json]` | Alias for `release status`. Read-only. |
-| `blocks new web <name> [--app-domain <domain>] [--client-id <oidcClientId>] [--x-blocks-key <tenantId>] [--blocks-api-url <url>] [--oidc-url <url>]` | Create a Vite React starter app that talks to Blocks exclusively through `@seliseblocks/client` (a single `createBlocksClient()` instance) using the SDK hosted IdP flow: `blocksClient.auth.idp.redirectToProvider()` on login click and `blocksClient.auth.idp.callback()` on `/login/callback`. Includes route guards, auto-refresh through `auth.oidc.refreshToken()`, live `auth`/`iam`/`data`/`localization` SDK examples, environment config, and safe `.gitignore` defaults. Uses the selected project (see `use`) unless `--x-blocks-key` overrides it. `--app-domain` and `--client-id` are resolved from the project record when omitted: the domain auto-picks if the project has exactly one, otherwise you're prompted to choose; the OIDC client is picked from the project's existing clients, or you can create a minimal one (display name + redirect URI) on the spot, or skip and register one later from the portal or `auth oidc-clients save`. When `--blocks-api-url` is omitted, `new web` derives it from the app domain as `https://blocksapi.<registrable-domain>`; for example `https://dqrsf.slsblx.com` becomes `https://blocksapi.slsblx.com`. Pass a different Data/IAM/Localization/OS gateway URL explicitly only if your project uses a non-default one. `--oidc-url` defaults to `https://iam.seliseblocks.com`. |
+| `blocks new web <name> [--app-domain <domain>] [--client-id <oidcClientId>] [--x-blocks-key <tenantId>] [--blocks-api-url <url>] [--oidc-url <url>]` | Create a Vite React starter app that talks to Blocks exclusively through `@seliseblocks/client` (a single `createBlocksClient()` instance) using the SDK hosted IdP flow: `blocksClient.auth.idp.redirectToProvider()` on login click and `blocksClient.auth.idp.callback()` on `/login/callback`. Includes route guards, auto-refresh through `auth.oidc.refreshToken()`, live `auth`/`iam`/`data`/`localization` SDK examples, environment config, and safe `.gitignore` defaults. Uses the selected project (see `use`) unless `--x-blocks-key` overrides it. `--app-domain` and `--client-id` are resolved from the project record when omitted: the domain auto-picks if the project has exactly one, otherwise you're prompted to choose; the OIDC client is picked from the project's existing clients, or you can create a minimal one on the spot with both its production callback and `https://<app-domain>:5173/login/callback` registered, or skip and register one later from the portal or `auth oidc-clients save`. When `--blocks-api-url` is omitted, `new web` derives it from the app domain as `https://blocksapi.<registrable-domain>`; for example `https://dqrsf.slsblx.com` becomes `https://blocksapi.slsblx.com`. Pass a different Data/IAM/Localization/OS gateway URL explicitly only if your project uses a non-default one. `--oidc-url` defaults to `https://iam.seliseblocks.com`. |
 
 Use `--json` on commands when AI or automation needs machine-readable output. Use `--dry-run` before mutations and `--yes` only after approval.
 
@@ -139,7 +201,7 @@ If the active OS credential backend cannot decrypt old local auth state after a 
 
 ```bash
 blocks auth remove <account>
-blocks login
+blocks login --account <account>
 ```
 
 ## Workspace
@@ -157,7 +219,7 @@ blocks/
 
 Localization dictionaries are not created by `init` - the default path is `blocks/localization/<module>.<language>.json`, for example `blocks/localization/common.en.json`, and the `blocks/localization/` folder is created lazily the first time `blocks localization pull` writes to it. AI agents can create or update that file directly (before `push`, which only reads it), run `blocks localization validate`, then push it to the Localization service with `blocks localization push --dry-run` followed by `--yes` after approval. Gateway v4 routes do not include an `/api` segment.
 
-`blocks use <tenantId>` updates the selected project in global CLI state and `blocks.json` when present.
+After login selects `activeAccount`, `blocks use <tenantId>` updates that account's selected project and `blocks.json` when present. `blocks deselect` clears the same active account's selection. Different accounts in the same config store retain independent selections when each becomes active through login.
 
 `blocks release deploy` has no local config file - it needs a repo already linked to the project. Linking a repo requires GitHub OAuth, which only the Blocks portal can do; if none is linked, the command tells you so and stops.
 

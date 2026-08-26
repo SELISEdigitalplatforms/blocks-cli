@@ -526,8 +526,8 @@ Global options:
   --version                 Print CLI version.
   --json                    Print machine-readable JSON where supported.
   --api-url <url>           Override Blocks API URL for this command.
-  --account <name>          Use a named account profile; default is implicit.
-  --project <tenantId>      Use a project tenant for project-scoped commands.
+  --account <name>          Use exactly this account from the resolved config store.
+  --project <tenantId>      Override the project for this command only.
   --dry-run                 Show planned mutation without calling the API.
   --yes                     Skip mutation confirmation after explicit approval.
 
@@ -541,11 +541,12 @@ Setup and health:
     file locations. Does not mutate cloud resources.
 
 Auth:
-  blocks login
+  blocks login [--account <name>]
     Device-code login. Prints a verification URL and user code, opens the
     browser to the verification page when possible so you only need to click
-    approve, then polls until the device is authorized; stores account access
-    and refresh tokens and auto-refreshes later. If a project was previously
+    approve, then polls until the device is authorized; bootstraps a missing
+    named profile without importing credentials, stores account access and
+    refresh tokens, and makes that account active. If a project was previously
     selected, re-impersonates it automatically; otherwise lists projects and
     prompts you to run 'blocks use <tenantId>'.
 
@@ -588,14 +589,14 @@ Projects:
     to resolve its target. Read-only.
 
   blocks use <project-tenant-id>
-    Save the selected project tenant globally and in blocks.json when present,
+    Save the selected project tenant for the resolved account and in blocks.json,
     then immediately impersonate it. If a different project was selected,
     stops that impersonation first to reclaim a fresh account refresh token
     before starting the new one.
 
   blocks deselect
     Stop the active impersonation (restoring a fresh account refresh token),
-    then clear the selected project tenant (globally and in blocks.json) and
+    then clear that account's selected project tenant and blocks.json entry and
     drop its cached impersonation token. Run 'blocks use <tenantId>' again to
     reselect and re-impersonate.
 

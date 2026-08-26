@@ -1,24 +1,16 @@
 import { parseFlags, stringFlag } from "../lib/args.js";
-import { revokeCurrentSession } from "../lib/auth.js";
-import { readConfig } from "../lib/config.js";
-import { readTokenStore, removeAccountTokens } from "../lib/token-store.js";
+import { logoutCurrentSession } from "../lib/auth.js";
+import { optionalSelectedProject } from "../lib/workspace.js";
 
 export async function logout(argv: string[] = []): Promise<void> {
   const { flags } = parseFlags(argv);
-  const account = stringFlag(flags, "account");
+  const accountOverride = stringFlag(flags, "account") || undefined;
+  const tenantId = await optionalSelectedProject(flags);
+  const result = await logoutCurrentSession(accountOverride, tenantId);
+  if (result.warning) console.warn(`Warning: ${result.warning}`);
 
-  try {
-    await revokeCurrentSession(account);
-  } catch (error) {
-    console.warn(`Warning: ${(error as Error).message}`);
-  }
-
-  const config = await readConfig();
-  const store = await readTokenStore();
-  const accountName = account || config.activeAccount;
-  if (accountName && store.accounts[accountName]) {
-    await removeAccountTokens(accountName);
-    console.log(`Logged out account '${accountName}'.`);
+  if (result.hadTokens) {
+    console.log(`Logged out${accountOverride ? ` account '${accountOverride}'` : ""}.`);
     return;
   }
 

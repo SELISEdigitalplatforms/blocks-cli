@@ -28,8 +28,8 @@ Namespaced commands accept either spaces or colons, e.g. `blocks data schema lis
 
 - `--json` - print machine-readable JSON where supported.
 - `--api-url <url>` - override the Blocks API URL for this command.
-- `--account <name>` - use a named account profile; default is implicit.
-- `--project <tenantId>` - use a project tenant for project-scoped commands.
+- `--account <name>` - use exactly that named account in the resolved config store; never falls back to another account.
+- `--project <tenantId>` - override the project for this command without changing the saved selection.
 - `--dry-run` / `--yes` - see Operating Rules below.
 
 Use `blocks --help` (no subcommand) as command ground truth for what exists. Do not probe an individual subcommand with `<command> --help` to check its flags - most subcommands don't recognize `--help` as special and just run their real logic with it as a no-op argument (e.g. `login --help` performs an actual login attempt; `new web <name> --help` runs real arg validation). If you need a subcommand's full flag list, read this guide's section for it or infer from `--dry-run`/error output instead.
@@ -47,11 +47,44 @@ Use `blocks --help` (no subcommand) as command ground truth for what exists. Do 
 
 ## Login
 
+The CLI resolves its state store from non-empty `BLOCKS_CONFIG_DIR`, otherwise
+from the normal per-user OS config directory. The same store owns account
+profiles, `activeAccount`, selected project, tokens, and secrets. Do not infer VM
+or Studio state inside the CLI.
+
+Account resolution is `--account`, then the valid `activeAccount` in that store.
+If neither exists, interactive terminals select from configured accounts and
+non-interactive commands fail. Project resolution is `--project`, then
+`blocks.json` `project.tenantId`, then the resolved account's `selectedProject`; interactive
+terminals ask for a tenant id only if all are missing, while non-interactive
+commands fail. Automation should pass both flags explicitly.
+
 Device-code login uses the packaged OS client id. It prints a verification URL and user code, opens the browser to the verification page when possible, then polls until approved:
 
 ```bash
-blocks login
+blocks login --account <name>
 ```
+
+Login is the explicit bootstrap path for a missing named profile. It creates
+profile metadata from packaged defaults and writes newly issued credentials only
+to the resolved store. It never imports tokens from another account or directory.
+Successful login sets `activeAccount`; normal project commands then use
+`blocks use <tenantId>` and `blocks deselect` without repeating `--account`.
+
+The token store keeps one mode per account, never simultaneous account and
+project refresh-token state:
+
+```text
+login -> account AT+RT -> use/impersonate -> project AT+RT
+project AT+RT -> deselect/stop -> fresh account AT+RT
+```
+
+Project token refresh uses the project RT directly. Account refresh and other
+account-only operations temporarily stop an active project session and restore
+it afterward. Token-mode transitions are serialized per resolved config
+directory. Fresh login, impersonation, and stop responses must contain a refresh
+token; ordinary refresh responses may omit it when the existing RT remains
+valid.
 
 Check current auth state:
 
@@ -63,10 +96,35 @@ If local auth state is stale or corrupted (Windows profile change, machine migra
 
 ```bash
 blocks auth remove <account>
-blocks login
+blocks login --account <account>
 ```
 
 Use `blocks logout` to revoke the current refresh token when possible and remove local session data. Use `blocks auth refresh --json` to force account token refresh, and `blocks auth refresh --project --json` after a project session already exists.
+
+For Code Studio, authorization happens before launch: the portal backend must
+validate portal user identity plus `x-blocks-key` plus the requested Studio
+application/project. `x-blocks-key` identifies the tenant/project only and is not
+proof of permission. The launcher must assign a unique session/user-specific
+`BLOCKS_CONFIG_DIR`; the CLI uses only that context and performs no VM detection.
+
+### AI agent startup
+
+For normal local work, leave `BLOCKS_CONFIG_DIR` unchanged and use the user's
+OS-scoped store. Probe with `blocks auth status --json`; if login is missing,
+ask for the account name, run `blocks login --account <name>`, relay the device
+URL/code, and wait for approval. Do not create an isolated directory and copy
+existing credentials into it.
+
+In Code Studio, the launcher provides `BLOCKS_CONFIG_DIR` and authentication
+context before the agent starts. Never change that directory or fall back to OS
+state. If `blocks auth status --json` reports missing context, report a
+launcher/bootstrap failure. The current CLI has no unattended Studio bootstrap
+command, so device login requires explicit user approval unless the platform
+implements an approved backend bootstrap flow.
+
+After resolution, agent automation passes `--account <name>` and
+`--project <tenantId>` explicitly. Interactive local use may rely on the active
+account and its account-specific selection.
 
 Run health checks without mutation:
 
@@ -119,7 +177,7 @@ blocks use <projectTenantId>   # if not already selected
 blocks new web <appName>
 ```
 
-This is interactive when a value isn't already known: if the project has more than one registered domain you're prompted to choose; the OIDC client is offered as a pick-list of the project's existing clients, plus "create a new one now" (prompts only for display name + redirect URI, defaulting to `https://<appDomain>/login/callback`) or "skip, register later." Do not fabricate a client id or domain value yourself.
+This is interactive when a value isn't already known: if the project has more than one registered domain you're prompted to choose; the OIDC client is offered as a pick-list of the project's existing clients, plus "create a new one now" (prompts only for display name + production redirect URI, defaulting to `https://<appDomain>/login/callback`, and automatically adds `https://<appDomain>:5173/login/callback` for local development) or "skip, register later." Do not fabricate a client id or domain value yourself.
 
 **An AI agent running this non-interactively will hang on these prompts** - there's no stdin to answer "Choose 1-3:" from an automated process. Before running `new web`, gather the values yourself and pass them explicitly:
 
@@ -327,17 +385,17 @@ Example:
 
 ```json
 {
-  "dashboard.title": "Dashboard",
+  "title": "Dashboard",
   "products.empty": "No products found"
 }
 ```
 
-Nested JSON is accepted on input and flattened before validation:
+The module already provides the namespace, so a `dashboard` module uses `title`, not `dashboard.title`. Nested JSON is accepted for meaningful key groups and flattened before validation:
 
 ```json
 {
-  "dashboard": {
-    "title": "Dashboard"
+  "products": {
+    "empty": "No products found"
   }
 }
 ```
@@ -514,10 +572,10 @@ blocks release builds list --repo-id <repoId> --json
 
 ## Agent Failure Handling
 
-- `not_logged_in`: run `blocks login`, then `blocks projects list`, then `blocks use <tenantId>`.
-- `refresh_token_rejected`: run `blocks login`.
+- `not_logged_in`: locally run `blocks login --account <account>`, then `blocks projects list --account <account>`, then `blocks use <tenantId> --account <account>`; in Studio, require bootstrap or explicitly supported device approval.
+- `refresh_token_rejected`: locally run `blocks login --account <account>`; in Studio, replace/rebootstrap the isolated session unless device approval is explicitly supported.
 - `refresh_network_error`: check the network and configured OIDC URL, then retry.
-- `auth_repair_required`: inspect `blocks auth status --json`; if local storage is unreadable or stale, run `blocks auth remove <account>`, then `blocks auth status --json` and `blocks login`.
+- `auth_repair_required`: inspect `blocks auth status --json`; if local storage is unreadable or stale, run `blocks auth remove <account>`, then `blocks auth status --json` and `blocks login --account <account>`.
 - `project_not_selected`: run `blocks projects list`, then `blocks use <projectTenantId>`.
 - `api_auth_failed`: run `blocks auth status --json`, then login again. If the failure is specifically a stale/expired impersonated project token rather than the account token, `blocks deselect` followed by `blocks use <tenantId>` re-impersonates without a full re-login.
 - `repo_not_linked` (from `release deploy`): no repo is linked to this project. This needs GitHub OAuth - tell the user to link it from the Blocks portal, do not retry from the CLI.
