@@ -18,7 +18,7 @@ blocks auth idp list --json
 blocks auth config get --json
 
 # Who exists, and what can they do
-blocks iam users list --page-size 5 --json
+blocks iam users list --page-size 5 --json  # use totalCount for the user total; this array is only a sample page
 blocks iam roles list --json
 
 # Data
@@ -35,7 +35,7 @@ blocks localization module list --json
 blocks release builds list <repoId> --json
 ```
 
-`blocks iam me --json` is worth adding when the user asks who *they* are on this project — it is the one IAM command that uses the account token rather than the project's impersonated one.
+`blocks iam me --json` is worth adding when the user asks who *they* are. It prefers the impersonated project token when a project resolves and falls back to the account token only when no project resolves.
 
 ## Reading the login rows
 
@@ -57,7 +57,7 @@ Give the user one table, not thirteen JSON blobs:
 |---|---|
 | Project | name, environment, application domain |
 | App login | public OIDC client? identity provider? `isOidcEnabled`? |
-| Users & roles | how many users, which roles exist |
+| Users & roles | user `totalCount` (never the sample array length), which roles exist |
 | Data | data source configured? how many schemas |
 | Services | mail, storage, localization languages |
 | Releases | last build, or never deployed |

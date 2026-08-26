@@ -1,6 +1,7 @@
 import { stringFlag } from "../lib/args.js";
 import { getImpersonatedProjectSession, stopProjectImpersonation } from "../lib/auth.js";
 import { readConfig, resolveAccountProfile } from "../lib/config.js";
+import { writeOutput } from "../lib/output.js";
 import { optionalSelectedProject, parseCommand, saveSelectedProject } from "../lib/workspace.js";
 
 export async function useProject(argv: string[]): Promise<void> {
@@ -24,6 +25,10 @@ export async function useProject(argv: string[]): Promise<void> {
   const project = await getImpersonatedProjectSession(accountName, tenantId);
   await saveSelectedProject(tenantId, accountName);
 
-  console.log(`Selected project tenant ${tenantId}`);
-  console.log(`Project session ready for tenant ${project.tenantId}.`);
+  if (flags.json) {
+    writeOutput({ account: accountName, impersonated: true, tenantId: project.tenantId }, flags);
+  } else {
+    console.log(`Selected project tenant ${tenantId}`);
+    console.log(`Project session ready for tenant ${project.tenantId}.`);
+  }
 }

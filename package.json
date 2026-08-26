@@ -8,6 +8,8 @@
   ],
   "scripts": {
     "build": "npm run build --workspaces",
-    "test": "npm run test --workspaces"
+    "lint:contracts": "node scripts/lint-cli-contracts.mjs",
+    "lint:skills": "node blocks-skills/lint.mjs",
+    "test": "npm run test --workspaces && npm run lint:skills && npm run lint:contracts"
   }
 }

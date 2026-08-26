@@ -81,6 +81,10 @@ blocks iam organizations config save --multi-org-enabled --yes       # only afte
 
 Every mutating command (`create`, `update`, `config save`, `signup-settings save`) supports `--dry-run` (prints the resolved request body without calling the API) and requires either `--yes` or an interactive `yes` at a confirmation prompt to actually run — the same "state the exact change, get an explicit go-ahead" discipline as the SDK guidance above, just enforced by the CLI itself instead of app code you write.
 
+Boolean configuration flags preserve explicit false values. For example,
+`--multi-org-enabled=false` and `--email-password-signup=false` send `false`;
+omitting those flags leaves the corresponding fields out.
+
 ## Gotchas
 
 - **The CLI has real organization/signup-settings commands** — don't tell a user there's no `blocks` command for organizations; there is, it's just project-scoped and separate from the SDK path used inside an app.

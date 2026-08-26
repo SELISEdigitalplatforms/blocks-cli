@@ -63,6 +63,16 @@ for (const skillName of skillDirs) {
   }
 }
 
+const consumerDocs = [
+  join(skillsDir, "..", "blocks-cli", "README.md"),
+  join(skillsDir, "..", "blocks-cli", "AI_USAGE_GUIDE.md"),
+  join(skillsDir, "..", "docs", "AI_START_GUIDE.md")
+];
+for (const markdownPath of consumerDocs.filter(existsSync)) {
+  checkTextHygiene(markdownPath);
+  checkExecutableCommands(markdownPath);
+}
+
 function markdownFiles(directory) {
   const files = [];
   for (const entry of readdirSync(directory, { withFileTypes: true })) {
@@ -196,20 +206,35 @@ function checkExecutableCommands(filePath) {
     for (const sourceLine of fence[1].split(/\r?\n/)) {
       const line = sourceLine.trim().replace(/^\$\s+/, "");
       if (!line.startsWith("blocks ")) continue;
-
-      const invocation = line.split(/\s+#/, 1)[0].replaceAll(":", " ").replace(/\s+/g, " ").trim();
-      if (invocation === "blocks --help" || invocation === "blocks --version") continue;
-
-      const commandText = invocation.slice("blocks ".length);
-      if (commandText.startsWith("<") || /(^|\s)<command>(\s|$)/.test(commandText) || commandText.includes("*")) continue;
-      const registered = registeredCommands.some(
-        (command) => commandText === command || commandText.startsWith(`${command} `)
-      );
-      if (!registered) {
-        errors.push(`${rel}: executable example is not a registered CLI command: '${line}'`);
-      }
+      checkInvocation(rel, line);
     }
   }
+
+  for (const match of raw.matchAll(/`(blocks\s+[^`\r\n]+)`/g)) {
+    const lineStart = raw.lastIndexOf("\n", match.index) + 1;
+    const lineEnd = raw.indexOf("\n", match.index);
+    const containingLine = raw.slice(lineStart, lineEnd === -1 ? undefined : lineEnd);
+    if (/\b(no|never)\b[^\r\n]*\b(command|equivalent)\b|\bthere is no\b|don't invent/i.test(containingLine)) continue;
+    checkInvocation(rel, match[1]);
+  }
+}
+
+function checkInvocation(rel, line) {
+  const invocation = line.split(/\s+#/, 1)[0].replaceAll(":", " ").replace(/\s+/g, " ").trim();
+  if (invocation === "blocks --help" || invocation === "blocks --version") return;
+
+  const commandText = invocation.slice("blocks ".length);
+  if (commandText.startsWith("<")
+    || /(^|\s)<command>(\s|$)/.test(commandText)
+    || commandText.includes("*")
+    || commandText.includes("...")
+    || /[\/|]/.test(commandText)) return;
+  const registered = registeredCommands.some(
+    (command) => commandText === command
+      || commandText.startsWith(`${command} `)
+      || command.startsWith(`${commandText} `)
+  );
+  if (!registered) errors.push(`${rel}: command reference is not registered: '${line}'`);
 }
 
 for (const warning of warnings) console.warn(`warning: ${warning}`);

@@ -87,11 +87,11 @@ export async function releaseDeploy(argv: string[]): Promise<void> {
     return;
   }
 
-  const finalStatus = await waitForBuild(buildId, flags);
+  const finalStatus = await waitForBuild(buildId, projectKey, flags);
   writeOutput({ build: finalStatus, buildId, deploy: result }, flags);
 }
 
-async function waitForBuild(buildId: string, flags: Record<string, string | boolean>): Promise<unknown> {
+async function waitForBuild(buildId: string, projectTenantId: string, flags: Record<string, string | boolean>): Promise<unknown> {
   const pollIntervalMs = integerFlag(flags, "poll-interval", DEFAULT_POLL_INTERVAL_SECONDS) * 1000;
   const timeoutMs = integerFlag(flags, "timeout", DEFAULT_WAIT_TIMEOUT_SECONDS) * 1000;
   const deadline = Date.now() + timeoutMs;
@@ -101,6 +101,7 @@ async function waitForBuild(buildId: string, flags: Record<string, string | bool
   while (true) {
     const status = await blocksRequest<Record<string, unknown>>("/release/v4/api/Build", {
       impersonatedProjectAuth: true,
+      projectTenantId,
       query: { buildId },
       ...requestContext(flags)
     });

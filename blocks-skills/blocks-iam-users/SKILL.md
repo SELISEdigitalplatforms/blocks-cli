@@ -3,6 +3,8 @@ name: blocks-iam-users
 description: "Manage OTHER users' IAM records via `blocksClient.iam.users.*` (never raw fetch/curl), or the equivalent project-scoped `blocks iam users *` / `blocks iam email available` CLI. Covers reads (`get`, `list`, `emailAvailable`, `exists`) and admin mutations (`create`, `update`, `activate`, `deactivate`, `updateAccess`, `revokeAccess`) — CLI mutations require `--dry-run`/`--yes`. Use to invite, edit, deactivate/reactivate, list/search users, or grant/revoke roles/org access. Not for the current user's own profile (blocks-iam-account) or role/permission definitions (blocks-iam-access-control)."
 ---
 
+When invoking a project-scoped `blocks` command, either use the resolved account's saved selection or pass `--project <tenantId>` for that one command without changing saved state. `--project` applies to CLI commands only, never SDK calls.
+
 # Blocks IAM — Managing Other Users
 
 This skill is about an **admin managing other people's IAM accounts** from inside a Blocks app — inviting them, editing their profile, changing their access, deactivating them. It is not about the signed-in user managing their own account (that's the **blocks-iam-account** skill) and not about defining the roles/permissions being assigned (that's **blocks-iam-access-control**).
@@ -80,7 +82,7 @@ await blocksClient.iam.users.updateAccess({ userId: "usr_8a2f", roles: ["editor"
 
 ## CLI surface — `blocks iam users *`, `blocks iam email available`
 
-These are real, fully-wired commands — not a stub and not limited to `iam me`. `iam me` is a separate, account-scoped command (current CLI operator's own identity via the account token); every command below is **project-scoped**: it requires a project already selected (`blocks use <project-tenant-id>`) and calls IAM with an impersonated project token, same as the rest of the project-scoped CLI surface.
+These are real, fully-wired commands — not a stub and not limited to `iam me`. `iam me` reads the current CLI operator and prefers project auth when a project resolves, falling back to account auth otherwise; every command below is strictly **project-scoped** and requires an impersonated project token.
 
 Reads — no confirmation needed:
 
@@ -122,7 +124,7 @@ Apply the same confirm-before-mutating discipline here as with the SDK: state wh
 - **Roles are referenced by slug**, as defined in blocks-iam-access-control — not by their internal item ids.
 - **`organizationId`** matters in multi-org projects — pass it to `get` when you need a user's record in a specific org context.
 - **Every request/response type in the SDK is a loosely-typed `Record<string, unknown>`** (`BlocksUser`, `BlocksBaseResponse`, etc. only guarantee a few common fields) — treat fields defensively and confirm shape against a live response for the project rather than assuming a fixed schema.
-- **The CLI is project-scoped, not account-scoped** — `blocks iam users *`/`blocks iam email available` need a selected project (`blocks use <project-tenant-id>`) and use an impersonated project token; `iam me` is the one exception that runs on the account token instead.
+- **The CLI user-admin surface is project-scoped** — `blocks iam users *`/`blocks iam email available` need a selected project and an impersonated project token. `iam me` is different only because it can fall back to account auth when no project resolves.
 - **Don't duplicate blocks-iam-account** — if the ask is "let me update my own profile" or "let me reset my password," that's the current user acting on themselves, not this skill.
 
 ## Example triggers

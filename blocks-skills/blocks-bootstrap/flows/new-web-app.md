@@ -10,14 +10,15 @@ Resolve the OIDC client id **before** running it. See the OIDC flow — an app s
 blocks new web <appName> \
   --x-blocks-key <tenantId> \
   --app-domain https://<app-domain> \
-  --client-id <publicOidcClientId>
+  --client-id <publicOidcClientId> \
+  --yes
 ```
 
-**Always pass all three explicitly.** Omitting `--app-domain` or `--client-id` drops the command into an interactive pick-list — including for the "skip" option — with no non-interactive escape. In an agent-driven session with no stdin to answer it, that hangs the run. The values are resolvable ahead of time from `blocks projects get --json` and `blocks auth oidc-clients list --json`; use those rather than hoping for a graceful default.
+**Always pass all three contexts explicitly.** Omitting `--app-domain` or `--client-id` drops the command into an interactive pick-list. The command also checks AuthController and may enable OIDC login; after the user approves that possible tenant mutation, pass `--yes` so a non-interactive run cannot stop at confirmation. Without approval, do not scaffold.
 
 Leave `--blocks-api-url` off unless the project uses a non-default gateway. The scaffold derives it from the app domain, and passing a wrong one by hand is harder to notice than leaving it out.
 
-One thing it does for you: once it resolves the client id, it checks the project's auth config and turns on `isOidcEnabled` if it is off. That is why a freshly scaffolded app usually needs nothing further for login to function — and why an app you wire by hand does.
+Once it resolves the client id, it checks the project's auth config and turns on `isOidcEnabled` if needed, using the resolved OIDC URL as `accountActionBaseUrl` when none exists. Failure or missing non-interactive approval stops before local files are scaffolded.
 
 ## Then work inside the app
 

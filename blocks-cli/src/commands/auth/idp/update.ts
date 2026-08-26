@@ -3,6 +3,7 @@ import { blocksRequest } from "../../../lib/api.js";
 import { confirmMutation } from "../../../lib/confirm.js";
 import { compact, jsonBodyFlag, listFlag } from "../../../lib/json-flag.js";
 import { writeOutput } from "../../../lib/output.js";
+import { redactFields } from "../../../lib/redact.js";
 import { requestContext } from "../../../lib/request-context.js";
 import { parseCommand, selectedProject } from "../../../lib/workspace.js";
 
@@ -14,9 +15,9 @@ import { parseCommand, selectedProject } from "../../../lib/workspace.js";
  *
  * This is also the only endpoint that can set the OIDC endpoint URLs: the create
  * endpoint silently drops authorizationUrl/tokenUrl/userInfoUrl, and a provider
- * auto-registered from an OIDC client (--register-as-identity-provider) never has
- * them. `GET /iam/v4/idp/initiate` needs authorizationUrl, so a freshly created
- * provider has to be patched here before hosted login works. Apple-only fields
+ * auto-registered from an OIDC client may still be missing them when discovery
+ * was unavailable or the provider predates discovery wiring. `GET /iam/v4/idp/initiate`
+ * needs authorizationUrl, so an incomplete provider has to be patched here. Apple-only fields
  * stay in --body/--file so no private key lands in shell history.
  */
 export async function authIdpUpdate(argv: string[]): Promise<void> {
@@ -50,7 +51,7 @@ export async function authIdpUpdate(argv: string[]): Promise<void> {
   };
 
   if (booleanFlag(flags, "dry-run")) {
-    writeOutput({ dryRun: true, endpoint: `/iam/v4/auth/identity-providers/${id}`, request: body }, flags);
+    writeOutput({ dryRun: true, endpoint: `/iam/v4/auth/identity-providers/${id}`, request: redactFields(body, ["clientSecret", "privateKey"]) }, flags);
     return;
   }
 

@@ -1,4 +1,4 @@
-import { booleanFlag, stringFlag } from "../../../lib/args.js";
+import { booleanFlag, optionalBooleanFlag, stringFlag } from "../../../lib/args.js";
 import { blocksRequest } from "../../../lib/api.js";
 import { confirmMutation } from "../../../lib/confirm.js";
 import { compact, jsonBodyFlag } from "../../../lib/json-flag.js";
@@ -22,7 +22,7 @@ export async function storageConfigSave(argv: string[]): Promise<void> {
       remoteBasePath: stringFlag(flags, "remote-base-path") || undefined,
       secretKey: stringFlag(flags, "secret-key") || undefined,
       storageStrategy: stringFlag(flags, "strategy") || undefined,
-      updateRequest: booleanFlag(flags, "update") || undefined,
+      updateRequest: optionalBooleanFlag(flags, "update"),
       userName: stringFlag(flags, "username") || undefined
     })
   };

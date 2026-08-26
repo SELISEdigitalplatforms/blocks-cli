@@ -3,6 +3,8 @@ name: blocks-storage-configuration
 description: "Configure which storage provider (Azure Blob, S3-compatible object storage, or local/SFTP storage) backs a SELISE Blocks project's file object tree: named configurations with host, port, credentials, region/endpoint or connection string, and strategy, via the blocks CLI ('storage config get/list/save/delete'). CLI-only, project-scoped admin surface. Use to create, inspect, rotate, switch, or delete provider configurations; file/directory/object operations belong to blocks-data-storage."
 ---
 
+When invoking a project-scoped `blocks` command, either use the resolved account's saved selection or pass `--project <tenantId>` for that one command without changing saved state. `--project` applies to CLI commands only, never SDK calls.
+
 # Blocks Storage — Configuration
 
 This skill manages the **storage configuration record itself** — which cloud provider (or local/SFTP storage) a named configuration points at, and the connection details needed to reach it. It does not upload, download, browse, share, version, move, or trash objects; those runtime concerns belong to blocks-data-storage.

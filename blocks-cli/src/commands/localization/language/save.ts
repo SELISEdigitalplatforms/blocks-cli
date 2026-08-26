@@ -1,4 +1,4 @@
-import { booleanFlag, stringFlag } from "../../../lib/args.js";
+import { booleanFlag, optionalBooleanFlag, stringFlag } from "../../../lib/args.js";
 import { blocksRequest } from "../../../lib/api.js";
 import { confirmMutation } from "../../../lib/confirm.js";
 import { compact, jsonBodyFlag } from "../../../lib/json-flag.js";
@@ -11,7 +11,7 @@ export async function localizationLanguageSave(argv: string[]): Promise<void> {
   const body = {
     ...(await jsonBodyFlag(flags)),
     ...compact({
-      isDefault: booleanFlag(flags, "is-default") || undefined,
+      isDefault: optionalBooleanFlag(flags, "is-default"),
       itemId: stringFlag(flags, "item-id") || undefined,
       languageCode: stringFlag(flags, "language-code") || undefined,
       languageName: stringFlag(flags, "language-name") || undefined

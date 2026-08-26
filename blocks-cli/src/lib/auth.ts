@@ -48,14 +48,15 @@ export type DeviceAuthorizationResponse = {
 };
 
 export type DevicePollingOptions = {
+  accountName?: string;
   onWait?: (seconds: number) => void;
 };
 
 const DEVICE_GRANT = "urn:ietf:params:oauth:grant-type:device_code";
 const MAX_CONSECUTIVE_TRANSIENT_ERRORS = 3;
 
-export async function requestDeviceAuthorization(profile: AccountProfile): Promise<DeviceAuthorizationResponse> {
-  const rootTenantId = await resolveRootTenantForDevice(profile);
+export async function requestDeviceAuthorization(profile: AccountProfile, accountName?: string): Promise<DeviceAuthorizationResponse> {
+  const rootTenantId = await resolveRootTenantForDevice(profile, accountName);
   if (!rootTenantId) {
     throw new Error("Device login requires rootTenantId in the account profile.");
   }
@@ -64,7 +65,7 @@ export async function requestDeviceAuthorization(profile: AccountProfile): Promi
     client_id: profile.clientId,
     scope: profile.scope
   });
-  applyClientSecret(body, await getSecretForProfile(profile));
+  applyClientSecret(body, await getSecretForProfile(accountName));
 
   const response = await fetch(new URL("/api/oidc/device_authorization", profile.oidcUrl), {
     body,
@@ -89,7 +90,7 @@ export async function requestDeviceAuthorization(profile: AccountProfile): Promi
 }
 
 export async function pollDeviceToken(profile: AccountProfile, device: DeviceAuthorizationResponse, options: DevicePollingOptions = {}): Promise<TokenResponse> {
-  const rootTenantId = await resolveRootTenantForDevice(profile);
+  const rootTenantId = await resolveRootTenantForDevice(profile, options.accountName);
   if (!rootTenantId) {
     throw new Error("Device token polling requires rootTenantId in the account profile.");
   }
@@ -107,7 +108,7 @@ export async function pollDeviceToken(profile: AccountProfile, device: DeviceAut
       device_code: device.device_code,
       grant_type: DEVICE_GRANT
     });
-    applyClientSecret(body, await getSecretForProfile(profile));
+    applyClientSecret(body, await getSecretForProfile(options.accountName));
 
     let response: TokenResponse;
     try {
@@ -286,7 +287,7 @@ export async function storeAccountLogin(
 export async function logoutCurrentSession(
   accountOverride?: string,
   tenantOverride?: string
-): Promise<{ hadTokens: boolean; warning?: string }> {
+): Promise<{ account: string; hadTokens: boolean; warning?: string }> {
   return await withAuthTransitionLock(async () => {
     const config = await readConfig();
     const store = await readTokenStore();
@@ -316,7 +317,7 @@ export async function logoutCurrentSession(
       const { [name]: _removed, ...accounts } = latest.accounts;
       await writeTokenStore({ accounts });
     }
-    return { hadTokens, warning };
+    return { account: name, hadTokens, warning };
   });
 }
 
@@ -550,7 +551,7 @@ async function impersonateProject(args: {
     throw new CliActionableError(
       `Impersonation failed: the account's OIDC client ('${args.clientId}') is not registered for impersonation (${message}).`,
       "impersonation_invalid_client",
-      "Check the client_id in 'blocks auth config get', then contact an admin to register it for impersonation."
+      `Contact an admin to register CLI client '${args.clientId}' for project impersonation. Re-login and auth config changes cannot repair this.`
     );
   }
 
@@ -626,28 +627,14 @@ function applyClientSecret(body: URLSearchParams, clientSecret?: string): void {
   if (clientSecret) body.set("client_secret", clientSecret);
 }
 
-async function getSecretForProfile(profile: AccountProfile): Promise<string | undefined> {
-  const config = await readConfig();
-  for (const [account, accountProfile] of Object.entries(config.accounts)) {
-    if (accountProfile.clientId === profile.clientId && accountProfile.oidcUrl === profile.oidcUrl) {
-      return await getClientSecret(account);
-    }
-  }
-
-  return undefined;
+async function getSecretForProfile(accountName?: string): Promise<string | undefined> {
+  return accountName ? await getClientSecret(accountName) : undefined;
 }
 
-async function resolveRootTenantForDevice(profile: AccountProfile): Promise<string | undefined> {
+async function resolveRootTenantForDevice(profile: AccountProfile, accountName?: string): Promise<string | undefined> {
   if (profile.rootTenantId) return profile.rootTenantId;
+  if (!accountName) return undefined;
 
-  const config = await readConfig();
   const store = await readTokenStore();
-  for (const [account, accountProfile] of Object.entries(config.accounts)) {
-    if (accountProfile.apiUrl === profile.apiUrl && accountProfile.clientId === profile.clientId) {
-      const accountTenant = store.accounts[account]?.account?.accountTenant;
-      if (accountTenant) return accountTenant;
-    }
-  }
-
-  return undefined;
+  return store.accounts[accountName]?.account?.accountTenant;
 }

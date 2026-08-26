@@ -3,6 +3,8 @@ name: blocks-iam-access-control
 description: "Work with SELISE Blocks RBAC (roles & permissions) via `blocks iam roles/permissions *` (CLI, project-scoped) or `blocksClient.iam.*` (SDK), never raw fetch/curl. Two facets: read-only feature-gating by the current user's own roles/permissions (common, safe) vs. creating/editing role and permission definitions (sensitive, human-confirmed only — CLI `--dry-run`→`--yes` or an in-app admin screen). OIDC/identity-provider setup is a different skill. Use for permission-gated UI, role/permission pickers, or building/scripting role & permission admin ('gate this button by permission', 'create a role and grant permissions', 'list permissions by severity')."
 ---
 
+When invoking a project-scoped `blocks` command, either use the resolved account's saved selection or pass `--project <tenantId>` for that one command without changing saved state. `--project` applies to CLI commands only, never SDK calls.
+
 # Blocks IAM — Access Control (Permissions & Roles)
 
 This skill covers **permission and role definitions** in SELISE Blocks — the RBAC model itself, not who has which role (that's the blocks-iam-users skill). Everything goes through either `blocks iam roles/permissions *` (CLI) or `blocksClient.iam.*` from **`@seliseblocks/client`**, the single SDK instance every `blocks new web` scaffold wires up at `src/lib/blocks/client.ts` and exports as `blocksClient`. No raw `fetch`/`curl` for either surface.
@@ -36,7 +38,7 @@ Legitimate only in direct response to a human's explicit, in-the-moment instruct
 
 ## Gotchas
 
-- **CLI mutations are project-scoped, not account-scoped** — they run against the impersonated-project token; `blocks iam me` is the one IAM command that uses the account token instead.
+- **CLI mutations are project-scoped, not account-scoped** — they run against the impersonated-project token. `blocks iam me` prefers that token when a project resolves and uses the account token only without a resolved project.
 - **Role hierarchy and permission assignment key off `slug`**, not `itemId`.
 - **Never fire a create/update/assign-permissions call — CLI or SDK — without a human confirming that specific change first.** See [flows/manage-roles-permissions.md](flows/manage-roles-permissions.md) for the full discipline.
 - **OIDC/identity-provider client provisioning is a separate concern**, independent of everything above — it runs through `blocks auth oidc-clients`/`auth idp`, not through roles and permissions.

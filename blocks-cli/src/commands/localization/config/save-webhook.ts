@@ -1,4 +1,4 @@
-import { booleanFlag, stringFlag } from "../../../lib/args.js";
+import { booleanFlag, optionalBooleanFlag, stringFlag } from "../../../lib/args.js";
 import { blocksRequest } from "../../../lib/api.js";
 import { confirmMutation } from "../../../lib/confirm.js";
 import { compact, jsonBodyFlag } from "../../../lib/json-flag.js";
@@ -15,7 +15,7 @@ export async function localizationConfigSaveWebhook(argv: string[]): Promise<voi
     ...compact({
       blocksWebhookSecret: secret || headerKey ? compact({ headerKey, secret }) : undefined,
       contentType: stringFlag(flags, "content-type") || undefined,
-      isDisabled: booleanFlag(flags, "is-disabled") || undefined,
+      isDisabled: optionalBooleanFlag(flags, "is-disabled"),
       itemId: stringFlag(flags, "item-id") || undefined,
       url: stringFlag(flags, "url") || undefined
     })

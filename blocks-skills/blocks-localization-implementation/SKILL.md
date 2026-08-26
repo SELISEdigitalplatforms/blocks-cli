@@ -3,6 +3,8 @@ name: blocks-localization-implementation
 description: "Consume SELISE Blocks localization at runtime in a scaffolded frontend, entirely through the `@seliseblocks/client` SDK's `localization` namespace — never raw fetch/curl. Use for making a Blocks web app multilingual on the client: language/module discovery, loading dictionaries, the built-in `t()` lookup, and a language switcher that reloads and re-renders. Frontend consumption only — authoring/pushing translation content is the sibling skill blocks-localization-configuration."
 ---
 
+When invoking a project-scoped `blocks` command, either use the resolved account's saved selection or pass `--project <tenantId>` for that one command without changing saved state. `--project` applies to CLI commands only, never SDK calls.
+
 # Blocks Localization — Implementation (frontend)
 
 Make a scaffolded Blocks web app render its UI in the user's language, using only the `localization` namespace on the SDK client — `createBlocksClient(...).localization`. No fetch, no manual query strings, no hand-rolled caching: the SDK client already does all of that.

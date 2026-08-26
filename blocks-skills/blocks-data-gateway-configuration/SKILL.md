@@ -3,6 +3,8 @@ name: blocks-data-gateway-configuration
 description: "Configure a SELISE Blocks project's data model via the blocks CLI — never raw fetch/curl against api.seliseblocks.com. Covers data-source config (data config get/create/update), schema authoring and push (data schema list/pull/push, plus granular get/fields/info commands), data-access policies (data rules pull/deploy/policy), field-level validation rules (data validation *), and reloading so changes go live (data reload, or the composed data sync). Use for defining, editing, securing, validating, or reloading a project's DATA MODEL — schema fields, access policies, and validation rules."
 ---
 
+When invoking a project-scoped `blocks` command, either use the resolved account's saved selection or pass `--project <tenantId>` for that one command without changing saved state. `--project` applies to CLI commands only, never SDK calls.
+
 # Blocks Data — Gateway Configuration
 
 The Data schema/rules model of a Blocks project is configured entirely through the `blocks` CLI now — there is no supported reason to hand-roll `fetch`/`curl` calls against `api.seliseblocks.com/data/v4` anymore. The CLI reads and writes local files under `blocks/data/` and talks to the Data service for you.
@@ -67,7 +69,7 @@ Pulling before editing avoids clobbering schema changes someone else made in the
    blocks data reload --yes --json
    ```
 
-**Shortcut — recommended default:** steps 3–6 above (validate → schema push → rules deploy → reload) are exactly what `blocks data sync` automates behind a single confirmation:
+**Shortcut — recommended default:** validation, schema push, rules deploy, and reload are exactly what `blocks data sync` automates behind a single confirmation. Rules deployment comes from the pulled/edited `blocks/data/rules.json`; it is not a separately numbered step above.
 
 ```bash
 blocks data sync --dry-run --json

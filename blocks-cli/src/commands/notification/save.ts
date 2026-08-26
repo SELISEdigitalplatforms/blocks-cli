@@ -1,4 +1,4 @@
-import { booleanFlag, optionalIntegerFlag, stringFlag } from "../../lib/args.js";
+import { booleanFlag, optionalBooleanFlag, optionalIntegerFlag, stringFlag } from "../../lib/args.js";
 import { blocksRequest } from "../../lib/api.js";
 import { confirmMutation } from "../../lib/confirm.js";
 import { compact, jsonBodyFlag } from "../../lib/json-flag.js";
@@ -12,8 +12,8 @@ export async function notificationSave(argv: string[]): Promise<void> {
     ...(await jsonBodyFlag(flags)),
     ...compact({
       channelToNotify: optionalIntegerFlag(flags, "channel"),
-      enablePersistence: booleanFlag(flags, "enable-persistence") || undefined,
-      isUpdateRequest: booleanFlag(flags, "update") || undefined,
+      enablePersistence: optionalBooleanFlag(flags, "enable-persistence"),
+      isUpdateRequest: optionalBooleanFlag(flags, "update"),
       name: stringFlag(flags, "name") || undefined,
       notificationType: optionalIntegerFlag(flags, "type"),
       notifyMethod: stringFlag(flags, "notify-method") || undefined

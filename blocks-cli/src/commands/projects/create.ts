@@ -89,6 +89,7 @@ export async function createProject(argv: string[]): Promise<void> {
     if (!booleanFlag(flags, "allow-duplicate-name")) await assertNameIsFree(name, flags);
 
     const result = await blocksRequest<CreateProjectResponse>(CREATE_ENDPOINT, {
+      acceptFailureEnvelope: true,
       accountAuth: true,
       ...requestContext(flags),
       body

@@ -3,6 +3,8 @@ name: blocks-data-gateway-crud
 description: "Implement create/read/update/delete against a SELISE Blocks project's runtime Data Gateway using the @seliseblocks/client SDK. Use data.collection(schemaName) for straightforward per-item CRUD, data.graphql() for joins or custom query shapes, and data.schemas.*/data.validations.* for schema/validation metadata. Shows how to wire CRUD into the React 18 + Vite + TanStack Query app that blocks new web scaffolds. Use whenever the user wants to read or write actual records through a Blocks Data schema from app code."
 ---
 
+When invoking a project-scoped `blocks` command, either use the resolved account's saved selection or pass `--project <tenantId>` for that one command without changing saved state. `--project` applies to CLI commands only, never SDK calls.
+
 # Blocks Data - Gateway CRUD
 
 Once a schema exists and has been reloaded via the blocks-data-gateway-configuration skill, the Data Gateway exposes runtime records through GraphQL. This skill shows how to use the generated app's shared `@seliseblocks/client` instance for CRUD. Do not use raw `fetch` or `curl` against Blocks APIs from app code.

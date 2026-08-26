@@ -19,6 +19,7 @@ Everything here goes through `blocks`. Never a raw `fetch`/`curl` against a Bloc
 - A command failed with `not_logged_in`, `project_not_selected`, `api_auth_failed`, or `refresh_token_rejected`.
 - The user wants to build on Blocks and has not said where they are starting from.
 - The user handed you an `x-blocks-key` and expects you to pick that project up.
+- The user asks to log the CLI out of Blocks or clear the current CLI session.
 
 Once the CLI is logged in, a project is selected, and the user is asking for a specific capability (data schemas, localization, mail, storage, roles), that capability's own skill owns the work — hand off rather than continuing here.
 
@@ -120,6 +121,10 @@ The CLI authenticates itself with no setup: there is nothing to register in a po
 
 Run it yourself rather than only telling the user to run it, so you can read the printed code and URL back to them and confirm the result. Verify with `blocks auth status --json` afterwards — do not assume it worked.
 
+## Log out
+
+For "log me out of Blocks", run `blocks logout` for the resolved account. It revokes the current refresh token where possible and clears that account's local session data from the resolved config store. In automation, pass `--account <name>` explicitly; never log out a different configured account. Verify with `blocks auth status --account <name> --json`.
+
 ## Routing
 
 | Situation | Go to |
@@ -146,13 +151,27 @@ Once one user can log in, bootstrap is over. Hand off: `blocks-iam-users` and `b
 - **Never invent a project key, domain, API URL, or client id.** If you cannot read it from a command, ask.
 - **Treat a GraphQL response carrying an `errors` array as a failure** even when the HTTP status is 200.
 - **An unknown command or flag usually means the CLI is outdated.** Compare `blocks --version` against `npm view @seliseblocks/cli-os version` before working around it.
+- **Run CLI commands sequentially per config directory.** Authentication transitions are mutex-protected; parallel invocations can fail with `auth_transition_busy`.
 
 ## Known error codes
 
 | Code | Fix |
 |---|---|
 | `not_logged_in`, `refresh_token_rejected` | Local: `blocks login --account <account>`; Studio: require bootstrap or explicitly supported device approval |
+| `account_not_configured` | Run `blocks login --account <account>` in the same resolved config store; never borrow another account |
+| `account_not_selected` | Pass `--account <account>` or log in that named account; never choose one silently |
+| `account_session_suspended` | Run `blocks deselect` before the account-only operation, then reselect when needed |
+| `auth_transition_busy` | Wait for the other CLI process using this config directory, then retry sequentially |
+| `device_login_denied` | The user denied approval; start a new login only when they ask |
+| `device_login_expired` | Re-run `blocks login --account <account>` and complete approval before expiry |
+| `device_login_failed` | Correct the identity-provider reason reported in `message`, then retry |
+| `device_login_network_error` | Restore identity-provider connectivity, then restart login |
 | unreadable or stale local auth storage | Local: `blocks auth remove <account>`, then `blocks login --account <account>`; Studio: replace/rebootstrap the isolated session |
 | `project_not_selected` | `blocks use <x-blocks-key>`, or `--project <tenantId>` for one command |
+| `project_refresh_token_missing` | Run `blocks login --account <account>`, then select the project again |
+| `missing_project_name` | Pass a name: `blocks projects create "<name>"` |
+| `invalid_project_name` | Use a project name between 3 and 100 characters |
+| `project_create_failed` | Inspect `message`, then run `blocks projects list --json` before retrying |
+| `no_tenant_group` | Pass a known `--repo-id` to `release builds list` |
 | `api_auth_failed` | `blocks auth status --json`, then log in again |
-| `impersonation_invalid_client` | Not a stale token. The account's OIDC client is not registered for impersonation — `blocks auth config get` and have an admin register it. Re-login and reselect will not fix this one. |
+| `impersonation_invalid_client` | Not a stale token. Give an admin the CLI client id printed in the error and have them register that client for project impersonation. Re-login, reselect, and AuthController config changes will not fix it. |

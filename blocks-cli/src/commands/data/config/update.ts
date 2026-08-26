@@ -1,4 +1,4 @@
-import { booleanFlag, stringFlag } from "../../../lib/args.js";
+import { booleanFlag, optionalBooleanFlag, stringFlag } from "../../../lib/args.js";
 import { blocksRequest } from "../../../lib/api.js";
 import { confirmMutation } from "../../../lib/confirm.js";
 import { compact, jsonBodyFlag } from "../../../lib/json-flag.js";
@@ -14,7 +14,7 @@ export async function dataConfigUpdate(argv: string[]): Promise<void> {
       collectionNamePattern: stringFlag(flags, "collection-name-pattern") || undefined,
       connectionString: stringFlag(flags, "connection-string") || undefined,
       databaseName: stringFlag(flags, "database-name") || undefined,
-      isCollectionNameEditable: booleanFlag(flags, "collection-name-editable") || undefined,
+      isCollectionNameEditable: optionalBooleanFlag(flags, "collection-name-editable"),
       itemId: stringFlag(flags, "item-id") || undefined
     })
   };

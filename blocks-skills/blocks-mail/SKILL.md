@@ -58,7 +58,7 @@ Everything under `mail config`, `mail template`, and `mail mailbox` is project-s
 
 ### `mail mailbox` — mailbox message reads
 
-- **`blocks mail mailbox list [--inbound] [--page-number 1] [--page-size 20] [--search <q>] [--start-date <date>] [--end-date <date>] [--status <s>] [--json]`** — read-only. There is **no `--configuration-id` flag** on this command (see Gotchas — this corrects a stale example elsewhere in this repo's own docs).
+- **`blocks mail mailbox list [--inbound[=false]] [--page-number 1] [--page-size 20] [--search <q>] [--start-date <date>] [--end-date <date>] [--status <s>] [--json]`** — read-only. There is **no `--configuration-id` flag** on this command.
 - **`blocks mail mailbox get <messageId> [--json]`** — read-only (positional arg, or `--id`).
 
 ### `mail send` / `mail sendtoany` — CLI mirror of the SDK send calls
@@ -80,7 +80,7 @@ Every write command (`config save/delete/duplicate`, `template save/delete/clone
 ## Gotchas
 
 - **The premise that mail has no SDK path at all is wrong for sending.** `blocksClient.mail.send()`/`sendToAny()` exist and are the correct answer for "send email from my app." Only `config`/`template`/`mailbox` administration is CLI-only.
-- **`mail mailbox list` does not take `--configuration-id`.** This CLI's own usage guide has previously shown an example with that flag that isn't backed by the actual flag list — the real command only reads `--inbound`, `--page-number`, `--page-size`, `--search`, `--start-date`, `--end-date`, `--status`. The CLI's flag parser silently ignores unrecognized `--` flags rather than erroring, so a stale example like that "works" without doing what it implies. Don't repeat it; use the real flags above.
+- **`mail mailbox list` does not take `--configuration-id`.** The real command only reads `--inbound`, `--page-number`, `--page-size`, `--search`, `--start-date`, `--end-date`, and `--status`. Unknown flags are ignored by the generic parser, so use only the documented surface.
 - **`--account-password` (config save) is redacted only in `--dry-run` output.** The live `config save`/`config get` response is not redacted — treat it as a secret regardless.
 - **`--provider` and `--port` on `config save` are raw values with no documented enum/meaning in the CLI** — don't invent what a given integer means; ask the user or read it back from `config get` on an existing configuration.
 - **`purpose`/`language` on `send`/`sendtoany` select a template implicitly** — there's no lookup or validation for which `purpose` strings are valid for a tenant. Confirm against `mail template list`/`get` rather than guessing a purpose name.

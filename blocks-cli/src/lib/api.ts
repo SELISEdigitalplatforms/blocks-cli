@@ -2,6 +2,7 @@ import { getAccountSession, getImpersonatedProjectSession } from "./auth.js";
 import { readConfig, resolveAccountProfile } from "./config.js";
 
 type RequestOptions = {
+  acceptFailureEnvelope?: boolean;
   accountAuth?: boolean;
   accountName?: string;
   apiUrl?: string;
@@ -109,6 +110,10 @@ export async function blocksRequest<T>(path: string, options: RequestOptions = {
     throw new Error(`Blocks API returned HTML for ${url.pathname}. Check the command endpoint path.`);
   }
 
+  if (!options.acceptFailureEnvelope && isFailureEnvelope(data)) {
+    throw new Error(`Blocks API returned an unsuccessful response${errorDetail(data)}`);
+  }
+
   return data as T;
 }
 
@@ -135,6 +140,13 @@ function errorDetail(data: unknown): string {
 
 function looksLikeHtml(text: string): boolean {
   return /^\s*<!doctype html/i.test(text) || /^\s*<html[\s>]/i.test(text);
+}
+
+function isFailureEnvelope(data: unknown): data is Record<string, unknown> {
+  return typeof data === "object"
+    && data !== null
+    && !Array.isArray(data)
+    && (data as Record<string, unknown>).isSuccess === false;
 }
 
 function parseJson(text: string): unknown {

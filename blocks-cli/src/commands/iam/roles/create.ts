@@ -1,4 +1,4 @@
-import { booleanFlag, stringFlag } from "../../../lib/args.js";
+import { booleanFlag, optionalBooleanFlag, stringFlag } from "../../../lib/args.js";
 import { blocksRequest } from "../../../lib/api.js";
 import { confirmMutation } from "../../../lib/confirm.js";
 import { compact, jsonBodyFlag } from "../../../lib/json-flag.js";
@@ -11,7 +11,7 @@ export async function iamRolesCreate(argv: string[]): Promise<void> {
   const body = {
     ...(await jsonBodyFlag(flags)),
     ...compact({
-      canCreateOwn: booleanFlag(flags, "can-create-own") || undefined,
+      canCreateOwn: optionalBooleanFlag(flags, "can-create-own"),
       description: stringFlag(flags, "description") || undefined,
       name: stringFlag(flags, "name") || undefined,
       parentRoleSlug: stringFlag(flags, "parent-role-slug") || undefined,

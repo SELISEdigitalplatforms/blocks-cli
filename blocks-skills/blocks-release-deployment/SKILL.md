@@ -3,6 +3,8 @@ name: blocks-release-deployment
 description: "Trigger and inspect SELISE Blocks Release builds/deploys entirely through `blocks release *` — never raw fetch/curl; there is no SDK path (Release has no `@seliseblocks/client` namespace). Covers `release deploy` (auto-resolves the repo, verifies branch matches environment), `release status`/`builds get` (build lookup by id), and `builds list` (list builds for a repo). Use for 'deploy/trigger a release', 'check build status', 'list recent builds'. Always `--dry-run` before `--yes`. No artifact-upload capability — deploy triggers a configured pipeline only."
 ---
 
+When invoking a project-scoped `blocks` command, either use the resolved account's saved selection or pass `--project <tenantId>` for that one command without changing saved state. `--project` applies to CLI commands only, never SDK calls.
+
 # Blocks Release — Deployment
 
 Trigger and read Release builds through `blocks release *`. This is **100% CLI,

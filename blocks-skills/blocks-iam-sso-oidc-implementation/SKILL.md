@@ -3,6 +3,8 @@ name: blocks-iam-sso-oidc-implementation
 description: "Extend or debug the hosted SSO/OIDC login flow `blocks new web` scaffolds into every Blocks app: redirectToProvider → `/login/callback` → session, via the single `blocksClient`. Covers `AuthProvider` status/claims, `RequireAuth`/`RedirectIfAuthenticated` guards, and token refresh. Use for a login button, the OIDC callback, protected routes, a disabled login button, redirect loops, or a session that doesn't stick — on an app `blocks new web` already created. Requires a registered OIDC client (`blocks-iam-sso-oidc-configuration`) and HTTPS on the real domain for testing (`blocks-frontend-local-https`)."
 ---
 
+When invoking a project-scoped `blocks` command, either use the resolved account's saved selection or pass `--project <tenantId>` for that one command without changing saved state. `--project` applies to CLI commands only, never SDK calls.
+
 # Blocks IAM — SSO / OIDC Implementation (scaffolded frontend)
 
 `blocks new web <name>` already generates a complete, working hosted-login flow. Don't reinvent it — read what's there, extend it, or fix it. Every Blocks call in this flow goes through the single `blocksClient` instance (`src/lib/blocks/client.ts`, `@seliseblocks/client`); there is no raw `fetch`/`curl` anywhere in this stack.
@@ -62,7 +64,7 @@ All under `blocksClient.auth`:
 
 ## Gotchas
 
-- **Disabled login button, no error** → `isLoginConfigured()` is false, almost always because `VITE_BLOCKS_OIDC_CLIENT_ID` is empty in `.env`. Don't assume `blocks new web` was just run without `--client-id` and "left this blank on purpose" — omitting `--client-id` (or `--app-domain`, when a project has multiple domains) drops into an interactive `selectFromList()` prompt with no graceful non-interactive fallback; in an agent-driven run with no stdin, that hangs rather than scaffolding a blank value. A blank client id only results from a human interactively choosing "Skip." Always pass `--client-id` explicitly (see the Config section above).
+- **Disabled login button, no error** → `isLoginConfigured()` is false, almost always because `VITE_BLOCKS_OIDC_CLIENT_ID` is empty in `.env`. Don't assume `blocks new web` was just run without `--client-id` and "left this blank on purpose" — omitting `--client-id` (or `--app-domain`, when a project has multiple domains) requires an interactive selection and fails with `interactive_input_required` in an agent-driven run. A blank client id only results from a human interactively choosing "Skip." Always pass `--client-id` explicitly (see the Config section above).
 - **Login redirects back but the app still shows logged out** → this is an HTTPS/cookie problem, not an app-logic bug — the session cookie is Secure and won't be stored/sent on `http://localhost`. Cross-reference **`blocks-frontend-local-https`** rather than debugging `AuthProvider`.
 - **Redirect URI mismatch** → the SDK derives `redirectUri` from `window.location.origin` at runtime; if the app runs under more than one origin (dev HTTPS host, prod domain), the registered OIDC client's `redirect_uris` must list `/login/callback` under **each** of them, or IAM rejects the authorize request for the ones missing.
 - **Activation is a separate concern.** Already-activated users go straight through this flow. Only users invited/created inactive via the portal or API need a one-time `/activate` step first — out of scope here, see **`blocks-iam-account`**.

@@ -220,7 +220,7 @@ const commands: Partial<Record<string, CommandHandler>> = {
   "auth:status": authStatus,
   "auth:refresh": authRefresh,
   "doctor": doctor,
-  "init": () => init(),
+  "init": init,
   "login": login,
   "logout": logout,
   "projects:create": createProject,
@@ -537,8 +537,9 @@ Setup and health:
     and .env.example.
 
   blocks doctor [--json]
-    Check local Node.js, OIDC config, token cache, selected project, and config
-    file locations. Does not mutate cloud resources.
+    Inspect cached Node.js, OIDC config, token, optional project, and storage
+    health. Account-only mode is valid. Performs no token refresh, network
+    request, or state write.
 
 Auth:
   blocks login [--account <name>]
@@ -576,6 +577,8 @@ Projects:
     --allow-duplicate-name is passed. Verifies the result against
     Project/Gets and prints the new tenantId, tenantGroupId, and assigned
     domain. Does not select the project -- run 'blocks use <tenantId>' next.
+    If the account is in project mode, temporarily stops that session for the
+    account-level create call and restores it afterward.
 
   blocks projects list [--json]
     List accessible Blocks projects via /os/v4/Project/Gets. Uses the
@@ -711,14 +714,14 @@ MFA (/iam/v4/mfa*, project-scoped: requires a selected project, impersonated pro
     Composed enrollment: totp setup -> (scan the printed QR/secret, enter the code --
     interactively prompted if --code is omitted) -> totp verify-setup -> method set
     --mfa-type <n> -> backup-codes generate. One sitting, one confirmation.
-    --mfa-type is required and not defaulted: the numeric value meaning "TOTP" is
-    tenant-defined and undocumented here (same value plain mfa method set expects) --
-    look it up rather than guessing.
+    Non-interactive callers must pass --code or receive interactive_input_required.
+    --mfa-type is required and not defaulted: pass IAM UserMfaType 1 for TOTP
+    (the same value plain mfa method set expects).
   blocks mfa generate --mfa-type <n> [--send-phone-number-as-email-domain <domain>] [--json]
     Send an OTP challenge; returns an mfaId to pass to resend/verify.
   blocks mfa resend <mfaId> [--send-phone-number-as-email-domain <domain>] [--json]
   blocks mfa verify <mfaId> <code> --auth-type <n> [--from-token-call] [--json]
-  blocks mfa method set --mfa-type <n> [--json]
+  blocks mfa method set --mfa-type <n> [--dry-run] [--yes] [--json]
     Switch the impersonated user's active MFA method. IAM only branches on 1 (TOTP) and
     2 (Email) here -- any other value falls through to its disable path and turns the
     user's MFA off. Use 'blocks mfa disable' when that is what you mean.
@@ -1188,14 +1191,15 @@ Release:
   blocks release builds list [repoId] [--repo-id <repoId>] [--json]
     List Release build details for a repository using an impersonated project
     token. When repoId is omitted, resolves it from the selected project's
-    linked repo assets (Project/GetAsset, account token) -- auto-picked if
-    there's exactly one, otherwise you're prompted to choose. Read-only.
+    linked repo assets (Project/GetAsset, preferring project auth) -- auto-picked if
+    there's exactly one, otherwise you're prompted to choose. Non-interactive callers
+    must pass repoId/--repo-id or receive interactive_input_required. Read-only.
 
   blocks release builds get <buildId> [--json]
     Alias for release status. Read-only.
 
 Scaffold:
-  blocks new web <name> [--app-domain <domain>] [--client-id <oidcClientId>]
+  blocks new web <name> [--app-domain <domain>] [--client-id <oidcClientId>] [--yes]
                     [--x-blocks-key <tenantId>] [--blocks-api-url <url>] [--oidc-url <url>]
     Create a Vite React starter app that talks to Blocks exclusively through
     @seliseblocks/client (a single createBlocksClient() instance) using the SDK
@@ -1212,6 +1216,11 @@ Scaffold:
     name + redirect URI, active, registered as a Blocks OIDC identity
     provider) on the spot, or skip and register one later from the portal or
     'auth oidc-clients save'.
+    Non-interactive callers must provide --app-domain and --client-id or receive
+    interactive_input_required.
+    When a client id resolves, the command checks AuthController and may enable
+    OIDC login. In non-interactive runs, pass --yes only after approving that
+    possible tenant mutation; failure stops before scaffold files are written.
     If --blocks-api-url is omitted, it is derived from the app domain:
     https://blocksapi.<registrable-domain> (for example, app domain
     https://dqrsf.slsblx.com uses https://blocksapi.slsblx.com). Pass a

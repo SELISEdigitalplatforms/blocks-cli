@@ -13,6 +13,7 @@ import {
   getImpersonatedProjectSession,
   logoutCurrentSession,
   pollDeviceToken,
+  requestDeviceAuthorization,
   stopProjectImpersonation,
   withAccountMode
 } from "../dist/lib/auth.js";
@@ -434,14 +435,23 @@ test("device token polling reports expiration once the deadline passes", async (
 test("scaffolded web app depends on @seliseblocks/client and has no custom Blocks fetch wrapper", async () => {
   const { cwd, configDir } = await makeWorkspace();
   const env = testEnv(configDir, { BLOCKS_SECRET_STORE: "file" });
+  const server = await startJsonServer(() => ({ isOidcEnabled: true }));
+  await writeProjectModeAuth(configDir, server.url, "test-tenant-key");
 
-  const result = run([
-    "new", "web", "demo-app",
-    "--x-blocks-key", "test-tenant-key",
-    "--app-domain", "https://demo.example.test",
-    "--client-id", "demo-client-id"
-  ], { cwd, env });
-  assert.equal(result.status, 0, result.stderr);
+  try {
+    const result = await runAsync([
+      "new", "web", "demo-app",
+      "--x-blocks-key", "test-tenant-key",
+      "--app-domain", "https://demo.example.test",
+      "--client-id", "demo-client-id",
+      "--account", "studio",
+      "--project", "test-tenant-key",
+      "--api-url", server.url
+    ], { cwd, env });
+    assert.equal(result.status, 0, result.stderr);
+  } finally {
+    await new Promise((resolveClose) => server.close(resolveClose));
+  }
 
   const appDir = join(cwd, "demo-app");
   const pkg = JSON.parse(await readFile(join(appDir, "package.json"), "utf8"));
@@ -557,6 +567,62 @@ test("OIDC redirect URI defaults include production and local HTTPS callbacks", 
   ]);
 });
 
+test("device authorization reads only the requested account's client secret", async () => {
+  await withAuthLifecycleEnv(async ({ configDir }) => {
+    const alpha = { ...testAccountProfile("root-tenant"), clientId: "shared-client", oidcUrl: "https://iam.example.test" };
+    const beta = { ...alpha };
+    await writeConfigFile({ activeAccount: "alpha", accounts: { alpha, beta } });
+    await writeSecretStore(configDir, {
+      accounts: {
+        "client-secret:alpha": { clientSecret: "alpha-secret" },
+        "client-secret:beta": { clientSecret: "beta-secret" }
+      }
+    });
+
+    let submittedSecret;
+    globalThis.fetch = async (_url, init) => {
+      submittedSecret = init.body.get("client_secret");
+      return jsonResponse(deviceAuthorization());
+    };
+
+    await requestDeviceAuthorization(beta, "beta");
+    assert.equal(submittedSecret, "beta-secret");
+  });
+});
+
+test("impersonation invalid-client recovery does not recommend an unusable auth-config command", async () => {
+  const { cwd, configDir } = await makeWorkspace();
+  const server = await startJsonServer(() => rawResponse(400, { error: "invalid_client" }));
+  try {
+    await writeConfig(configDir, {
+      activeAccount: "alpha",
+      accounts: { alpha: { ...testAccountProfile("alpha-root"), apiUrl: server.url } }
+    });
+    await writeFile(join(configDir, "tokens.json"), `${JSON.stringify({
+      accounts: {
+        alpha: {
+          account: {
+            accessToken: "account-access",
+            accountTenant: "alpha-root",
+            expiresAt: new Date(Date.now() + 3_600_000).toISOString(),
+            refreshToken: "account-refresh"
+          }
+        }
+      }
+    })}\n`);
+
+    const result = await runAsync(["use", "target-project", "--account", "alpha", "--json"], {
+      cwd,
+      env: testEnv(configDir, { BLOCKS_SECRET_STORE: "file" })
+    });
+    assert.equal(result.status, 1);
+    assert.match(result.stderr, /register CLI client 'client-id'/);
+    assert.doesNotMatch(result.stderr, /auth config get/);
+  } finally {
+    await new Promise((resolveClose) => server.close(resolveClose));
+  }
+});
+
 test("fresh workspace dry-run commands do not require data files", async () => {
   const { cwd, configDir } = await makeWorkspace();
   await writeConfig(configDir, {
@@ -665,6 +731,71 @@ test("auth config save drops null current fields and only forces OIDC related fi
       useAccountActionBaseUrlAsDefault: true,
       logoutOnPasswordChange: true
     });
+  } finally {
+    await new Promise((resolveClose) => server.close(resolveClose));
+  }
+});
+
+test("auth config dry-run fails when enabling OIDC without an account action base URL", async () => {
+  const { cwd, configDir } = await makeWorkspace();
+  await writeProjectAuth(configDir);
+  const requests = [];
+  const server = await startJsonServer((request) => {
+    requests.push({ method: request.method, url: request.url });
+    return { isOidcEnabled: false };
+  });
+
+  try {
+    const result = await runAsync([
+      "auth", "config", "save", "--oidc-enabled", "--dry-run", "--api-url", server.url, "--json"
+    ], { cwd, env: testEnv(configDir, { BLOCKS_SECRET_STORE: "file" }) });
+    assert.equal(result.status, 1);
+    assert.match(result.stderr, /requires accountActionBaseUrl/);
+    assert.equal(requests.filter((item) => item.method === "POST").length, 0);
+  } finally {
+    await new Promise((resolveClose) => server.close(resolveClose));
+  }
+});
+
+test("auth config explicit false survives fetch-and-merge", async () => {
+  const { cwd, configDir } = await makeWorkspace();
+  await writeProjectAuth(configDir);
+  const server = await startJsonServer(() => ({ accountActionBaseUrl: "https://app.example.test", isOidcEnabled: true }));
+  try {
+    const result = await runAsync([
+      "auth", "config", "save", "--oidc-enabled=false", "--dry-run", "--api-url", server.url, "--json"
+    ], { cwd, env: testEnv(configDir, { BLOCKS_SECRET_STORE: "file" }) });
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(JSON.parse(result.stdout).request.isOidcEnabled, false);
+  } finally {
+    await new Promise((resolveClose) => server.close(resolveClose));
+  }
+});
+
+test("iam me prefers project auth only when a project is resolved", async () => {
+  const { cwd, configDir } = await makeWorkspace();
+  const authorizations = [];
+  const server = await startJsonServer((request) => {
+    authorizations.push(request.headers.authorization);
+    return { itemId: "user-1" };
+  });
+
+  try {
+    await writeProjectAuth(configDir);
+    let result = await runAsync(["iam", "me", "--project", "project-tenant", "--api-url", server.url, "--json"], {
+      cwd,
+      env: testEnv(configDir, { BLOCKS_SECRET_STORE: "file" })
+    });
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(authorizations.at(-1), `Bearer ${fakeJwt({ tenant_id: "project-tenant" })}`);
+
+    await writeProjectAuth(configDir, { accountOnly: true });
+    result = await runAsync(["iam", "me", "--api-url", server.url, "--json"], {
+      cwd,
+      env: testEnv(configDir, { BLOCKS_SECRET_STORE: "file" })
+    });
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(authorizations.at(-1), `Bearer ${fakeJwt({ tenant_id: "root-tenant" })}`);
   } finally {
     await new Promise((resolveClose) => server.close(resolveClose));
   }
@@ -1123,7 +1254,7 @@ test("schema list validates the response envelope and rejects a malformed shape 
       env: testEnv(configDir, { BLOCKS_SECRET_STORE: "file" })
     });
     assert.notEqual(malformed.status, 0);
-    assert.match(malformed.stderr, /Unexpected schema list response shape/);
+    assert.match(malformed.stderr, /Blocks API returned an unsuccessful response: boom/);
   } finally {
     await new Promise((resolveClose) => malformedServer.close(resolveClose));
   }
@@ -1401,6 +1532,145 @@ test("secret-bearing command dry-runs redact secrets while preserving typed fiel
   assert.equal(output.request.enableSSL, true);
   assert.equal(output.request.port, 587);
   assert.doesNotMatch(result.stdout, /super-secret/);
+});
+
+test("user and identity-provider dry-runs recursively redact secrets", async () => {
+  const { cwd, configDir } = await makeWorkspace();
+  const env = testEnv(configDir, { BLOCKS_SECRET_STORE: "file" });
+
+  const user = run([
+    "iam", "users", "create", "--email", "user@example.test", "--password", "user-secret", "--dry-run", "--json"
+  ], { cwd, env });
+  assert.equal(user.status, 0, user.stderr);
+  assert.equal(JSON.parse(user.stdout).request.password, "***");
+  assert.doesNotMatch(user.stdout, /user-secret/);
+
+  for (const command of ["create", "update"]) {
+    const args = ["auth", "idp", command];
+    if (command === "update") args.push("provider-1");
+    args.push(
+      "--body", JSON.stringify({
+        clientId: "public-client",
+        clientSecret: "client-secret-value",
+        privateKey: "private-key-value",
+        protocol: "oidc",
+        provider: "apple",
+        providerType: "apple"
+      }),
+      "--dry-run", "--json"
+    );
+    const result = run(args, { cwd, env });
+    assert.equal(result.status, 0, result.stderr);
+    const request = JSON.parse(result.stdout).request;
+    assert.equal(request.clientSecret, "***");
+    assert.equal(request.privateKey, "***");
+    assert.doesNotMatch(result.stdout, /client-secret-value|private-key-value/);
+  }
+});
+
+test("configuration boolean flags preserve explicit false values", async () => {
+  const { cwd, configDir } = await makeWorkspace();
+  const env = testEnv(configDir, { BLOCKS_SECRET_STORE: "file" });
+  const cases = [
+    [["iam", "organizations", "config", "save", "--multi-org-enabled=false", "--dry-run", "--json"], "isMultiOrgEnabled"],
+    [["iam", "signup-settings", "save", "--email-password-signup=false", "--dry-run", "--json"], "isEmailPasswordSignUpEnabled"],
+    [["mfa", "config", "save", "--enable=false", "--dry-run", "--json"], "enableMfa"],
+    [["mail", "config", "save", "--enable-ssl=false", "--dry-run", "--json"], "enableSSL"]
+  ];
+
+  for (const [args, field] of cases) {
+    const result = run(args, { cwd, env });
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(JSON.parse(result.stdout).request[field], false);
+  }
+});
+
+test("mfa method set supports guarded dry-run", async () => {
+  const { cwd, configDir } = await makeWorkspace();
+  const result = run(["mfa", "method", "set", "1", "--dry-run", "--json"], {
+    cwd,
+    env: testEnv(configDir, { BLOCKS_SECRET_STORE: "file" })
+  });
+  assert.equal(result.status, 0, result.stderr);
+  assert.deepEqual(JSON.parse(result.stdout), {
+    dryRun: true,
+    endpoint: "/iam/v4/mfa/method",
+    request: { mfaType: 1 }
+  });
+});
+
+test("composed commands forward explicit account project and API context", async () => {
+  const { cwd, configDir } = await makeWorkspace();
+  const requests = [];
+  const server = await startJsonServer((request, body) => {
+    requests.push({ authorization: request.headers.authorization, body, url: request.url });
+    return { ok: true };
+  });
+
+  try {
+    await writeTwoAccountProjectAuth(configDir, server.url);
+    const env = testEnv(configDir, { BLOCKS_SECRET_STORE: "file" });
+    const context = ["--account", "alpha", "--project", "target-project", "--api-url", server.url, "--yes"];
+
+    const mfa = await runAsync(["mfa", "totp", "enable", "--mfa-type", "1", "--code", "123456", ...context], { cwd, env });
+    assert.equal(mfa.status, 0, mfa.stderr);
+    assert.deepEqual(requests.map((item) => item.url.split("?")[0]), [
+      "/iam/v4/mfa/totp/setup",
+      "/iam/v4/mfa/totp/verify-setup",
+      "/iam/v4/mfa/method",
+      "/iam/v4/mfa/backup-codes/generate"
+    ]);
+    assert.ok(requests.every((item) => item.authorization === "Bearer alpha-target-token"));
+
+    requests.length = 0;
+    const localization = await runAsync([
+      "localization", "key", "translate-and-export", "--module-id", "module-1", "--output-type", "1", ...context
+    ], { cwd, env });
+    assert.equal(localization.status, 0, localization.stderr);
+    assert.deepEqual(requests.map((item) => item.url.split("?")[0]), [
+      "/localization/v4/Key/TranslateAll",
+      "/localization/v4/Key/GenerateUilmFile",
+      "/localization/v4/Key/UilmExport"
+    ]);
+    assert.ok(requests.every((item) => item.authorization === "Bearer alpha-target-token"));
+  } finally {
+    await new Promise((resolveClose) => server.close(resolveClose));
+  }
+});
+
+test("release deploy wait polls with the explicitly deployed project session", async () => {
+  const { cwd, configDir } = await makeWorkspace();
+  const requests = [];
+  const server = await startJsonServer((request) => {
+    requests.push({ authorization: request.headers.authorization, method: request.method, url: request.url });
+    const path = request.url.split("?")[0];
+    if (path === "/os/v4/Project/Gets") {
+      return [{ tenantGroupId: "group-1", projects: [{ environment: "dev", tenantId: "target-project" }] }];
+    }
+    if (path === "/os/v4/Project/GetAsset") {
+      return { assets: { resources: [{ name: "dev", resourceId: "repo-1" }] } };
+    }
+    if (path === "/release/v4/api/Build/repo-details") {
+      return { data: { repo: { branch: "dev", repoUrl: "https://example.test/repo.git" } } };
+    }
+    if (path === "/release/v4/api/Build/manual") return { buildId: "build-1" };
+    if (path === "/release/v4/api/Build") return { status: "completed" };
+    return rawResponse(500, { error: `Unexpected ${request.method} ${path}` });
+  });
+
+  try {
+    await writeTwoAccountProjectAuth(configDir, server.url);
+    const result = await runAsync([
+      "release", "deploy", "--account", "alpha", "--project", "target-project", "--api-url", server.url,
+      "--yes", "--wait", "--poll-interval", "0", "--json"
+    ], { cwd, env: testEnv(configDir, { BLOCKS_SECRET_STORE: "file" }) });
+    assert.equal(result.status, 0, result.stderr);
+    const poll = requests.find((item) => item.url.startsWith("/release/v4/api/Build?buildId="));
+    assert.ok(poll, JSON.stringify(requests));
+    assert.equal(poll.authorization, "Bearer alpha-target-token");
+  } finally {
+    await new Promise((resolveClose) => server.close(resolveClose));
+  }
 });
 
 test("composed data file upload dry-run plans metadata creation and provider PUT", async () => {
@@ -2077,40 +2347,130 @@ test("init uses centralized default API URL", async () => {
 
 test("new web derives the default API URL from the app domain when no API override is passed", async () => {
   const { cwd, configDir } = await makeWorkspace();
+  const server = await startJsonServer(() => ({ isOidcEnabled: true }));
+  try {
+    await writeProjectModeAuth(configDir, server.url);
+    const result = await runAsync([
+      "new", "web", "dev-app",
+      "--x-blocks-key", "project-tenant",
+      "--app-domain", "https://dqrsf.slsblx.com",
+      "--client-id", "dev-client-id",
+      "--account", "studio",
+      "--project", "project-tenant",
+      "--api-url", server.url
+    ], { cwd, env: testEnv(configDir, { BLOCKS_SECRET_STORE: "file" }) });
 
-  const result = run([
-    "new", "web", "dev-app",
-    "--x-blocks-key", "dev-project-key",
-    "--app-domain", "https://dqrsf.slsblx.com",
-    "--client-id", "dev-client-id"
-  ], {
-    cwd,
-    env: testEnv(configDir, { BLOCKS_SECRET_STORE: "file" })
-  });
-
-  assert.equal(result.status, 0, result.stderr);
-  const envFile = await readFile(join(cwd, "dev-app", ".env"), "utf8");
-  assert.match(envFile, /^VITE_BLOCKS_API_URL=https:\/\/blocksapi\.slsblx\.com$/m);
-  assert.match(envFile, /^VITE_BLOCKS_OIDC_URL=https:\/\/iam\.seliseblocks\.com$/m);
+    assert.equal(result.status, 0, result.stderr);
+    const envFile = await readFile(join(cwd, "dev-app", ".env"), "utf8");
+    assert.match(envFile, /^VITE_BLOCKS_API_URL=https:\/\/blocksapi\.slsblx\.com$/m);
+    assert.match(envFile, /^VITE_BLOCKS_OIDC_URL=https:\/\/iam\.seliseblocks\.com$/m);
+  } finally {
+    await new Promise((resolveClose) => server.close(resolveClose));
+  }
 });
 
 test("new web preserves an explicit blocks API URL override", async () => {
   const { cwd, configDir } = await makeWorkspace();
+  const server = await startJsonServer(() => ({ isOidcEnabled: true }));
+  try {
+    await writeProjectModeAuth(configDir, server.url);
+    const result = await runAsync([
+      "new", "web", "override-app",
+      "--x-blocks-key", "project-tenant",
+      "--app-domain", "https://dqrsf.slsblx.com",
+      "--blocks-api-url", "https://api.override.example.test",
+      "--client-id", "dev-client-id",
+      "--account", "studio",
+      "--project", "project-tenant",
+      "--api-url", server.url
+    ], { cwd, env: testEnv(configDir, { BLOCKS_SECRET_STORE: "file" }) });
 
-  const result = run([
-    "new", "web", "override-app",
-    "--x-blocks-key", "dev-project-key",
-    "--app-domain", "https://dqrsf.slsblx.com",
-    "--blocks-api-url", "https://api.override.example.test",
-    "--client-id", "dev-client-id"
-  ], {
-    cwd,
-    env: testEnv(configDir, { BLOCKS_SECRET_STORE: "file" })
+    assert.equal(result.status, 0, result.stderr);
+    const envFile = await readFile(join(cwd, "override-app", ".env"), "utf8");
+    assert.match(envFile, /^VITE_BLOCKS_API_URL=https:\/\/api\.override\.example\.test$/m);
+  } finally {
+    await new Promise((resolveClose) => server.close(resolveClose));
+  }
+});
+
+test("new web fails closed non-interactively unless OIDC enablement is approved", async () => {
+  const { cwd, configDir } = await makeWorkspace();
+  const requests = [];
+  const server = await startJsonServer((request, body) => {
+    requests.push({ body, method: request.method, url: request.url });
+    if (request.method === "GET") return { accountActionBaseUrl: "", isOidcEnabled: false };
+    return { data: body, isSuccess: true };
   });
 
-  assert.equal(result.status, 0, result.stderr);
-  const envFile = await readFile(join(cwd, "override-app", ".env"), "utf8");
-  assert.match(envFile, /^VITE_BLOCKS_API_URL=https:\/\/api\.override\.example\.test$/m);
+  try {
+    await writeProjectModeAuth(configDir, server.url);
+    const baseArgs = [
+      "new", "web", "guarded-app", "--x-blocks-key", "project-tenant",
+      "--app-domain", "https://app.example.test", "--client-id", "dev-client-id",
+      "--account", "studio", "--project", "project-tenant", "--api-url", server.url
+    ];
+    const env = testEnv(configDir, { BLOCKS_SECRET_STORE: "file" });
+    const rejected = await runAsync(baseArgs, { cwd, env });
+    assert.equal(rejected.status, 1);
+    assert.match(rejected.stderr, /Confirmation required in non-interactive mode/);
+    await assert.rejects(readFile(join(cwd, "guarded-app", ".env"), "utf8"), /ENOENT/);
+    assert.equal(requests.filter((item) => item.method === "POST").length, 0);
+
+    const approved = await runAsync([...baseArgs, "--yes"], { cwd, env });
+    assert.equal(approved.status, 0, approved.stderr);
+    const save = requests.find((item) => item.method === "POST");
+    assert.ok(save);
+    assert.equal(save.body.isOidcEnabled, true);
+    assert.equal(save.body.accountActionBaseUrl, "https://iam.seliseblocks.com");
+    await readFile(join(cwd, "guarded-app", ".env"), "utf8");
+  } finally {
+    await new Promise((resolveClose) => server.close(resolveClose));
+  }
+});
+
+test("new web fails fast when non-interactive input is missing", async () => {
+  const { cwd, configDir } = await makeWorkspace();
+  const server = await startJsonServer(() => []);
+
+  try {
+    await writeProjectModeAuth(configDir, server.url);
+    const result = await runAsync([
+      "new", "web", "prompted-app",
+      "--x-blocks-key", "project-tenant",
+      "--app-domain", "https://app.example.test",
+      "--account", "studio",
+      "--project", "project-tenant",
+      "--api-url", server.url,
+      "--json"
+    ], { cwd, env: testEnv(configDir, { BLOCKS_SECRET_STORE: "file" }) });
+
+    assert.equal(result.status, 1);
+    assert.equal(JSON.parse(result.stderr).code, "interactive_input_required");
+    await assert.rejects(readFile(join(cwd, "prompted-app", ".env"), "utf8"), /ENOENT/);
+  } finally {
+    await new Promise((resolveClose) => server.close(resolveClose));
+  }
+});
+
+test("service failure envelopes exit nonzero even when HTTP status is 200", async () => {
+  const { cwd, configDir } = await makeWorkspace();
+  const server = await startJsonServer(() => ({ isSuccess: false, message: "mutation rejected" }));
+
+  try {
+    await writeProjectModeAuth(configDir, server.url);
+    const result = await runAsync([
+      "notification", "list",
+      "--account", "studio",
+      "--project", "project-tenant",
+      "--api-url", server.url,
+      "--json"
+    ], { cwd, env: testEnv(configDir, { BLOCKS_SECRET_STORE: "file" }) });
+
+    assert.equal(result.status, 1);
+    assert.match(JSON.parse(result.stderr).message, /unsuccessful response: mutation rejected/);
+  } finally {
+    await new Promise((resolveClose) => server.close(resolveClose));
+  }
 });
 
 test("json mode emits structured auth errors", async () => {
@@ -2425,6 +2785,88 @@ test("projects create verifies the new dev tenant against Project/Gets", async (
   }
 });
 
+test("doctor inspects cached auth state without refreshing or rewriting it", async () => {
+  const { cwd, configDir } = await makeWorkspace();
+  let networkCalls = 0;
+  const server = await startJsonServer(() => {
+    networkCalls++;
+    return { access_token: "unexpected-refresh" };
+  });
+
+  try {
+    await writeConfig(configDir, {
+      activeAccount: "default",
+      accounts: {
+        default: {
+          ...testAccountProfile("root-tenant"),
+          oidcUrl: server.url,
+          selectedProject: { tenantId: "project-tenant" }
+        }
+      }
+    });
+    await writeFile(join(configDir, "tokens.json"), `${JSON.stringify({
+      accounts: {
+        default: {
+          account: {
+            accessToken: "expired-account-token",
+            accountTenant: "root-tenant",
+            expiresAt: new Date(Date.now() - 60_000).toISOString(),
+            refreshToken: "account-refresh"
+          },
+          projects: {
+            "project-tenant": {
+              accessToken: "valid-project-token",
+              expiresAt: new Date(Date.now() + 3_600_000).toISOString(),
+              refreshToken: "project-refresh"
+            }
+          }
+        }
+      }
+    })}\n`);
+    await writeSecretStore(configDir, { accounts: {} });
+
+    const result = await runAsync(["doctor", "--account", "default", "--json"], {
+      cwd,
+      env: testEnv(configDir, { BLOCKS_SECRET_STORE: "file" })
+    });
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(networkCalls, 0);
+    assert.equal(JSON.parse(result.stdout).ok, true);
+  } finally {
+    await new Promise((resolveClose) => server.close(resolveClose));
+  }
+});
+
+test("doctor accepts a healthy account-only session without a selected project", async () => {
+  const { cwd, configDir } = await makeWorkspace();
+  await writeConfig(configDir, {
+    activeAccount: "default",
+    accounts: { default: testAccountProfile("root-tenant") }
+  });
+  await writeFile(join(configDir, "tokens.json"), `${JSON.stringify({
+    accounts: {
+      default: {
+        account: {
+          accessToken: fakeJwt({ exp: Math.floor(Date.now() / 1000) + 3600, tenant_id: "root-tenant" }),
+          accountTenant: "root-tenant",
+          expiresAt: new Date(Date.now() + 3_600_000).toISOString(),
+          refreshToken: "account-refresh"
+        }
+      }
+    }
+  })}\n`);
+  await writeSecretStore(configDir, { accounts: {} });
+
+  const result = run(["doctor", "--account", "default", "--json"], {
+    cwd,
+    env: testEnv(configDir, { BLOCKS_SECRET_STORE: "file" })
+  });
+  assert.equal(result.status, 0, result.stderr);
+  const output = JSON.parse(result.stdout);
+  assert.equal(output.ok, true);
+  assert.ok(output.checks.some((check) => check.label === "Project context" && /account-only mode/.test(check.detail)));
+});
+
 test("projects create stops and restores an active project session", async () => {
   const { cwd, configDir } = await makeWorkspace();
   const calls = [];
@@ -2617,14 +3059,14 @@ async function writeSecretStore(configDir, store) {
   await writeFile(join(configDir, "secrets.json"), `${JSON.stringify(store, null, 2)}\n`);
 }
 
-async function writeProjectModeAuth(configDir, apiUrl) {
+async function writeProjectModeAuth(configDir, apiUrl, tenantId = "project-tenant") {
   await writeConfig(configDir, {
     activeAccount: "studio",
     accounts: {
       studio: {
         ...testAccountProfile("root-tenant"),
         apiUrl,
-        selectedProject: { tenantId: "project-tenant" }
+        selectedProject: { tenantId }
       }
     }
   });
@@ -2632,11 +3074,44 @@ async function writeProjectModeAuth(configDir, apiUrl) {
     accounts: {
       studio: {
         projects: {
-          "project-tenant": {
-            accessToken: fakeJwt({ exp: Math.floor(Date.now() / 1000) + 3600, tenant_id: "project-tenant" }),
+          [tenantId]: {
+            accessToken: fakeJwt({ exp: Math.floor(Date.now() / 1000) + 3600, tenant_id: tenantId }),
             expiresAt: new Date(Date.now() + 3_600_000).toISOString(),
             refreshToken: "project-refresh"
           }
+        }
+      }
+    }
+  }, null, 2)}\n`);
+}
+
+async function writeTwoAccountProjectAuth(configDir, apiUrl) {
+  await writeConfig(configDir, {
+    activeAccount: "beta",
+    accounts: {
+      alpha: {
+        ...testAccountProfile("alpha-root"),
+        apiUrl,
+        selectedProject: { tenantId: "stored-project" }
+      },
+      beta: {
+        ...testAccountProfile("beta-root"),
+        apiUrl,
+        selectedProject: { tenantId: "beta-project" }
+      }
+    }
+  });
+  await writeFile(join(configDir, "tokens.json"), `${JSON.stringify({
+    accounts: {
+      alpha: {
+        projects: {
+          "stored-project": { accessToken: "alpha-stored-token", expiresAt: new Date(Date.now() + 3_600_000).toISOString() },
+          "target-project": { accessToken: "alpha-target-token", expiresAt: new Date(Date.now() + 3_600_000).toISOString() }
+        }
+      },
+      beta: {
+        projects: {
+          "beta-project": { accessToken: "beta-project-token", expiresAt: new Date(Date.now() + 3_600_000).toISOString() }
         }
       }
     }

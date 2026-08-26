@@ -3,6 +3,8 @@ name: blocks-localization-configuration
 description: "Configure app translations (i18n) for a SELISE Blocks project through the `blocks` CLI — never raw fetch/curl. Covers authoring local i18n JSON dictionaries, validate/push/pull with the Localization service, managing languages and modules directly, glossary terms, AI translation suggestions, and the composed translate-and-export flow. Use for 'add translations for my login screen', 'push/pull localization changes', 'create a module', 'add a new language'."
 ---
 
+When invoking a project-scoped `blocks` command, either use the resolved account's saved selection or pass `--project <tenantId>` for that one command without changing saved state. `--project` applies to CLI commands only, never SDK calls.
+
 # Blocks Localization — Configuration
 
 Translations (i18n) for a Blocks project's static UI text — labels, titles, button copy — are authored locally as JSON and synced to the Localization service entirely through the `blocks` CLI. There is no supported reason to hand-roll raw `fetch`/`curl` calls anymore, and there's no SDK-based authoring path either — `@seliseblocks/client`'s localization surface (`languages()`, `modules()`, `languagesForCurrentTenant()`, `translations()`, `cloudTranslations()`, `keysByNames()`) is entirely **read-only**, meant for apps to *consume* translations at runtime, not to author them. Authoring is CLI-only.

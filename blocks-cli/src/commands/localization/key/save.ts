@@ -1,4 +1,4 @@
-import { booleanFlag, stringFlag } from "../../../lib/args.js";
+import { booleanFlag, optionalBooleanFlag, stringFlag } from "../../../lib/args.js";
 import { blocksRequest } from "../../../lib/api.js";
 import { confirmMutation } from "../../../lib/confirm.js";
 import { compact, jsonBodyFlag, listFlag } from "../../../lib/json-flag.js";
@@ -15,14 +15,14 @@ export async function localizationKeySave(argv: string[]): Promise<void> {
     ...compact({
       context: stringFlag(flags, "context") || undefined,
       glossaryIds: listFlag(flags, "glossary-ids"),
-      isNewKey: booleanFlag(flags, "is-new-key") || undefined,
-      isPartiallyTranslated: booleanFlag(flags, "is-partially-translated") || undefined,
+      isNewKey: optionalBooleanFlag(flags, "is-new-key"),
+      isPartiallyTranslated: optionalBooleanFlag(flags, "is-partially-translated"),
       itemId: stringFlag(flags, "item-id") || undefined,
       keyName: stringFlag(flags, "key-name") || undefined,
       moduleId: stringFlag(flags, "module-id") || undefined,
       resources: value ? [{ characterLength: value.length, culture, value }] : undefined,
       routes: listFlag(flags, "routes"),
-      shouldPublish: booleanFlag(flags, "should-publish") || undefined
+      shouldPublish: optionalBooleanFlag(flags, "should-publish")
     })
   };
 

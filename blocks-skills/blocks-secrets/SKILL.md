@@ -3,6 +3,8 @@ name: blocks-secrets
 description: "Save and retrieve arbitrary named secret values (e.g. captcha provider config, third-party API keys) for a SELISE Blocks project via the blocks CLI's `secrets get`/`secrets save` commands, project-scoped with an impersonated project token. CLI-only surface, no SDK equivalent by design. Storage is generic key/value — shape depends entirely on the secret key, not fixed per type. Use for saving/rotating a secret's key-value pairs or reading one back. `get`'s response is the raw, unredacted value — treat CLI output as sensitive."
 ---
 
+When invoking a project-scoped `blocks` command, either use the resolved account's saved selection or pass `--project <tenantId>` for that one command without changing saved state. `--project` applies to CLI commands only, never SDK calls.
+
 # Blocks Secrets
 
 This skill manages **generic tenant secret storage** — arbitrary named secret values scoped to a project, via the `blocks secrets *` CLI. It is not tied to any one feature: a project can store a `captcha` secret, an `smtp` secret, or anything else under whatever `secretKey` name it chooses. The shape of the stored value is a flat, caller-defined JSON object (`--key-value-pairs`) — there is no fixed schema across secrets.

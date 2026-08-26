@@ -3,6 +3,8 @@ name: blocks-iam-organizations
 description: "Manage Blocks organizations and signup policy through the SDK (`iam.organizations`, `iam.signupSettings`, `auth.switchOrganization`) or project-scoped CLI (`blocks iam organizations *`, `iam signup-settings *`). Use for org switchers, active-org switching, multi-org settings, organization CRUD, and signup policy. Switching is SDK-only; CLI mutations require dry-run and explicit approval. Route user/role management to the IAM user/access-control skills."
 ---
 
+When invoking a project-scoped `blocks` command, either use the resolved account's saved selection or pass `--project <tenantId>` for that one command without changing saved state. `--project` applies to CLI commands only, never SDK calls.
+
 # Blocks IAM — Organizations
 
 Organizations are the tenancy/workspace unit inside a Blocks project. Two equally real surfaces exist for managing them:

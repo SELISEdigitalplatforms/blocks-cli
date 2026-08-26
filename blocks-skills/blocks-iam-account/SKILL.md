@@ -3,6 +3,8 @@ name: blocks-iam-account
 description: "Signed-in (or partially-signed-in) user's own SELISE Blocks IAM account actions via @seliseblocks/client — never raw fetch/curl. Covers activation, forgot/reset/change password, logout(-all), profile bootstrap (iam.me/updateMe), self-service MFA, signup, and login-options discovery. Use for activation/password pages, logout buttons, profile bootstrap, signup forms, or letting a user manage their own MFA. The self-service half of IAM — not admin CRUD on other users (blocks-iam-users/blocks-iam-access-control), not hosted-login redirect (blocks-iam-sso-oidc-implementation)."
 ---
 
+When invoking a project-scoped `blocks` command, either use the resolved account's saved selection or pass `--project <tenantId>` for that one command without changing saved state. `--project` applies to CLI commands only, never SDK calls.
+
 # Blocks IAM — Account Self-Service
 
 Account-lifecycle and account-security actions the signed-in (or not-yet-fully-signed-in) user takes on **their own** account, all through the single `@seliseblocks/client` instance the scaffold gives you — `blocks new web` wires up `createBlocksClient({ apiUrl, xBlocksKey, oidc, accessToken })` once; every call below hangs off that instance's `.auth`, `.iam`, or `.mfa` namespace. **Never** hand-roll `fetch`/`curl` against `api.seliseblocks.com` for these.

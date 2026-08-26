@@ -47,7 +47,7 @@ npm install @seliseblocks/client@latest
 
 ## Universal Probe
 
-When state is unknown and the installed CLI is available, start with read-only commands:
+When state is unknown and the installed CLI is available, start with read-only commands. `auth status` is the minimal state probe; `doctor` performs a cache-only diagnostic and does not refresh tokens:
 
 ```bash
 blocks --version
@@ -99,28 +99,28 @@ If no suitable project exists, ask the user before creating one - `blocks projec
 
 ### I am inside an existing Blocks app
 
-Use the relevant package guide first, based on the task:
+Use the matching Blocks skill as the routing and safety layer, then the CLI or client package guide for exact terminal flags or app-code methods:
 
 | Task | Guide |
 |---|---|
 | Data schema/rules/configuration | `blocks-cli/AI_USAGE_GUIDE.md` |
 | Runtime CRUD/GraphQL in app code | `blocks-client/AI_USAGE_GUIDE.md` |
-| Files/DMS upload/download | `blocks-cli/AI_USAGE_GUIDE.md` or `blocks-client/AI_USAGE_GUIDE.md` based on surface |
+| Files/DMS upload/download | `blocks-skills/blocks-data-storage/SKILL.md`, then the CLI or client guide for the chosen surface |
 | Runtime translations in app code | `blocks-client/AI_USAGE_GUIDE.md` |
 | Translation authoring/push/pull | `blocks-cli/AI_USAGE_GUIDE.md` |
 | Hosted login callback/login button | `blocks-client/AI_USAGE_GUIDE.md` |
 | OIDC client/identity provider setup | `blocks-cli/AI_USAGE_GUIDE.md` |
 | Current user's account/profile/password | `blocks-client/AI_USAGE_GUIDE.md` |
-| Admin user management | `blocks-client/AI_USAGE_GUIDE.md` |
-| Roles and permissions | `blocks-cli/AI_USAGE_GUIDE.md` or `blocks-client/AI_USAGE_GUIDE.md` based on surface |
-| MFA | `blocks-cli/AI_USAGE_GUIDE.md` or `blocks-client/AI_USAGE_GUIDE.md` based on surface |
-| Organizations/signup settings | `blocks-cli/AI_USAGE_GUIDE.md` or `blocks-client/AI_USAGE_GUIDE.md` based on surface |
+| Admin user management | `blocks-skills/blocks-iam-users/SKILL.md`, then the CLI or client guide |
+| Roles and permissions | `blocks-skills/blocks-iam-access-control/SKILL.md`, then the CLI or client guide |
+| MFA | `blocks-skills/blocks-iam-mfa/SKILL.md`, then the CLI or client guide |
+| Organizations/signup settings | `blocks-skills/blocks-iam-organizations/SKILL.md`, then the CLI or client guide |
 | Local HTTPS dev loop | Scaffolded app README/scripts |
 | Release deployment | `blocks-cli/AI_USAGE_GUIDE.md` |
 | Secrets | `blocks-cli/AI_USAGE_GUIDE.md` |
 | Mail settings/templates | `blocks-cli/AI_USAGE_GUIDE.md` |
 | Notification channel configuration | `blocks-cli/AI_USAGE_GUIDE.md` |
-| Sending/reading notifications | `blocks-cli/AI_USAGE_GUIDE.md` or `blocks-client/AI_USAGE_GUIDE.md` based on surface |
+| Sending/reading notifications | `blocks-skills/blocks-notifier/SKILL.md`, then the CLI or client guide |
 | Storage provider configuration | `blocks-cli/AI_USAGE_GUIDE.md` |
 
 Then use `blocks-client/AI_USAGE_GUIDE.md` for app-code method rules and `blocks-cli/AI_USAGE_GUIDE.md` for terminal command flags.
@@ -133,15 +133,15 @@ npm install @seliseblocks/client@latest
 
 ### I need to scaffold a new app
 
-Use the setup/bootstrap flow first. For non-interactive AI runs, gather required values before `new web` so prompts do not hang:
+Use the setup/bootstrap flow first. For non-interactive AI runs, gather required values before `new web`; otherwise the CLI fails with `interactive_input_required`:
 
 ```bash
 blocks projects get --json
 blocks auth oidc-clients list --json
-blocks new web <appName> --x-blocks-key <projectTenantId> --app-domain <appDomainOrUrl> --client-id <publicOidcClientId>
+blocks new web <appName> --x-blocks-key <projectTenantId> --app-domain <appDomainOrUrl> --client-id <publicOidcClientId> --yes
 ```
 
-Do not invent a project key, domain, or client id. The generated app includes `@seliseblocks/client`; run `npm install` inside the app to resolve the latest compatible package version from npm.
+Do not invent a project key, domain, or client id. `new web` may enable OIDC login in tenant AuthController; use `--yes` only after the user approves that possible mutation. Failure stops before scaffold files are written.
 
 ### I need to configure cloud resources
 

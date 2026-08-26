@@ -12,9 +12,9 @@ A social provider cannot be configured from Blocks alone. Before running anythin
 - **The redirect URI they registered there**, which must match exactly what you pass to `--redirect-uris`. A mismatch here is the single most common cause of a social login that fails only at the callback.
 - For Apple only: team id, key id, and the private key.
 
-Ask for these as a set. Starting the command with two of the three and improvising the rest wastes an approval round.
+Ask for these as a set. Starting the command with only part of the required provider registration and improvising the rest wastes an approval round.
 
-## 2. Know the three immutable fields
+## 2. Know the four immutable fields
 
 `--provider`, `--provider-type`, `--protocol`, and `--client-id` are required at create and **immutable afterwards** — an update must either omit them or echo the existing values exactly. Getting them wrong means deleting and recreating, so confirm before running.
 

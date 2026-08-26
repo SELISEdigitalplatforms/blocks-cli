@@ -1,4 +1,4 @@
-import { booleanFlag, optionalIntegerFlag, stringFlag } from "../../../lib/args.js";
+import { booleanFlag, optionalBooleanFlag, optionalIntegerFlag, stringFlag } from "../../../lib/args.js";
 import { blocksRequest } from "../../../lib/api.js";
 import { confirmMutation } from "../../../lib/confirm.js";
 import { compact, jsonBodyFlag } from "../../../lib/json-flag.js";
@@ -14,9 +14,9 @@ export async function mailConfigSave(argv: string[]): Promise<void> {
       accountPassword: stringFlag(flags, "account-password") || undefined,
       configurationId: stringFlag(flags, "configuration-id") || undefined,
       configurationName: stringFlag(flags, "name") || undefined,
-      enableSSL: booleanFlag(flags, "enable-ssl") || undefined,
+      enableSSL: optionalBooleanFlag(flags, "enable-ssl"),
       host: stringFlag(flags, "host") || undefined,
-      isInbound: booleanFlag(flags, "inbound") || undefined,
+      isInbound: optionalBooleanFlag(flags, "inbound"),
       port: optionalIntegerFlag(flags, "port"),
       provider: optionalIntegerFlag(flags, "provider"),
       senderAddress: stringFlag(flags, "sender-address") || undefined,

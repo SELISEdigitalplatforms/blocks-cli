@@ -50,6 +50,7 @@ export async function dataSchemaPush(argv: string[]): Promise<void> {
     const body = destinationId ? { ...portable, itemId: destinationId, projectKey } : { ...portable, projectKey };
 
     const response = await blocksRequest<unknown>("/data/v4/schemas/define", {
+      acceptFailureEnvelope: true,
       body,
       impersonatedProjectAuth: true,
       ...requestContext(flags),

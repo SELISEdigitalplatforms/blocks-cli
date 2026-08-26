@@ -57,6 +57,10 @@ blocks use <tenantId>
 
 What it creates is deliberately narrow: exactly one application, always in the `dev` environment. Domain, cookie domain, and production flag are fixed and not configurable. The domain it sends is a placeholder the platform discards and replaces with one it assigns, so read the real domain back from the result rather than from the request. Provisioning is asynchronous, so the command polls briefly and reports whether the new project has been published yet. Adding further environments to an existing project is portal-only.
 
+Project creation is account-level. If this account is currently in project mode,
+the CLI stops that session, creates the project, and restores the previous
+project session afterward. The new project is not selected automatically.
+
 **If it fails with `{"code": "command_failed", "message": "Unknown command: projects create"}`**, this build cannot create projects. Check whether that is fixable before sending the user elsewhere:
 
 ```bash
@@ -80,7 +84,7 @@ blocks use <x-blocks-key>
 `deselect` exchanges the project pair for a fresh account pair and clears the
 account-specific selection; reselecting exchanges back to a fresh project pair.
 
-One failure that looks like this but is not: `impersonation_invalid_client` means the account's OIDC client is not registered for impersonation. Re-selecting will not fix it — check `blocks auth config get` and have an admin register it.
+One failure that looks like this but is not: `impersonation_invalid_client` means the CLI client id printed in the error is not registered for project impersonation. Give that id to an admin. Re-login, re-selection, and `auth config` cannot repair it.
 
 ## Done when
 

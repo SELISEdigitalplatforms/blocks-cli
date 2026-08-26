@@ -33,11 +33,13 @@ Install workspace dependencies from the repository root:
 npm install
 ```
 
-Run all package tests:
+Run all package tests plus the skill and CLI contract linters:
 
 ```bash
 npm test
 ```
+
+The root test gate includes `blocks-skills/lint.mjs` and checks that project-authenticated requests carry an explicit tenant id and composed commands forward account/project/API context.
 
 Build all packages:
 
