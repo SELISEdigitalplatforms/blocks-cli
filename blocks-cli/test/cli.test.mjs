@@ -416,6 +416,73 @@ test("oidc client provider registration defaults the discovery endpoint", async 
   assert.equal(output.request.externalDiscoveryEndpoint, "https://iam.example.test/project-tenant/.well-known/openid-configuration");
 });
 
+test("auth config save drops null current fields and only forces OIDC related fields", async () => {
+  const { cwd, configDir } = await makeWorkspace();
+  await writeProjectAuth(configDir);
+
+  const requests = [];
+  const server = await startJsonServer((request, body) => {
+    const path = request.url.split("?")[0];
+    requests.push({ body, method: request.method, url: request.url });
+
+    if (path === "/iam/v4/auth/config" && request.method === "GET") {
+      return {
+        itemId: "507f1f77bcf86cd799439011",
+        refreshTokenValidForNumberMinutes: 1440,
+        absoluteRefreshTokenValidForNumberMinutes: null,
+        accessTokenValidForNumberMinutes: 60,
+        rememberMeRefreshTokenValidForNumberMinutes: null,
+        getNumberOfWrongAttemptsToLockTheAccount: 5,
+        accountLockDurationInMinutes: 30,
+        publicCertificatePath: null,
+        accountActivationPath: "activate/",
+        accountVerificationPath: "verify/",
+        recoverAccountPath: "recover/",
+        isOidcEnabled: false,
+        accountActionBaseUrl: "https://app.example.test",
+        useAccountActionBaseUrlAsDefault: true,
+        activationUrlLifetimeInMinutes: null,
+        recoverAccountUrlLifetimeInMinutes: null,
+        logoutOnPasswordChange: true,
+        passwordStrengthCheckerRegex: null
+      };
+    }
+
+    if (path === "/iam/v4/auth/config" && request.method === "POST") {
+      return { data: body, isSuccess: true };
+    }
+
+    return rawResponse(500, { errorMessage: `Unexpected ${request.method} ${path}` });
+  });
+
+  try {
+    const result = await runAsync(["auth", "config", "save", "--oidc-enabled", "--yes", "--api-url", server.url, "--json"], {
+      cwd,
+      env: testEnv(configDir, { BLOCKS_SECRET_STORE: "file" })
+    });
+
+    assert.equal(result.status, 0, result.stderr);
+    const saveRequest = requests.find((item) => item.method === "POST" && item.url === "/iam/v4/auth/config");
+    assert.ok(saveRequest, JSON.stringify(requests));
+    assert.deepEqual(saveRequest.body, {
+      itemId: "507f1f77bcf86cd799439011",
+      refreshTokenValidForNumberMinutes: 1440,
+      accessTokenValidForNumberMinutes: 60,
+      getNumberOfWrongAttemptsToLockTheAccount: 5,
+      accountLockDurationInMinutes: 30,
+      accountActivationPath: "oidc/activate/",
+      accountVerificationPath: "verify/",
+      recoverAccountPath: "recover/",
+      isOidcEnabled: true,
+      accountActionBaseUrl: "https://app.example.test",
+      useAccountActionBaseUrlAsDefault: true,
+      logoutOnPasswordChange: true
+    });
+  } finally {
+    await new Promise((resolveClose) => server.close(resolveClose));
+  }
+});
+
 test("space-separated complex command aliases resolve like colon commands", async () => {
   const { cwd, configDir } = await makeWorkspace();
   const env = testEnv(configDir, { BLOCKS_SECRET_STORE: "file" });

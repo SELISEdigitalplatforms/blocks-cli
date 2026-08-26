@@ -30,11 +30,11 @@ export async function authConfigSave(argv: string[]): Promise<void> {
   // (confirmed against the portal's own save call, which always resends every
   // field it read on load) -- fetch the current config first so fields the
   // caller didn't mention here survive the round trip instead of resetting.
-  const current = await blocksRequest<Record<string, unknown>>("/iam/v4/auth/config", {
+  const current = omitNil(await blocksRequest<Record<string, unknown>>("/iam/v4/auth/config", {
     impersonatedProjectAuth: true,
     ...requestContext(flags),
     projectTenantId: projectKey
-  });
+  }));
   const body: Record<string, unknown> = { ...current, ...overrides };
 
   // Turning isOidcEnabled on isn't a single independent flag: the
@@ -66,4 +66,8 @@ export async function authConfigSave(argv: string[]): Promise<void> {
     projectTenantId: projectKey
   });
   writeOutput(result, flags);
+}
+
+function omitNil<T extends Record<string, unknown>>(value: T): T {
+  return Object.fromEntries(Object.entries(value).filter(([, entry]) => entry !== null && entry !== undefined)) as T;
 }
