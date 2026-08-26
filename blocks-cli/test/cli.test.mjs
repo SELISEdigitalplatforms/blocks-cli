@@ -468,7 +468,6 @@ test("scaffolded web app depends on @seliseblocks/client and has no custom Block
   assert.match(combined, /blocksClient\.auth\.idp\.redirectToProvider\(\)/, "login click should start through IdP initiate");
   assert.match(combined, /blocksClient\.auth\.idp\.callback\(callbackUrl\)/, "callback should complete through IdP callback");
   assert.match(combined, /blocksClient\.auth\.oidc\.refreshToken/, "refresh should use the SDK OIDC refresh helper");
-  assert.match(combined, /blocksClient\.data\.collection<Asset>\("Asset"/, "expected an Assets CRUD example through Blocks Data");
   assert.match(combined, /blocksClient\.localization\.translations/, "expected localization modules to load through the Blocks client");
   assert.match(combined, /useT\(/, "expected generated UI to consume localization helper");
   assert.doesNotMatch(combined, /blocksFetch\(/, "no generated file should call a custom blocksFetch wrapper");
@@ -535,22 +534,19 @@ test("scaffolded web app depends on @seliseblocks/client and has no custom Block
 
   await assert.rejects(() => readFile(join(appDir, "src/lib/blocks/http.ts"), "utf8"), /ENOENT/, "the generic Blocks fetch wrapper file should not be generated");
 
-  assert.ok(files.some((file) => file.endsWith("AssetsPage.tsx")), "expected an Assets CRUD page");
-  assert.ok(files.some((file) => file.endsWith("DataTable.tsx")), "expected a reusable data table");
+  assert.ok(files.some((file) => file.endsWith("ProfilePage.tsx")), "expected a Profile page");
+  assert.ok(!files.some((file) => file.endsWith("DashboardPage.tsx")), "bootstrap should not scaffold a Dashboard page");
+  assert.ok(!files.some((file) => file.endsWith("AssetsPage.tsx")), "bootstrap should not scaffold an Assets page");
   assert.ok(files.some((file) => file.endsWith("LocalizationProvider.tsx")), "expected a localization provider");
+  assert.match(combined, /"\/":\s*ProfilePage/, "Profile should be the landing page ('/') on bootstrap");
   const commonDictionary = JSON.parse(await readFile(join(appDir, "blocks", "localization", "common.en.json"), "utf8"));
-  const dashboardDictionary = JSON.parse(await readFile(join(appDir, "blocks", "localization", "dashboard.en.json"), "utf8"));
-  const assetsDictionary = JSON.parse(await readFile(join(appDir, "blocks", "localization", "assets.en.json"), "utf8"));
   assert.equal(commonDictionary.save, "Save");
   assert.equal(commonDictionary["common.save"], undefined);
-  assert.equal(dashboardDictionary.title, "Dashboard");
-  assert.equal(dashboardDictionary["dashboard.title"], undefined);
-  assert.equal(assetsDictionary.title, "Assets");
-  assert.equal(assetsDictionary["assets.title"], undefined);
+  await assert.rejects(() => readFile(join(appDir, "blocks", "localization", "dashboard.en.json"), "utf8"), /ENOENT/, "bootstrap should not write a dashboard dictionary");
+  await assert.rejects(() => readFile(join(appDir, "blocks", "localization", "assets.en.json"), "utf8"), /ENOENT/, "bootstrap should not write an assets dictionary");
   // Each SDK module is exercised in context rather than in one dedicated demo
-  // panel: auth/data/localization are already covered above (idp login flow,
-  // Assets CRUD, LocalizationProvider); iam is covered through the shared
-  // profile/user-menu query.
+  // panel: auth/localization are already covered above (idp login flow,
+  // LocalizationProvider); iam is covered through the shared profile/user-menu query.
   assert.match(combined, /blocksClient\.iam\./, "expected an iam example");
 
   await assert.rejects(() => readFile(join(appDir, "src/lib/blocks/pkce.ts"), "utf8"), /ENOENT/, "the hosted IdP scaffold should not generate a local PKCE helper");

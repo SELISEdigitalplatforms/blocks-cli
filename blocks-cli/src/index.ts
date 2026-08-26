@@ -1229,8 +1229,8 @@ Scaffold:
     hosted IdP flow: blocksClient.auth.idp.redirectToProvider() on login click
     and blocksClient.auth.idp.callback() on /login/callback. Includes route
     guards, auto-refresh through auth.oidc.refreshToken(), live
-    auth/iam/data/localization SDK examples, environment config, and safe
-    .gitignore defaults.
+    auth/iam/localization SDK examples, a Profile landing page, environment
+    config, and safe .gitignore defaults.
     Uses the selected project (see 'use') unless --x-blocks-key overrides it.
     --app-domain and --client-id are resolved from the project when omitted:
     if the project has one domain it's used automatically, otherwise you're
