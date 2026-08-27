@@ -4,6 +4,7 @@ import { confirmMutation } from "../../../lib/confirm.js";
 import { writeOutput } from "../../../lib/output.js";
 import { requestContext } from "../../../lib/request-context.js";
 import { parseCommand, selectedProject } from "../../../lib/workspace.js";
+import { withGatewayReload } from "../../../lib/data-gateway.js";
 
 export async function dataValidationDelete(argv: string[]): Promise<void> {
   const { args, flags } = parseCommand(argv);
@@ -23,5 +24,5 @@ export async function dataValidationDelete(argv: string[]): Promise<void> {
     projectTenantId: projectKey,
     query: { validationId }
   });
-  writeOutput(result, flags);
+  writeOutput(await withGatewayReload(flags, projectKey, result), flags);
 }

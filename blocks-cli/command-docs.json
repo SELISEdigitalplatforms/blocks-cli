@@ -313,15 +313,6 @@
   "notifier mark-all-read": {
     "summary": "Mark every notification as read for the caller."
   },
-  "secrets get": {
-    "summary": "Read the stored value for one secret key.",
-    "positional": "<secretKey>",
-    "details": "Response is unredacted; treat as sensitive."
-  },
-  "secrets save": {
-    "summary": "Upsert: omit --item-id to create, pass it to update.",
-    "details": "--key-value-pairs is a flat JSON object of provider-specific fields, e.g. --key-value-pairs '{\"isEnable\":\"true\",\"provider\":\"recaptcha\",\"captchaKey\":\"...\",\"captchaSecret\":\"...\"}'."
-  },
   "storage config list": {
     "summary": "List storage backend configurations."
   },

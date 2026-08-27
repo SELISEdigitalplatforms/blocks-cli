@@ -1,4 +1,4 @@
-import { booleanFlag, integerFlag, stringFlag } from "../../../lib/args.js";
+import { booleanFlag, zeroBasedPage, integerFlag, stringFlag } from "../../../lib/args.js";
 import { blocksRequest } from "../../../lib/api.js";
 import { compact, jsonBodyFlag } from "../../../lib/json-flag.js";
 import { writeOutput } from "../../../lib/output.js";
@@ -19,7 +19,7 @@ export async function iamUsersList(argv: string[]): Promise<void> {
   };
 
   const body = {
-    page: integerFlag(flags, "page", 1),
+    page: zeroBasedPage(flags),
     pageSize: integerFlag(flags, "page-size", 20),
     sort: {
       // booleanFlag, not stringFlag: a bare `--sort-desc` parses to boolean

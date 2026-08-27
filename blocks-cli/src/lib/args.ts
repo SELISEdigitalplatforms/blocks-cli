@@ -74,3 +74,18 @@ export function optionalBooleanFlag(flags: Record<string, string | boolean>, nam
   if (!(name in flags)) return undefined;
   return booleanFlag(flags, name);
 }
+
+/**
+ * Converts the 1-based `--page` the CLI documents into the 0-based page number the
+ * backend expects, for endpoints that skip by `PageSize * Page` -- every /iam/v4 list,
+ * and storage's get-files-info (FileRepository: `Skip = query.PageSize * query.Page`).
+ * Passing `--page` straight through returns an empty `data` array alongside a non-zero
+ * `totalCount`, so a project with rows reads as empty.
+ *
+ * NOT universal: the Data schema endpoints take a 1-based `PageNo` and must not use this.
+ */
+export function zeroBasedPage(flags: Record<string, string | boolean>): number {
+  const page = integerFlag(flags, "page", 1);
+  if (page < 1) throw new Error("--page must be greater than or equal to 1");
+  return page - 1;
+}

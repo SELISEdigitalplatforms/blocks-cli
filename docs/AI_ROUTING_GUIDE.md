@@ -126,7 +126,6 @@ Use the matching Blocks skill as the routing and safety layer, then the CLI or c
 | Organizations/signup settings | `blocks-skills/blocks-iam-organizations/SKILL.md`, then the CLI or client guide |
 | Local HTTPS dev loop | Scaffolded app README/scripts |
 | Release deployment | `blocks-cli/AGENT_GUIDE.md` |
-| Secrets | `blocks-cli/AGENT_GUIDE.md` |
 | Mail settings/templates | `blocks-cli/AGENT_GUIDE.md` |
 | Notification channel configuration | `blocks-cli/AGENT_GUIDE.md` |
 | Sending/reading notifications | `blocks-skills/blocks-notifier/SKILL.md`, then the CLI or client guide |
@@ -160,7 +159,7 @@ Use the matching CLI command and dry-run first:
 blocks <command> --dry-run --json
 ```
 
-Only run the real mutation with `--yes` after the user approves the exact action. This applies to schema push, rules deploy, localization push, release deploy, OIDC/client credential changes, users, roles, permissions, MFA config, organizations, secrets, mail, notification, storage config, and similar project resources.
+Only run the real mutation with `--yes` after the user approves the exact action. This applies to schema push, rules deploy, localization push, release deploy, OIDC/client credential changes, users, roles, permissions, MFA config, organizations, mail, notification, storage config, and similar project resources.
 
 ### I am maintaining the CLI or SDK packages
 

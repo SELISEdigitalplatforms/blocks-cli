@@ -1,4 +1,4 @@
-import { booleanFlag, integerFlag, stringFlag } from "../../../lib/args.js";
+import { booleanFlag, zeroBasedPage, integerFlag, stringFlag } from "../../../lib/args.js";
 import { blocksRequest } from "../../../lib/api.js";
 import { compact, jsonBodyFlag, listFlag } from "../../../lib/json-flag.js";
 import { writeOutput } from "../../../lib/output.js";
@@ -13,7 +13,12 @@ export async function iamRolesList(argv: string[]): Promise<void> {
   const filter = {
     ...(await jsonBodyFlag(flags)).filter as Record<string, unknown> | undefined,
     ...compact({
-      search: stringFlag(flags, "search") || undefined,
+      // GetRolesFilter.Search is a non-nullable string server-side, so model
+      // validation rejects the whole request when it is absent -- omitting it made
+      // the default `iam roles list` fail with a bare 400. The repository treats
+      // whitespace as "no filter" (`!string.IsNullOrWhiteSpace(Filter.Search)`),
+      // so "" is the correct unfiltered value rather than a search for nothing.
+      search: stringFlag(flags, "search") ?? "",
       slugs: listFlag(flags, "slugs")
     })
   };
@@ -21,7 +26,7 @@ export async function iamRolesList(argv: string[]): Promise<void> {
   const body = {
     filter,
     organizationId: stringFlag(flags, "organization-id") || undefined,
-    page: iamBackendPage(flags),
+    page: zeroBasedPage(flags),
     pageSize: integerFlag(flags, "page-size", 20),
     sort: sortBy ? {
       isDescending: booleanFlag(flags, "sort-desc"),
@@ -36,10 +41,4 @@ export async function iamRolesList(argv: string[]): Promise<void> {
     projectTenantId: projectKey
   });
   writeOutput(result, flags);
-}
-
-function iamBackendPage(flags: Record<string, string | boolean>): number {
-  const page = integerFlag(flags, "page", 1);
-  if (page < 1) throw new Error("--page must be greater than or equal to 1");
-  return page - 1;
 }

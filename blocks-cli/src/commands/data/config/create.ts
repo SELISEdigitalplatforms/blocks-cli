@@ -6,6 +6,7 @@ import { writeOutput } from "../../../lib/output.js";
 import { redactSecrets } from "../../../lib/redact.js";
 import { requestContext } from "../../../lib/request-context.js";
 import { parseCommand, selectedProject } from "../../../lib/workspace.js";
+import { withGatewayReload } from "../../../lib/data-gateway.js";
 
 export async function dataConfigCreate(argv: string[]): Promise<void> {
   const { flags } = parseCommand(argv);
@@ -33,5 +34,5 @@ export async function dataConfigCreate(argv: string[]): Promise<void> {
     ...requestContext(flags),
     projectTenantId: projectKey
   });
-  writeOutput(result, flags);
+  writeOutput(await withGatewayReload(flags, projectKey, result), flags);
 }

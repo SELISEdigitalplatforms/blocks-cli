@@ -202,8 +202,6 @@ import { notifierMarkAllRead } from "./commands/notifier/mark-all-read.js";
 import { notifierMarkRead } from "./commands/notifier/mark-read.js";
 import { notifierNotify } from "./commands/notifier/notify.js";
 import { notifierUnread } from "./commands/notifier/unread.js";
-import { secretsGet } from "./commands/secrets/get.js";
-import { secretsSave } from "./commands/secrets/save.js";
 import { storageConfigDelete } from "./commands/storage/config/delete.js";
 import { storageConfigGet } from "./commands/storage/config/get.js";
 import { storageConfigList } from "./commands/storage/config/list.js";
@@ -409,8 +407,6 @@ const commands: Partial<Record<string, CommandHandler>> = {
   "notifier:unread": notifierUnread,
   "notifier:mark-read": notifierMarkRead,
   "notifier:mark-all-read": notifierMarkAllRead,
-  "secrets:get": secretsGet,
-  "secrets:save": secretsSave,
   "storage:config:list": storageConfigList,
   "storage:config:get": storageConfigGet,
   "storage:config:save": storageConfigSave,
@@ -861,15 +857,6 @@ Notifier (/logic/v4/Notifier/* — real-time/offline notification sends and inbo
     body -- the Fetch spec forbids a body on GET. Read-only.
   blocks notifier mark-read <id> [--dry-run] [--yes] [--json]
   blocks notifier mark-all-read [--dry-run] [--yes] [--json]
-
-Secrets (/os/v4/Secrets/* — project-scoped: requires a selected project, impersonated project
-          token only; generic tenant secret storage, e.g. captcha provider config):
-  blocks secrets get <secretKey> [--page-number 0] [--page-size 10] [--json]
-  blocks secrets save --secret-key <key> [--item-id <id>] --key-value-pairs '<json>'
-                              [--body '<json>'|--file <path>] [--dry-run] [--yes] [--json]
-    Upsert: omit --item-id to create, pass it to update. --key-value-pairs is a flat
-    JSON object of provider-specific fields, e.g.
-    --key-value-pairs '{"isEnable":"true","provider":"recaptcha","captchaKey":"...","captchaSecret":"..."}'.
 
 Storage (/os/v4/Storage/* — project-scoped: requires a selected project, impersonated project token only):
   blocks storage config list [--json]

@@ -12,7 +12,7 @@ const errors = [];
 // write credential, while `--website-url` / `--image-url` /
 // `--account-action-base-url` are ordinary public addresses that belong in a
 // dry-run verbatim.
-const SECRET_FLAG_PATTERN = /^(?:(?:.*-)?(?:secret|password|private-key|access-key|connection-string|key-value-pairs)|url)$/;
+const SECRET_FLAG_PATTERN = /^(?:(?:.*-)?(?:secret|password|private-key|access-key|connection-string)|url)$/;
 
 for (const filePath of sourceFiles(commandsDir)) checkFile(filePath);
 

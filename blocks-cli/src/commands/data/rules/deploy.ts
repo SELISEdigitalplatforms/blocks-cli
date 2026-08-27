@@ -6,6 +6,7 @@ import { unwrapDataArray, unwrapSchemaListResponse } from "../../../lib/data-res
 import { writeOutput } from "../../../lib/output.js";
 import { requestContext } from "../../../lib/request-context.js";
 import { parseCommand, selectedProject } from "../../../lib/workspace.js";
+import { withGatewayReload } from "../../../lib/data-gateway.js";
 
 type RulesDocument = {
   policies?: unknown;
@@ -99,7 +100,7 @@ export async function dataRulesDeploy(argv: string[]): Promise<void> {
     }
   }
 
-  writeOutput({ results }, flags);
+  writeOutput(await withGatewayReload(flags, projectKey, { results }), flags);
 }
 
 /** Resolves destination schema ids and existing policy ids by name, one lookup per unique schema. */

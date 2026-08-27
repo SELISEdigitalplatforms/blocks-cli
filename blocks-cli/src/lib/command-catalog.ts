@@ -1284,7 +1284,6 @@ export const commandCatalog: readonly CommandEntry[] = [
       "is-archived",
       "is-built-in",
       "organization-id",
-      "page",
       "page-size",
       "resource-group",
       "resources",
@@ -1402,7 +1401,6 @@ export const commandCatalog: readonly CommandEntry[] = [
       "body",
       "file",
       "organization-id",
-      "page",
       "page-size",
       "search",
       "slugs",
@@ -1560,7 +1558,6 @@ export const commandCatalog: readonly CommandEntry[] = [
       "file",
       "name",
       "organization-id",
-      "page",
       "page-size",
       "sort-by",
       "sort-desc"
@@ -2739,35 +2736,6 @@ export const commandCatalog: readonly CommandEntry[] = [
     "mutating": false,
     "flags": [
       "build-id"
-    ]
-  },
-  {
-    "name": "secrets get",
-    "family": "secrets",
-    "summary": "Read the stored value for one secret key.",
-    "positional": "<secretKey>",
-    "details": "Response is unredacted; treat as sensitive.",
-    "scope": "project",
-    "mutating": false,
-    "flags": [
-      "page-number",
-      "page-size",
-      "secret-key"
-    ]
-  },
-  {
-    "name": "secrets save",
-    "family": "secrets",
-    "summary": "Upsert: omit --item-id to create, pass it to update.",
-    "details": "--key-value-pairs is a flat JSON object of provider-specific fields, e.g. --key-value-pairs '{\"isEnable\":\"true\",\"provider\":\"recaptcha\",\"captchaKey\":\"...\",\"captchaSecret\":\"...\"}'.",
-    "scope": "project",
-    "mutating": true,
-    "flags": [
-      "body",
-      "file",
-      "item-id",
-      "key-value-pairs",
-      "secret-key"
     ]
   },
   {

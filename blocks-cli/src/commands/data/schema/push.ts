@@ -6,6 +6,7 @@ import { isRecord, unwrapSchemaListResponse } from "../../../lib/data-response.j
 import { writeOutput } from "../../../lib/output.js";
 import { requestContext } from "../../../lib/request-context.js";
 import { parseCommand, selectedProject } from "../../../lib/workspace.js";
+import { createdSchemaId, makeSchemaPublic, withGatewayReload } from "../../../lib/data-gateway.js";
 
 export async function dataSchemaPush(argv: string[]): Promise<void> {
   const { flags } = parseCommand(argv);
@@ -22,6 +23,7 @@ export async function dataSchemaPush(argv: string[]): Promise<void> {
   await confirmMutation(flags, `Push ${schemas.length} data schema file(s) to project '${projectKey}'.`);
   const results: unknown[] = [];
   const warnings: string[] = [];
+  const publicised: string[] = [];
 
   for (const { file, schema } of schemas) {
     const schemaName = String(schema.schemaName);
@@ -66,7 +68,21 @@ export async function dataSchemaPush(argv: string[]): Promise<void> {
     }
 
     results.push(response);
+
+    if (!destinationId) {
+      const createdId = createdSchemaId(response);
+      if (createdId) {
+        await makeSchemaPublic(createdId, projectKey, flags);
+        publicised.push(schemaName);
+      } else {
+        warnings.push(`${file}: created '${schemaName}' but the response carried no itemId, so its access level was left at the server default (User). Set it with 'data rules deploy'.`);
+      }
+    }
   }
 
-  writeOutput({ results, ...(warnings.length ? { warnings } : {}) }, flags);
+  writeOutput(await withGatewayReload(flags, projectKey, {
+    results,
+    ...(publicised.length ? { grantedPublicAccess: publicised } : {}),
+    ...(warnings.length ? { warnings } : {})
+  }), flags);
 }

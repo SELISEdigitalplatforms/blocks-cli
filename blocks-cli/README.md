@@ -200,7 +200,7 @@ After login selects `activeAccount`, `blocks use <tenantId>` updates that accoun
 
 ## Boundaries
 
-- `iam me` reads the CLI operator's own identity, preferring project auth when a project is resolved and using account auth only in account-only mode. Every other `iam *`, `mfa *`, `auth idp *`/`auth config *`/`auth client-credentials *`/`auth oidc-clients *`, `mail *`, `notification *`, `notifier *`, `secrets *`, and `storage config *` command is project-scoped and requires a selected project (`blocks use <tenantId>`) plus an impersonated project token.
+- `iam me` reads the CLI operator's own identity, preferring project auth when a project is resolved and using account auth only in account-only mode. Every other `iam *`, `mfa *`, `auth idp *`/`auth config *`/`auth client-credentials *`/`auth oidc-clients *`, `mail *`, `notification *`, `notifier *`, and `storage config *` command is project-scoped and requires a selected project (`blocks use <tenantId>`) plus an impersonated project token.
 - Data covers tenant data-source configuration, schema/rules/reload/validate, field-level validation rules, and the storage object tree (`data files *`). Prefer the composed `data sync` and `data files upload` workflows.
 - Localization covers dictionary validate/pull/push plus the full raw `/localization/v4/*` API surface (assistant, config, glossary, key, language, module). Prefer `localization key translate-and-export` over running translate/generate/export by hand.
 - Release covers deploy trigger and build status/read commands only.

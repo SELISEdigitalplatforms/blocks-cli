@@ -12,6 +12,9 @@ export async function iamUsersUpdate(argv: string[]): Promise<void> {
   const body = {
     ...(await jsonBodyFlag(flags)),
     ...compact({
+      // IAM validates ItemId from the BODY, not the path segment, and rejects the
+      // whole request without it -- every update failed with a bare 400 otherwise.
+      itemId: id,
       firstName: stringFlag(flags, "first-name") || undefined,
       lastName: stringFlag(flags, "last-name") || undefined,
       organizationId: stringFlag(flags, "organization-id") || undefined,

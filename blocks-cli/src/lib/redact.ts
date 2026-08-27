@@ -9,11 +9,9 @@
  * secret-bearing body and prints it unredacted, so this is enforced rather
  * than remembered.
  *
- * Deliberately excludes `secretKey`, which means two different things in two
- * places: in `secrets save` it is the secret's NAME (the dry-run has to show
- * which secret is being written), while in `storage config save` it is the
- * credential itself. Commands that mean the credential pass the name
- * explicitly via `extraNames`.
+ * Deliberately excludes `secretKey`, which is not always the credential: in
+ * `storage config save` it is the credential itself, so that command passes
+ * the name explicitly via `extraNames` rather than relying on this list.
  */
 export const SECRET_FIELD_NAMES: readonly string[] = [
   "accesskey",
@@ -43,20 +41,6 @@ export function redactSecrets<T>(value: T, extraNames: readonly string[] = []): 
 export function redactFields<T>(value: T, names: readonly string[]): T {
   const secretNames = new Set(names.map((name) => name.toLowerCase()));
   return redact(value, secretNames) as T;
-}
-
-/**
- * Redacts a flat map whose KEYS are caller-supplied rather than known ahead of
- * time -- `secrets save --key-value-pairs` takes a provider-shaped object, so
- * there is no fixed field list to match against and the key name is the only
- * signal available.
- */
-export function redactSecretMap(map: Record<string, unknown>): Record<string, unknown> {
-  const redacted: Record<string, unknown> = {};
-  for (const [key, value] of Object.entries(map)) {
-    redacted[key] = /(secret|password|token|credential|key$)/i.test(key) ? "***" : value;
-  }
-  return redacted;
 }
 
 /**

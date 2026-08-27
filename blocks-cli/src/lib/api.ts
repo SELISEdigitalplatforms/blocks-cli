@@ -179,7 +179,15 @@ function errorDetail(data: unknown): string {
   const record = data as Record<string, unknown>;
   for (const key of ["detail", "message", "error_description", "error", "title"]) {
     const value = record[key];
-    if (typeof value === "string" && value) return `: ${truncate(value)}`;
+    if (typeof value === "string" && value) {
+      // The headline string is often the only human-readable part but rarely the
+      // actionable one: ASP.NET ProblemDetails always reports `title` as the
+      // generic "One or more validation errors occurred." and puts the field that
+      // actually failed in a sibling `errors` object. Returning on `title` alone
+      // hid which field was rejected on every 400 the API produces.
+      const fields = fieldErrorDetail(record.errors);
+      return `: ${truncate(fields ? `${value} ${fields}` : value)}`;
+    }
   }
 
   // Last-resort dump of an error envelope with no recognized message field.
@@ -187,6 +195,36 @@ function errorDetail(data: unknown): string {
   // runs through the same redaction the dry-run output uses -- an error message
   // is printed to stderr and pasted into issues just as readily as a dry-run.
   return `: ${truncate(JSON.stringify(redactSecrets(data)))}`;
+}
+
+/**
+ * Renders the field-level half of an error body. Three shapes reach this:
+ * ProblemDetails (`{"Filter.Search": ["The Search field is required."]}`), the
+ * Blocks failure envelope (`{"invalid_request": "At least one role is required."}`),
+ * and FluentValidation arrays (`[{propertyName, errorMessage}]`). Redacted, because
+ * services echo submitted values back inside validation errors.
+ */
+function fieldErrorDetail(errors: unknown): string {
+  if (!errors || typeof errors !== "object") return "";
+  const safe = redactSecrets(errors) as Record<string, unknown> | unknown[];
+
+  const parts: string[] = [];
+  if (Array.isArray(safe)) {
+    for (const entry of safe) {
+      if (!entry || typeof entry !== "object") continue;
+      const { errorMessage, propertyName } = entry as Record<string, unknown>;
+      if (typeof errorMessage !== "string") continue;
+      parts.push(typeof propertyName === "string" && propertyName ? `${propertyName}: ${errorMessage}` : errorMessage);
+    }
+  } else {
+    for (const [field, value] of Object.entries(safe)) {
+      const messages = Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : [];
+      if (messages.length) parts.push(`${field}: ${messages.join(" ")}`);
+      else if (typeof value === "string" && value) parts.push(`${field}: ${value}`);
+    }
+  }
+
+  return parts.length ? `(${parts.join("; ")})` : "";
 }
 
 function truncate(value: string): string {

@@ -514,22 +514,6 @@ Target `notify` with at least one of `--user-ids`/`--roles`/`--subscription-filt
 sends its filter as query parameters even though swagger documents that endpoint as GET with a JSON
 body, which the Fetch spec forbids — the CLI and SDK both flatten it into the query string instead.
 
-## Secrets
-
-Generic tenant secret storage via `/os/v4/Secrets/*` (e.g. captcha provider config):
-
-```bash
-blocks secrets get captcha --json
-blocks secrets save --secret-key captcha \
-  --key-value-pairs '{"isEnable":"true","provider":"recaptcha","captchaKey":"...","captchaSecret":"..."}' \
-  --dry-run --json
-blocks secrets save --secret-key captcha --item-id <itemId> --key-value-pairs '{...}' --yes --json
-```
-
-`--key-value-pairs` is a flat JSON object of provider-specific fields — its shape depends entirely on
-`--secret-key` (there's no fixed schema across secrets). `save` is an upsert: omit `--item-id` to
-create, pass it to update. Fields that look like secrets/keys are redacted in `--dry-run` output only.
-
 ## Storage
 
 Project-scoped storage backend configuration via `/os/v4/Storage/*`:

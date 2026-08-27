@@ -1013,6 +1013,10 @@ test("schema push ignores a foreign local id and creates via POST when no destin
     if (path === "/data/v4/schemas/define" && request.method === "POST") {
       return { data: { acknowledged: true, itemId: "new-id" }, isSuccess: true };
     }
+    // Every mutating data command reloads the gateway so the write goes live.
+    if (path === "/data/v4/schema-configurations/reload" && request.method === "POST") {
+      return { data: false, isSuccess: true, message: "Schema evicted successfully." };
+    }
     return rawResponse(500, { errorMessage: `Unexpected ${request.method} ${path}` });
   });
 
@@ -1058,6 +1062,10 @@ test("schema push uses the destination project's own id and PUT when a schema wi
     }
     if (path === "/data/v4/schemas/define" && request.method === "PUT") {
       return { data: { acknowledged: true, itemId: "destination-id" }, isSuccess: true };
+    }
+    // Every mutating data command reloads the gateway so the write goes live.
+    if (path === "/data/v4/schema-configurations/reload" && request.method === "POST") {
+      return { data: false, isSuccess: true, message: "Schema evicted successfully." };
     }
     return rawResponse(500, { errorMessage: `Unexpected ${request.method} ${path}` });
   });
@@ -1401,6 +1409,10 @@ test("rules deploy resolves the destination schema id by name instead of reusing
     }
     if (path === "/data/v4/data-access/policy/create" && request.method === "POST") {
       return { data: { acknowledged: true, itemId: "new-policy-id" }, isSuccess: true };
+    }
+    // Every mutating data command reloads the gateway so the write goes live.
+    if (path === "/data/v4/schema-configurations/reload" && request.method === "POST") {
+      return { data: false, isSuccess: true, message: "Schema evicted successfully." };
     }
     return rawResponse(500, { errorMessage: `Unexpected ${request.method} ${path}` });
   });
@@ -3116,20 +3128,6 @@ test("secret-bearing dry-runs all route through the shared redaction helper", as
       ],
       redacted: (request) => request.secretKey,
       leak: /leak-access|leak-secret/
-    },
-    {
-      args: [
-        "secrets:save", "--secret-key", "visible-name",
-        "--key-value-pairs", JSON.stringify({ clientSecret: "leak-me", region: "eu-central-1" }),
-        "--dry-run", "--json"
-      ],
-      redacted: (request) => request.keyValuePairs.clientSecret,
-      leak: /leak-me/,
-      stillReadable: (request) => {
-        // The secret's NAME has to stay visible or the dry-run cannot be reviewed.
-        assert.equal(request.secretKey, "visible-name");
-        assert.equal(request.keyValuePairs.region, "eu-central-1");
-      }
     },
     {
       args: [
