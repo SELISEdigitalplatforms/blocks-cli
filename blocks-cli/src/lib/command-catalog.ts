@@ -41,7 +41,7 @@ export const commandCatalog: readonly CommandEntry[] = [
     "name": "auth client-credentials save",
     "family": "auth",
     "summary": "Omit --item-id to create; pass it to update.",
-    "details": "The response's clientSecret is shown once and is not retrievable again afterward.",
+    "details": "The response carries no clientSecret; read it back from 'auth client-credentials list', which returns it in full.",
     "scope": "project",
     "mutating": true,
     "flags": [
@@ -223,7 +223,7 @@ export const commandCatalog: readonly CommandEntry[] = [
     "name": "auth oidc-clients list",
     "family": "auth",
     "summary": "List registered OAuth 2.0 / OIDC client applications for the tenant.",
-    "details": "client_secret is excluded from list/get responses.",
+    "details": "client_secret is NOT excluded by the service -- the CLI redacts it in list/get output. Use rotate-secret to obtain a working secret.",
     "scope": "project",
     "mutating": false,
     "flags": []
@@ -243,7 +243,7 @@ export const commandCatalog: readonly CommandEntry[] = [
     "name": "auth oidc-clients save",
     "family": "auth",
     "summary": "Upsert: omit --item-id to register a new client, pass it to update an existing one.",
-    "details": "The response's client_secret is shown once and is not retrievable again afterward. --client-type is not optional in practice: IAM derives tokenEndpointAuthMethod from it, so omitting it stores a browser/SPA client as confidential (\"client_secret_post\") and lets it request the client_credentials grant. Pass --client-type public for any PKCE/browser client. --register-as-identity-provider creates the linked identity provider in the same call. Its authorize/token/userinfo/jwks/issuer values are filled from the discovery document. When omitted, --external-discovery-endpoint defaults to external provider or non-standard IAM base URL.",
+    "details": "The response's client_secret is shown here; the service also returns it on list/get, where the CLI redacts it. --client-type is not optional in practice: IAM derives tokenEndpointAuthMethod from it, so omitting it stores a browser/SPA client as confidential (\"client_secret_post\") and lets it request the client_credentials grant. Pass --client-type public for any PKCE/browser client. --register-as-identity-provider creates the linked identity provider in the same call. Its authorize/token/userinfo/jwks/issuer values are filled from the discovery document. When omitted, --external-discovery-endpoint defaults to external provider or non-standard IAM base URL.",
     "scope": "project",
     "mutating": true,
     "flags": [

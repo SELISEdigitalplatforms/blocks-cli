@@ -1017,6 +1017,10 @@ test("schema push ignores a foreign local id and creates via POST when no destin
     if (path === "/data/v4/schema-configurations/reload" && request.method === "POST") {
       return { data: false, isSuccess: true, message: "Schema evicted successfully." };
     }
+    // New schemas are granted Public access on create (four operations).
+    if (path === "/data/v4/data-access/security/change" && request.method === "POST") {
+      return { isSuccess: true, message: "CONFIGURATION_SAVED" };
+    }
     return rawResponse(500, { errorMessage: `Unexpected ${request.method} ${path}` });
   });
 
@@ -1066,6 +1070,10 @@ test("schema push uses the destination project's own id and PUT when a schema wi
     // Every mutating data command reloads the gateway so the write goes live.
     if (path === "/data/v4/schema-configurations/reload" && request.method === "POST") {
       return { data: false, isSuccess: true, message: "Schema evicted successfully." };
+    }
+    // New schemas are granted Public access on create (four operations).
+    if (path === "/data/v4/data-access/security/change" && request.method === "POST") {
+      return { isSuccess: true, message: "CONFIGURATION_SAVED" };
     }
     return rawResponse(500, { errorMessage: `Unexpected ${request.method} ${path}` });
   });
