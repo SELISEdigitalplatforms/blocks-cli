@@ -158,6 +158,43 @@ Run cache-only health checks without token refresh or network mutation:
 blocks doctor --json
 ```
 
+
+### Session state machine
+
+Each account persists exactly one refreshable authentication mode in its resolved
+store: either the account access/refresh pair, or one project's impersonated pair.
+`blocks use` exchanges account mode for project mode; `blocks deselect` exchanges it
+back. Account-only operations such as project creation temporarily stop impersonation
+and restore the previous project afterward. These exchanges are locked per config
+directory so concurrent CLI processes cannot overwrite each other's token transition.
+
+```mermaid
+flowchart TD
+  L[blocks login --account name] --> A[Account access token + refresh token]
+  A --> U[blocks use tenantId]
+  U --> I[IAM impersonate]
+  I --> P[One project access token + refresh token]
+  P --> R[Project API calls and project refresh]
+  P --> D[blocks deselect]
+  D --> S[IAM stop impersonation]
+  S --> A
+  P --> C[Account-only operation]
+  C --> S
+  A --> O[Run operation]
+  O --> I
+```
+
+### Multi-user hosts (Code Studio)
+
+The portal backend must validate the portal identity, `x-blocks-key`, and the
+requested Studio application/project before creating a session. `x-blocks-key`
+identifies a tenant/project; it does not prove user permission. The launcher must
+supply a unique session/user-specific `BLOCKS_CONFIG_DIR`; a new directory starts
+with no imported tokens and requires an explicit login or approved bootstrap. Local
+terminals without an override use the normal OS config directory, so two portal users
+can share a tenant on one VM without sharing account, project selection, secrets, or
+tokens.
+
 ## Project Workflow
 
 List projects:

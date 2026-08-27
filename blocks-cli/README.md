@@ -28,61 +28,22 @@ account or config store.
 
 ## Account, project, and session context
 
-The CLI resolves its state directory from `BLOCKS_CONFIG_DIR` when that variable
-is non-empty. Otherwise it uses the normal per-user OS config directory. Config,
-OAuth tokens, client secrets, active account, and selected project all stay in
-that resolved store; the CLI does not detect whether it is running locally or in
-a VM.
+State lives in `BLOCKS_CONFIG_DIR` when that variable is non-empty, otherwise in the
+normal per-user OS config directory. Config, OAuth tokens, client secrets, active
+account, and selected project all stay in that resolved store, so a distinct
+`BLOCKS_CONFIG_DIR` fully isolates one session from another on a shared machine.
 
-Account resolution is `--account` first, then `activeAccount` from the resolved
-store. An explicit missing account fails without falling back. If no valid active
-account exists, an interactive terminal asks which configured account to use and
-stores that choice as active; non-interactive commands fail with an actionable
-error.
+Account resolution is `--account`, then `activeAccount`. Project resolution is
+`--project`, then `blocks.json`'s `project.tenantId`, then the account's
+`selectedProject`. A `--project` override applies to that command only and never
+changes the saved selection. Non-interactive commands fail rather than prompt.
 
-Project resolution is `--project`, then `blocks.json`'s `project.tenantId`, then
-the selected account's `selectedProject` from the resolved store. An interactive terminal asks for a
-tenant id only when none is available; non-interactive commands fail. A
-`--project` override applies only to that command and does not change the saved
-selection. Successful login establishes `activeAccount`, so normal usage is
-`blocks use <tenantId>` followed later by `blocks deselect`; both operate on
-that active account.
+An account holds exactly one refreshable mode at a time: either the account token
+pair, or one project's impersonated pair. `blocks use <tenantId>` exchanges account
+mode for project mode; `blocks deselect` exchanges it back. This is why `auth status`
+reports the account tokens as `missing` once a project is selected -- expected, not a
+fault. See [AGENT_GUIDE.md](./AGENT_GUIDE.md) for the full state machine.
 
-For Code Studio, the portal backend must validate the portal identity,
-`x-blocks-key`, and requested Studio application/project before creating a
-session. `x-blocks-key` identifies a tenant/project; it does not prove user
-permission. The launcher must provide a unique session/user-specific
-`BLOCKS_CONFIG_DIR`. A new directory starts without imported tokens and requires
-an explicit login or approved bootstrap.
-
-Each account persists exactly one refreshable authentication mode in its
-resolved store: either the account access/refresh pair, or one project's
-impersonated access/refresh pair. `blocks use` exchanges account mode for project
-mode. `blocks deselect` exchanges project mode back to account mode. Account-only
-operations such as project creation temporarily stop impersonation and restore
-the previous project afterward. These exchanges are locked per config directory
-so concurrent CLI processes cannot overwrite each other's token transition.
-
-```mermaid
-flowchart TD
-  L[blocks login --account name] --> A[Account access token + refresh token]
-  A --> U[blocks use tenantId]
-  U --> I[IAM impersonate]
-  I --> P[One project access token + refresh token]
-  P --> R[Project API calls and project refresh]
-  P --> D[blocks deselect]
-  D --> S[IAM stop impersonation]
-  S --> A
-  P --> C[Account-only operation]
-  C --> S
-  A --> O[Run operation]
-  O --> I
-```
-
-On a shared machine, local terminals without an override use the normal OS
-config directory. Every Studio launcher supplies a different
-`BLOCKS_CONFIG_DIR`, so two portal users can use the same tenant on the same VM
-without sharing active account, project selection, client secret, or tokens.
 
 For source development in this repository:
 
