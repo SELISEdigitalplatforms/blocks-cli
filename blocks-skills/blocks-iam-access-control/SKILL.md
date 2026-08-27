@@ -1,6 +1,6 @@
 ---
 name: blocks-iam-access-control
-description: "Work with SELISE Blocks RBAC (roles & permissions) via `blocks iam roles/permissions *` (CLI, project-scoped) or `blocksClient.iam.*` (SDK), never raw fetch/curl. Two facets: read-only feature-gating by the current user's own roles/permissions (common, safe) vs. creating/editing role and permission definitions (sensitive, human-confirmed only — CLI `--dry-run`→`--yes` or an in-app admin screen). OIDC/identity-provider setup is a different skill. Use for permission-gated UI, role/permission pickers, or building/scripting role & permission admin ('gate this button by permission', 'create a role and grant permissions', 'list permissions by severity')."
+description: "Work with SELISE Blocks RBAC (roles & permissions) via `blocks iam roles/permissions *` (CLI, project-scoped) or `blocksClient.iam.*` (SDK), never raw fetch/curl. Two facets: read-only feature-gating by the current user's own roles/permissions (common, safe), and creating/editing role and permission definitions (sensitive — CLI `--dry-run`→`--yes`, or an in-app admin screen). Use for permission-gated UI, role/permission pickers, or scripting role & permission admin. OIDC/identity-provider setup is a different skill."
 ---
 
 When invoking a project-scoped `blocks` command, either use the resolved account's saved selection or pass `--project <tenantId>` for that one command without changing saved state. `--project` applies to CLI commands only, never SDK calls.

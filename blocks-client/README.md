@@ -37,6 +37,17 @@ const blocks = createBlocksClient({
 
 The SDK does not store tokens. Your app owns login state, refresh scheduling, storage, and logout cleanup.
 
+`blocks.config` reads back the resolved settings (`apiUrl`, `xBlocksKey`,
+`appDomain`, `oidc`). It deliberately excludes your `accessToken` resolver and
+`onUnauthorized` hook, so the client never doubles as a place to read a live
+session out of; use `await blocks.auth.accessToken()` when you need the token.
+
+`http.request()` only ever talks to the configured `apiUrl` — it attaches your
+bearer token, `x-blocks-key`, and cookies, so an absolute URL on another origin
+is refused rather than handed a live session. Use `http.external(url)` for
+third-party URLs such as a pre-signed storage upload; it sends no Blocks
+credentials.
+
 Use a configured OIDC redirect URI when your app has one. The current-origin `/login/callback` URL is only a browser fallback.
 
 ## Auth
@@ -74,6 +85,13 @@ Other auth APIs, such as user info, organization switch, logout, signup, recover
 `auth.oidc.clientCredentials()` is for trusted non-browser runtimes only because it requires a client secret.
 
 `auth.accessToken()` resolves the caller-owned bearer token configured on `createBlocksClient` (string or callback). `auth.isAuthenticated()` checks the current session against IAM through `GET /iam/v4/auth/me` and returns a boolean based on the raw response status - use it instead of `userInfo()` when you need a true/false signal, since IAM's hosted IdP flow may set the session as a cookie with no local `accessToken` to inspect.
+
+## MFA
+
+`blocks.mfa` covers the signed-in user's own multi-factor setup — TOTP
+enrollment, OTP challenges, switching the active method, and backup codes —
+plus `mfa.saveConfig()` for tenant-wide MFA policy, which needs an admin
+token.
 
 ```ts
 const config = await blocks.mfa.config();
@@ -181,7 +199,7 @@ See [`AGENT_GUIDE.md`](AGENT_GUIDE.md)'s Service Map for the full method-level
 list under `blocks.auth`, `blocks.iam`, `blocks.data`, `blocks.localization`,
 `blocks.mfa`, `blocks.mail`, and `blocks.notifier`.
 
-Professional class names are exported for advanced typing and adapters: `BlocksAuthenticationClient`, `BlocksIAMClient`, `BlocksDataClient`, `BlocksLocalizationClient`, `BlocksMfaClient`, `BlocksMailClient`, and `BlocksNotifierClient`. `BlocksApiError` is exported for typed error handling - every non-2xx response from `http.request`/`http.external` throws it, exposing `status`, `statusText`, and the parsed `body`:
+Professional class names are exported for advanced typing and adapters: `BlocksAuthenticationClient`, `BlocksIAMClient`, `BlocksDataClient`, `BlocksLocalizationClient`, `BlocksMfaClient`, `BlocksMailClient`, and `BlocksNotifierClient`. `BlocksApiError` is exported for typed error handling - every non-2xx response from `http.request`/`http.external` throws it, exposing `status`, `statusText`, and the parsed `body`. That holds even when the body is not really JSON: a proxy or WAF answering with an HTML error page under a JSON content type surfaces as a `BlocksApiError` carrying the status and the raw text, not as a `SyntaxError`.
 
 ```ts
 try {

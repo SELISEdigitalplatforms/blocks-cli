@@ -2,23 +2,23 @@
 
 This repository contains the public npm packages and AI workflow assets for building with SELISE Blocks.
 
-SELISE Blocks provides a CLI for project setup and administration, a framework-neutral frontend SDK for runtime application code, and bundled AI skills that guide agents through supported Blocks workflows.
+SELISE Blocks provides a CLI for project setup and administration, a framework-neutral frontend SDK for runtime application code, and a set of AI workflow skills, kept in this repository, that guide agents through supported Blocks workflows.
 
 ## Packages
 
 | Package | Source | Purpose |
 |---|---|---|
-| [`@seliseblocks/cli-os`](https://www.npmjs.com/package/@seliseblocks/cli-os) | [`blocks-cli`](blocks-cli/README.md) | Terminal/admin/AI control plane for auth, projects, scaffolding, Data configuration, Release operations, IAM, MFA, Auth, Mail, Notification, Storage, and bundled skills. |
+| [`@seliseblocks/cli-os`](https://www.npmjs.com/package/@seliseblocks/cli-os) | [`blocks-cli`](blocks-cli/README.md) | Terminal/admin/AI control plane for auth, projects, scaffolding, Data configuration, Release operations, IAM, MFA, Auth, Mail, Notification, and Storage. |
 | [`@seliseblocks/client`](https://www.npmjs.com/package/@seliseblocks/client) | [`blocks-client`](blocks-client/README.md) | Framework-neutral TypeScript SDK for frontend/runtime access to Auth, IAM, Data, Localization, Mail, MFA, and Notifier APIs. |
 
 ## Repository Structure
 
 ```text
 .
-|-- blocks-cli/          # @seliseblocks/cli-os source, README, AI usage guide, tests
-|-- blocks-client/       # @seliseblocks/client source, README, AI usage guide, tests
-|-- blocks-skills/       # Bundled AI workflow skills copied into the CLI package build
-|-- docs/                # Cross-package documentation, including the AI start guide
+|-- blocks-cli/          # @seliseblocks/cli-os source, README, agent guide, tests
+|-- blocks-client/       # @seliseblocks/client source, README, agent guide, tests
+|-- blocks-skills/       # AI workflow skills (repo-only; not shipped in either package)
+|-- docs/                # Cross-package documentation, including the AI routing guide
 |-- AGENTS.md            # Repository instructions for AI coding agents
 |-- CONTRIBUTING.md      # Contribution workflow
 |-- CODE_OF_CONDUCT.md   # Community standards
@@ -83,6 +83,18 @@ Use these package-specific guides for exact contracts:
 
 - [`blocks-cli/AGENT_GUIDE.md`](blocks-cli/AGENT_GUIDE.md)
 - [`blocks-client/AGENT_GUIDE.md`](blocks-client/AGENT_GUIDE.md)
+
+### Skills
+
+The task-level workflow skills live in [`blocks-skills/`](blocks-skills/) in this
+repository. They are **not** part of either npm package — copy the ones you want
+into your agent's own skills directory from here.
+
+Each skill is self-contained by design: it assumes only the installed `blocks`
+CLI and a project-local `@seliseblocks/client`, and never links to a sibling
+skill or to this repository's layout, so copying a single `SKILL.md` (plus its
+`flows/` folder, if it has one) is enough. `blocks-skills/lint.mjs` enforces
+that, and runs as part of `npm test`.
 
 ## Development
 

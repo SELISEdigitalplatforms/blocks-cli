@@ -1,6 +1,81 @@
+/**
+ * Field names that carry a credential in a Blocks request body.
+ *
+ * Every `--dry-run` that prints a request body must pass it through
+ * `redactSecrets` before `writeOutput`. A dry-run is the step a human or agent
+ * reads before approving the real mutation, so it is exactly the output most
+ * likely to end up in a terminal scrollback, a chat transcript, or a CI log.
+ * `scripts/lint-cli-contracts.mjs` fails the build when a command builds a
+ * secret-bearing body and prints it unredacted, so this is enforced rather
+ * than remembered.
+ *
+ * Deliberately excludes `secretKey`, which means two different things in two
+ * places: in `secrets save` it is the secret's NAME (the dry-run has to show
+ * which secret is being written), while in `storage config save` it is the
+ * credential itself. Commands that mean the credential pass the name
+ * explicitly via `extraNames`.
+ */
+export const SECRET_FIELD_NAMES: readonly string[] = [
+  "accesskey",
+  "accesskeyid",
+  "accountpassword",
+  "apikey",
+  "clientsecret",
+  "connectionstring",
+  "password",
+  "privatekey",
+  "refreshtoken",
+  "sastoken",
+  "secret",
+  "secretaccesskey"
+];
+
+/**
+ * Recursively replaces every credential-bearing field with `***`, matching
+ * field names case-insensitively at any depth. Non-secret fields keep their
+ * original value and type, so a dry-run still shows the shape and the
+ * non-sensitive values that were actually going to be sent.
+ */
+export function redactSecrets<T>(value: T, extraNames: readonly string[] = []): T {
+  return redactFields(value, [...SECRET_FIELD_NAMES, ...extraNames]);
+}
+
 export function redactFields<T>(value: T, names: readonly string[]): T {
   const secretNames = new Set(names.map((name) => name.toLowerCase()));
   return redact(value, secretNames) as T;
+}
+
+/**
+ * Redacts a flat map whose KEYS are caller-supplied rather than known ahead of
+ * time -- `secrets save --key-value-pairs` takes a provider-shaped object, so
+ * there is no fixed field list to match against and the key name is the only
+ * signal available.
+ */
+export function redactSecretMap(map: Record<string, unknown>): Record<string, unknown> {
+  const redacted: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(map)) {
+    redacted[key] = /(secret|password|token|credential|key$)/i.test(key) ? "***" : value;
+  }
+  return redacted;
+}
+
+/**
+ * Strips the query string from a URL for display. A pre-signed storage upload
+ * URL carries its own time-limited write credential in the query (an Azure SAS
+ * token, an S3 `X-Amz-Signature`), so printing one verbatim leaks a usable
+ * credential even though no Blocks token is involved. Keeps origin and path so
+ * the output still identifies where the upload is going.
+ */
+export function redactUrlSecrets(value: string): string {
+  try {
+    const url = new URL(value);
+    if (!url.search && !url.hash) return url.toString();
+    return `${url.origin}${url.pathname}?***`;
+  } catch {
+    // Not a parseable URL -- it was never a usable credential, but it also
+    // cannot be safely trimmed, so say nothing about its contents.
+    return "***";
+  }
 }
 
 function redact(value: unknown, secretNames: ReadonlySet<string>): unknown {

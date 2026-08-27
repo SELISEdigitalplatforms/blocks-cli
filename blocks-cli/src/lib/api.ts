@@ -1,5 +1,6 @@
 import { getAccountSession, getImpersonatedProjectSession } from "./auth.js";
 import { readConfig, resolveAccountProfile } from "./config.js";
+import { redactSecrets } from "./redact.js";
 
 type RequestOptions = {
   acceptFailureEnvelope?: boolean;
@@ -22,6 +23,7 @@ export async function blocksRequest<T>(path: string, options: RequestOptions = {
   const config = await readConfig();
   const { name: accountName, profile } = await resolveAccountProfile(config, options.accountName);
   const baseUrl = options.apiUrl ?? profile.apiUrl;
+  warnOnRedirectedApiUrl(profile.apiUrl, options.apiUrl);
   const url = buildUrl(baseUrl, path);
 
   for (const [key, value] of Object.entries(options.query ?? {})) {
@@ -118,24 +120,77 @@ export async function blocksRequest<T>(path: string, options: RequestOptions = {
 }
 
 function buildUrl(baseUrl: string, path: string): URL {
-  if (/^https?:\/\//i.test(path)) return new URL(path);
   const normalizedBase = baseUrl.endsWith("/") ? baseUrl : `${baseUrl}/`;
+
+  if (/^https?:\/\//i.test(path)) {
+    // Every caller passes a literal Blocks path today, and this branch exists
+    // only so a fully-qualified API URL also works. Pinning it to the resolved
+    // base origin keeps it that way: `blocksRequest` attaches the account or
+    // project bearer token plus x-blocks-key, so a path that ever came from a
+    // server response could otherwise hand a live session to another host.
+    const target = new URL(path);
+    const base = new URL(normalizedBase);
+    if (target.origin !== base.origin) {
+      throw new Error(
+        `Refusing to send Blocks credentials to ${target.origin}: it is not the resolved API origin (${base.origin}).`
+      );
+    }
+
+    return target;
+  }
+
   const normalizedPath = path.replace(/^\/+/, "");
   return new URL(normalizedPath, normalizedBase);
 }
 
+const warnedApiOrigins = new Set<string>();
+
+/**
+ * Says out loud when `--api-url` points somewhere other than the account's
+ * configured API. The override is a deliberate feature (local gateways, staging
+ * environments), but the request still carries this account's bearer token, so a
+ * command copied from somewhere with a host swapped in would hand a live session
+ * to that host without any visible sign. One line per distinct origin.
+ */
+function warnOnRedirectedApiUrl(profileApiUrl: string, override?: string): void {
+  if (!override) return;
+
+  try {
+    const target = new URL(override);
+    const configured = new URL(profileApiUrl);
+    if (target.origin === configured.origin || warnedApiOrigins.has(target.origin)) return;
+
+    warnedApiOrigins.add(target.origin);
+    console.error(
+      `Warning: --api-url sends this account's token to ${target.origin} instead of ${configured.origin}.`
+    );
+  } catch {
+    // An unparseable override fails later on its own, with a better message.
+  }
+}
+
+const MAX_ERROR_DETAIL = 800;
+
 function errorDetail(data: unknown): string {
   if (!data) return "";
-  if (typeof data === "string") return `: ${data}`;
+  if (typeof data === "string") return `: ${truncate(data)}`;
   if (typeof data !== "object") return `: ${String(data)}`;
 
   const record = data as Record<string, unknown>;
   for (const key of ["detail", "message", "error_description", "error", "title"]) {
     const value = record[key];
-    if (typeof value === "string" && value) return `: ${value}`;
+    if (typeof value === "string" && value) return `: ${truncate(value)}`;
   }
 
-  return `: ${JSON.stringify(data)}`;
+  // Last-resort dump of an error envelope with no recognized message field.
+  // Some services echo the submitted request back inside the error, so this
+  // runs through the same redaction the dry-run output uses -- an error message
+  // is printed to stderr and pasted into issues just as readily as a dry-run.
+  return `: ${truncate(JSON.stringify(redactSecrets(data)))}`;
+}
+
+function truncate(value: string): string {
+  return value.length > MAX_ERROR_DETAIL ? `${value.slice(0, MAX_ERROR_DETAIL)}... (truncated)` : value;
 }
 
 function looksLikeHtml(text: string): boolean {

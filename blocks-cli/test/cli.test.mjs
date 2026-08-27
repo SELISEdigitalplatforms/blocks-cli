@@ -476,6 +476,24 @@ test("scaffolded web app depends on @seliseblocks/client and has no custom Block
   assert.doesNotMatch(combined, /oidc\/authorize/, "generated hosted login must not manually build the OIDC authorize URL");
   assert.doesNotMatch(combined, /createPkcePair|code_verifier|code_challenge/, "generated hosted login must rely on IAM IdP initiate instead of local PKCE construction");
   assert.doesNotMatch(combined, /VITE_BLOCKS_OIDC_CLIENT_SECRET/, "generated source must not reference a client secret env var");
+  assert.doesNotMatch(
+    combined,
+    /sessionStorage\.setItem\(REFRESH_TOKEN_KEY/,
+    "the refresh token must stay in memory; anything in web storage is readable by an XSS payload"
+  );
+  assert.doesNotMatch(
+    combined,
+    /localStorage\.setItem\((?:TOKEN_KEY|REFRESH_TOKEN_KEY)/,
+    "tokens must never reach localStorage"
+  );
+
+  const clientPackage = resolve(import.meta.dirname, "..", "..", "blocks-client", "package.json");
+  const clientVersion = JSON.parse(await readFile(clientPackage, "utf8")).version;
+  assert.equal(
+    pkg.dependencies["@seliseblocks/client"],
+    `^${clientVersion}`,
+    "the scaffold SDK pin must track the client package it ships beside, or new apps freeze on an old minor"
+  );
 
   const envExample = await readFile(join(appDir, ".env.example"), "utf8");
   const envFile = await readFile(join(appDir, ".env"), "utf8");
@@ -2958,6 +2976,179 @@ test("projects create reports restoration failure without retrying a successful 
     assert.match(result.stderr, /was created, but project session 'project-tenant' could not be restored/);
   } finally {
     await new Promise((resolveClose) => server.close(resolveClose));
+  }
+});
+
+test("a command flag the command never reads is reported instead of silently dropped", async () => {
+  const { cwd, configDir } = await makeWorkspace();
+  const env = testEnv(configDir, { BLOCKS_SECRET_STORE: "file" });
+
+  // --hostt is a typo for --host. It used to vanish: the dry-run looked clean,
+  // the field was simply absent, and the mutation went out missing a value
+  // after a human approved what they saw.
+  const warned = run([
+    "mail:config:save", "--name", "primary", "--hostt", "smtp.example.test", "--dry-run", "--json"
+  ], { cwd, env });
+
+  assert.equal(warned.status, 0, warned.stderr);
+  assert.match(warned.stderr, /--hostt is not a flag 'blocks mail config save' reads/);
+  assert.match(warned.stderr, /blocks help mail config save/);
+  // The warning goes to stderr so a --json document stays parseable.
+  assert.equal(JSON.parse(warned.stdout).request.host, undefined);
+
+  const strict = run([
+    "mail:config:save", "--name", "primary", "--hostt", "smtp.example.test", "--dry-run", "--json"
+  ], { cwd, env: { ...env, BLOCKS_STRICT_FLAGS: "1" } });
+
+  assert.equal(strict.status, 1);
+  assert.equal(JSON.parse(strict.stdout || strict.stderr).code, "unknown_flag");
+
+  // A real flag, and every global, must stay silent.
+  const quiet = run([
+    "mail:config:save", "--name", "primary", "--host", "smtp.example.test", "--port", "587",
+    "--dry-run", "--json", "--account", "studio", "--project", "tenant-1"
+  ], { cwd, env });
+  assert.doesNotMatch(quiet.stderr, /is not a flag/);
+});
+
+test("every catalog command accepts its own documented flags without warning", async () => {
+  const { commandCatalog } = await import("../dist/lib/command-catalog.js");
+  const { unknownFlags } = await import("../dist/lib/help.js");
+
+  // Guards the derivation itself: if a command reads a flag in a way the
+  // catalog generator cannot see, the CLI would warn on correct usage.
+  const globals = ["--json", "--dry-run", "--yes", "--account", "--project", "--api-url"];
+  for (const entry of commandCatalog) {
+    const argv = [...entry.flags.map((flag) => `--${flag}`), ...globals];
+    assert.deepEqual(
+      unknownFlags(entry, argv),
+      [],
+      `blocks ${entry.name} would warn about its own flags`
+    );
+  }
+
+  assert.ok(commandCatalog.length > 0);
+});
+
+test("a command's own --help prints help instead of running the command", async () => {
+  const { cwd, configDir } = await makeWorkspace();
+  const env = testEnv(configDir, { BLOCKS_SECRET_STORE: "file" });
+
+  // 'login --help' used to perform an actual login: most handlers treat --help
+  // as an ordinary argument. This workspace has no auth state, so a handler
+  // that actually ran would fail rather than print usage.
+  for (const args of [["login", "--help"], ["data", "schema", "list", "--help"], ["iam", "users", "list", "-h"]]) {
+    const label = args.join(" ");
+    const result = run(args, { cwd, env });
+    assert.equal(result.status, 0, `${label} -> ${result.stderr}`);
+    assert.match(result.stdout, /^blocks /, `${label} should print a usage line`);
+    assert.doesNotMatch(result.stdout, /isSuccess/, `${label} must not have reached the API`);
+  }
+
+  const asJson = run(["data", "schema", "list", "--help", "--json"], { cwd, env });
+  assert.equal(asJson.status, 0, asJson.stderr);
+  assert.equal(JSON.parse(asJson.stdout).name, "data schema list");
+});
+
+test("iam users list treats a bare --sort-desc as a descending sort", async () => {
+  const { cwd, configDir } = await makeWorkspace();
+  await writeProjectAuth(configDir);
+  const env = testEnv(configDir, { BLOCKS_SECRET_STORE: "file" });
+  const requests = [];
+  const server = await startJsonServer((_request, body) => {
+    requests.push(body);
+    return { data: [], totalCount: 0 };
+  });
+
+  try {
+    // Bare --sort-desc parses to boolean true; reading it as a string silently
+    // meant "not descending", so the documented spelling did nothing at all.
+    for (const args of [["--sort-desc"], ["--sort-desc", "true"], []]) {
+      const result = await runAsync(
+        ["iam:users:list", ...args, "--json", "--api-url", server.url],
+        { cwd, env }
+      );
+      assert.equal(result.status, 0, result.stderr);
+    }
+  } finally {
+    await new Promise((resolveClose) => server.close(resolveClose));
+  }
+
+  assert.equal(requests.length, 3);
+  assert.equal(requests[0].sort.isDescending, true, "bare --sort-desc must mean descending");
+  assert.equal(requests[1].sort.isDescending, true, "--sort-desc true must mean descending");
+  assert.equal(requests[2].sort.isDescending, false, "omitting the flag must not sort descending");
+});
+
+test("a pre-signed upload URL is not reprinted in dry-run output", async () => {
+  const { cwd, configDir } = await makeWorkspace();
+  const env = testEnv(configDir, { BLOCKS_SECRET_STORE: "file" });
+  await writeFile(join(cwd, "payload.bin"), "x");
+
+  // The URL's query string IS the credential (an Azure SAS token, an S3
+  // X-Amz-Signature), and a dry-run is the output most likely to reach a log.
+  const signed = "https://storage.example/container/blob?sig=SECRET-SIGNATURE&se=2030-01-01";
+  const result = run([
+    "data:files:upload-to-url", "--url", signed, "--file", "payload.bin",
+    "--content-type", "application/octet-stream", "--dry-run", "--json"
+  ], { cwd, env });
+
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(JSON.parse(result.stdout).url, "https://storage.example/container/blob?***");
+  assert.doesNotMatch(result.stdout, /SECRET-SIGNATURE/);
+});
+
+test("secret-bearing dry-runs all route through the shared redaction helper", async () => {
+  const { cwd, configDir } = await makeWorkspace();
+  const env = testEnv(configDir, { BLOCKS_SECRET_STORE: "file" });
+
+  const cases = [
+    {
+      args: ["data:config:create", "--name", "primary", "--connection-string", "Server=db;Password=leak-me", "--dry-run", "--json"],
+      redacted: (request) => request.connectionString,
+      leak: /leak-me/
+    },
+    {
+      args: [
+        "storage:config:save", "--name", "primary",
+        "--body", JSON.stringify({ accessKey: "leak-access", secretKey: "leak-secret" }),
+        "--dry-run", "--json"
+      ],
+      redacted: (request) => request.secretKey,
+      leak: /leak-access|leak-secret/
+    },
+    {
+      args: [
+        "secrets:save", "--secret-key", "visible-name",
+        "--key-value-pairs", JSON.stringify({ clientSecret: "leak-me", region: "eu-central-1" }),
+        "--dry-run", "--json"
+      ],
+      redacted: (request) => request.keyValuePairs.clientSecret,
+      leak: /leak-me/,
+      stillReadable: (request) => {
+        // The secret's NAME has to stay visible or the dry-run cannot be reviewed.
+        assert.equal(request.secretKey, "visible-name");
+        assert.equal(request.keyValuePairs.region, "eu-central-1");
+      }
+    },
+    {
+      args: [
+        "auth:client-credentials:save", "--name", "svc",
+        "--body", JSON.stringify({ clientSecret: "leak-me" }),
+        "--dry-run", "--json"
+      ],
+      redacted: (request) => request.clientSecret,
+      leak: /leak-me/
+    }
+  ];
+
+  for (const { args, redacted, leak, stillReadable } of cases) {
+    const result = run(args, { cwd, env });
+    assert.equal(result.status, 0, `${args[0]}: ${result.stderr}`);
+    const { request } = JSON.parse(result.stdout);
+    assert.equal(redacted(request), "***", `${args[0]} should redact its credential`);
+    assert.doesNotMatch(result.stdout, leak, `${args[0]} leaked a secret into dry-run output`);
+    if (stillReadable) stillReadable(request);
   }
 });
 

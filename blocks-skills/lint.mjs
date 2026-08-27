@@ -109,6 +109,35 @@ for (const [command, doc] of Object.entries(commandDocs)) {
   }
 }
 
+/**
+ * True when the sentence names the command whose docs it overlaps -- either
+ * spelled out (`blocks mail config save`), colon-style (`mail:config:save`),
+ * or as the trailing verb phrase a table row uses (`config save`).
+ */
+/**
+ * Prose length, with inline code spans dropped. A skill's command table puts
+ * the whole usage string in backticks next to its description, and counting
+ * those tokens would make every table row look long enough to be "adding
+ * material" -- which is exactly how a row that only restates the summary would
+ * escape the check.
+ */
+function wordCount(sentence) {
+  return normalizeSentence(sentence.replace(/`[^`]*`/g, " ")).split(" ").filter(Boolean).length;
+}
+
+function mentionsCommand(sentence, command) {
+  const words = command.split(" ");
+  const haystack = sentence.toLowerCase().replace(/:/g, " ").replace(/\s+/g, " ");
+  // A trailing fragment has to be at least two words for a multi-word command.
+  // Matching a lone verb made every sentence containing the word "save" look
+  // like it was about `mail template save`.
+  const shortest = words.length > 1 ? 2 : 1;
+  for (let start = 0; start <= words.length - shortest; start += 1) {
+    if (haystack.includes(words.slice(start).join(" "))) return true;
+  }
+  return false;
+}
+
 function checkDuplication(filePath) {
   if (referenceSentences.length === 0) return;
 
@@ -122,7 +151,21 @@ function checkDuplication(filePath) {
     let best = null;
     for (const ref of referenceSentences) {
       const ratio = overlapRatio(shingles, ref.shingles);
-      if (ratio >= OVERLAP_THRESHOLD && (!best || ratio > best.ratio)) best = { ...ref, ratio };
+      if (ratio < OVERLAP_THRESHOLD) continue;
+      // Containment is not duplication. The ratio divides by the SMALLER
+      // shingle set, so a short generic clause quoted inside a long sentence
+      // that goes on to add real guidance scores 100% -- flagging a row that
+      // states the command and then explains three things the docs don't.
+      // Only a sentence of comparable length is actually a restatement.
+      if (wordCount(sentence) > wordCount(ref.sentence) * 2) continue;
+      // Only a sentence that is about the same command counts as duplication.
+      // Without this, a generic phrase that legitimately recurs -- "upsert:
+      // omit --item-id to create, pass it to update" is true of a dozen
+      // commands -- matched whichever unrelated command's docs happened to
+      // word it the same way, and the report told a maintainer to trim useful
+      // local guidance that duplicated nothing.
+      if (!mentionsCommand(sentence, ref.command)) continue;
+      if (!best || ratio > best.ratio) best = { ...ref, ratio };
     }
 
     if (best) {

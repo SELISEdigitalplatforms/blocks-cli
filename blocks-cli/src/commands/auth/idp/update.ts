@@ -3,7 +3,7 @@ import { blocksRequest } from "../../../lib/api.js";
 import { confirmMutation } from "../../../lib/confirm.js";
 import { compact, jsonBodyFlag, listFlag } from "../../../lib/json-flag.js";
 import { writeOutput } from "../../../lib/output.js";
-import { redactFields } from "../../../lib/redact.js";
+import { redactSecrets } from "../../../lib/redact.js";
 import { requestContext } from "../../../lib/request-context.js";
 import { parseCommand, selectedProject } from "../../../lib/workspace.js";
 
@@ -51,7 +51,7 @@ export async function authIdpUpdate(argv: string[]): Promise<void> {
   };
 
   if (booleanFlag(flags, "dry-run")) {
-    writeOutput({ dryRun: true, endpoint: `/iam/v4/auth/identity-providers/${id}`, request: redactFields(body, ["clientSecret", "privateKey"]) }, flags);
+    writeOutput({ dryRun: true, endpoint: `/iam/v4/auth/identity-providers/${encodeURIComponent(id)}`, request: redactSecrets(body) }, flags);
     return;
   }
 

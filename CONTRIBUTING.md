@@ -22,7 +22,7 @@ Do not open a public issue for a suspected vulnerability. Follow the private dis
 
 - `blocks-cli/`: `@seliseblocks/cli-os`, the terminal/admin/AI control plane package.
 - `blocks-client/`: `@seliseblocks/client`, the framework-neutral frontend TypeScript SDK package.
-- `blocks-skills/`: bundled AI workflow skills for agents building on Blocks.
+- `blocks-skills/`: AI workflow skills for agents building on Blocks. Repo-only — not shipped in either npm package; consumers copy the skills they want from here.
 - `docs/AI_ROUTING_GUIDE.md`: first-stop routing guide for AI agents entering the Blocks workflow.
 
 ## Running the checks
@@ -77,7 +77,28 @@ On Windows PowerShell, use `npm.cmd` if script execution policy blocks `npm`.
 
 ## Package publishing checks
 
-Before publishing either package, run the package-local test and pack dry run:
+**Bump the version first.** npm rejects a republish of a version that already
+exists, so a package whose `version` is unchanged since its last publish cannot
+be published at all — and the failure comes at the end, after the build. Check
+what is actually on the registry rather than trusting the working tree:
+
+```bash
+npm view @seliseblocks/cli-os version
+npm view @seliseblocks/client version
+```
+
+If either matches the local `package.json`, bump it before going further. Use
+semver against the published version, not the previous commit: a new command or
+a removed scaffold feature is a minor, a behavior fix is a patch, and a removed
+or renamed export is a major. Record the change in the package's `CHANGELOG.md`
+in the same commit.
+
+Two versions are coupled: the scaffold in
+`blocks-cli/src/lib/scaffold-web/root-files.ts` pins `@seliseblocks/client`, and
+a test asserts that pin matches `blocks-client/package.json`'s version. Bumping
+the client means updating that pin, or the suite fails.
+
+Then run the package-local test and pack dry run:
 
 ```bash
 cd blocks-cli
@@ -89,7 +110,12 @@ npm test
 npm pack --dry-run
 ```
 
-Review the dry-run file list before publishing. The public package must not include secrets, local auth state, unpublished credentials, or generated files outside the package's intended `files` list.
+Review the dry-run file list before publishing. The CLI tarball should contain
+`bin/`, `dist/`, and the four root files; the client tarball `dist/` and the
+four root files. `blocks-skills/` is deliberately not packaged.
+
+The public package must not include secrets, local auth state, unpublished
+credentials, or generated files outside the package's intended `files` list.
 
 ## AI workflow docs
 
@@ -103,7 +129,7 @@ Do not inspect or expose local CLI storage files. Use `blocks doctor --json`, `b
 
 ## Backward compatibility
 
-The CLI, SDK, and bundled skill workflows are consumed by external users and AI agents. When changing public behavior:
+The CLI, SDK, and skill workflows are consumed by external users and AI agents. When changing public behavior:
 
 - Keep existing exported SDK names working where practical and mark renamed exports with `@deprecated`.
 - Keep CLI command aliases, flags, JSON shapes, and documented failure codes stable unless a breaking change is intentional and documented.

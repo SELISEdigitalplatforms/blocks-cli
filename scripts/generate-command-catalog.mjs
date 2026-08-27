@@ -20,6 +20,12 @@ const check = process.argv.includes("--check");
 const GLOBAL_FLAGS = new Set(["json", "api-url", "account", "project", "dry-run", "yes"]);
 const FLAG_READERS =
   /(?:stringFlag|booleanFlag|listFlag|integerFlag|optionalIntegerFlag|optionalBooleanFlag|jsonFlag)\s*\(\s*flags\s*,\s*"([^"]+)"/g;
+// A handful of commands read a flag straight off the parsed map instead of
+// through a helper (`flags["no-blob-type-header"] === true`). Those are real
+// flags, so they belong in the catalog too -- and since `blocks` now warns
+// about flags the catalog doesn't know, missing one here would warn on valid
+// usage.
+const FLAG_INDEX_READERS = /\bflags\s*\[\s*"([a-z0-9-]+)"\s*\]/g;
 
 const indexSource = readFileSync(join(cliSrc, "index.ts"), "utf8");
 
@@ -92,6 +98,7 @@ function analyze(file, handler, seen = new Set()) {
 
   const text = node.getText();
   for (const match of text.matchAll(FLAG_READERS)) flags.add(match[1]);
+  for (const match of text.matchAll(FLAG_INDEX_READERS)) flags.add(match[1]);
   if (/jsonBodyFlag/.test(text)) {
     flags.add("body");
     flags.add("file");

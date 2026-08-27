@@ -88,7 +88,7 @@ Reads — no confirmation needed:
 
 | Command | What it does |
 |---|---|
-| `blocks iam users list [--page 1] [--page-size 20] [--email <e>] [--name <n>] [--organization-id <id>] [--sort-by <field>] [--sort-desc] [--filter '<json>'] [--json]` | Paged/filtered user query. `--filter` merges a raw JSON object over the convenience flags. |
+| `blocks iam users list [--page 1] [--page-size 20] [--email <e>] [--name <n>] [--organization-id <id>] [--sort-by <field>] [--sort-desc] [--body '<json>'] [--json]` | Paged/filtered user query. There is no `--filter` flag: for any filter beyond the convenience flags, pass `--body '{"filter":{...}}'` — the convenience flags are merged over it. |
 | `blocks iam users get <id> [--organization-id <id>] [--json]` | One user record, optionally scoped to an org. |
 | `blocks iam users exists <email> [--json]` | Existence check by email. |
 | `blocks iam email available <email> [--json]` | Duplicate-email check. |

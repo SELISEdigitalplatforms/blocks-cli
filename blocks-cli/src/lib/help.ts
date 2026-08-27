@@ -10,8 +10,47 @@ const SCOPE_NOTE: Record<CommandEntry["scope"], string> = {
   "project-or-account": "Prefers the impersonated project token when a project resolves, otherwise the account token."
 };
 
+/**
+ * Flags every command accepts. `parseFlags` has no schema, so anything not
+ * listed here or in a command's own catalog entry is a flag the command will
+ * never read.
+ */
+const GLOBAL_FLAG_NAMES = new Set(["json", "api-url", "account", "project", "dry-run", "yes", "help", "h"]);
+
 export function findCommand(name: string): CommandEntry | undefined {
   return commandCatalog.find((entry) => entry.name === name);
+}
+
+/**
+ * Flags passed to a command that the command does not read.
+ *
+ * `parseFlags` collects any `--token` it sees, and each command then picks out
+ * only the names it knows, so a typo (`--hostt` for `--host`) used to vanish
+ * without a trace: the dry-run looked clean, the field was simply absent, and
+ * the mutation went out missing a value after a human approved what they saw.
+ * The catalog's flag list is derived from each command's own source, so it is
+ * the authoritative answer to "would this command ever read that flag".
+ */
+export function unknownFlags(entry: CommandEntry, argv: readonly string[]): string[] {
+  const known = new Set([...entry.flags, ...GLOBAL_FLAG_NAMES]);
+  const unknown: string[] = [];
+
+  for (const token of argv) {
+    if (!token.startsWith("--") || token === "--") continue;
+    const name = token.slice(2).split("=", 1)[0];
+    if (!name || known.has(name) || unknown.includes(name)) continue;
+    unknown.push(name);
+  }
+
+  return unknown;
+}
+
+export function unknownFlagMessage(entry: CommandEntry, unknown: string[]): string {
+  const listed = unknown.map((name) => `--${name}`).join(", ");
+  const plural = unknown.length === 1 ? "flag" : "flags";
+  return `${listed} ${unknown.length === 1 ? "is not a" : "are not"} ${plural} `
+    + `'blocks ${entry.name}' reads, so ${unknown.length === 1 ? "its value is" : "their values are"} ignored. `
+    + `Run 'blocks help ${entry.name}' for the flags it accepts.`;
 }
 
 export function findFamily(name: string): CommandEntry[] {

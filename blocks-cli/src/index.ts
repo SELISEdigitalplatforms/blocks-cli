@@ -208,8 +208,17 @@ import { storageConfigDelete } from "./commands/storage/config/delete.js";
 import { storageConfigGet } from "./commands/storage/config/get.js";
 import { storageConfigList } from "./commands/storage/config/list.js";
 import { storageConfigSave } from "./commands/storage/config/save.js";
+import type { CommandEntry } from "./lib/command-catalog.js";
 import { CliActionableError } from "./lib/errors.js";
-import { renderCommand, renderFamily, renderIndex, resolveHelpTarget } from "./lib/help.js";
+import {
+  findCommand,
+  renderCommand,
+  renderFamily,
+  renderIndex,
+  resolveHelpTarget,
+  unknownFlagMessage,
+  unknownFlags
+} from "./lib/help.js";
 
 type CommandHandler = (args: string[]) => Promise<void>;
 
@@ -430,7 +439,7 @@ const commands: Partial<Record<string, CommandHandler>> = {
 
 const MAX_COMMAND_WORDS = 4;
 
-function resolveCommand(argv: string[]): { handler: CommandHandler; args: string[] } | null {
+function resolveCommand(argv: string[]): { args: string[]; handler: CommandHandler; name: string } | null {
   const words: string[] = [];
   let tokensConsumed = 0;
 
@@ -441,7 +450,7 @@ function resolveCommand(argv: string[]): { handler: CommandHandler; args: string
     tokensConsumed++;
 
     const handler = commands[words.join(":")];
-    if (handler) return { handler, args: argv.slice(tokensConsumed) };
+    if (handler) return { args: argv.slice(tokensConsumed), handler, name: words.join(" ") };
     if (words.length >= MAX_COMMAND_WORDS) break;
   }
 
@@ -483,7 +492,18 @@ try {
     if (!resolved) {
       throw new Error(`Unknown command: ${[command, subcommand].filter(Boolean).join(" ")}`);
     }
-    await resolved.handler(resolved.args);
+
+    const entry = findCommand(resolved.name);
+    if (entry && (resolved.args.includes("--help") || resolved.args.includes("-h"))) {
+      // '<command> --help' used to fall through to the handler, which treats
+      // --help as an ordinary argument and runs for real -- 'login --help'
+      // performed an actual login. Route it to the same renderer
+      // 'blocks help <command>' uses instead of ever reaching a handler.
+      console.log(renderCommand(entry, asJson));
+    } else {
+      if (entry) reportUnknownFlags(entry, resolved.args);
+      await resolved.handler(resolved.args);
+    }
   }
 } catch (error) {
   const cliError = toCliError(error);
@@ -494,6 +514,27 @@ try {
     if (cliError.nextStep) console.error(`Next: ${cliError.nextStep}`);
   }
   process.exitCode = 1;
+}
+
+/**
+ * Says something when a command was handed a flag it will never read.
+ *
+ * Warns rather than failing by default: the flag list is derived from source,
+ * and a false positive that refused a working command would be worse than the
+ * silence this replaces. Set BLOCKS_STRICT_FLAGS=1 (CI, scripted agent runs)
+ * to turn the warning into a hard failure before anything is sent.
+ */
+function reportUnknownFlags(entry: CommandEntry, args: string[]): void {
+  const unknown = unknownFlags(entry, args);
+  if (unknown.length === 0) return;
+
+  const message = unknownFlagMessage(entry, unknown);
+  if (process.env.BLOCKS_STRICT_FLAGS) {
+    throw new CliActionableError(message, "unknown_flag", `blocks help ${entry.name}`);
+  }
+
+  // stderr, so it stays out of a --json document being piped into a parser.
+  console.error(`Warning: ${message}`);
 }
 
 async function printVersion(): Promise<void> {

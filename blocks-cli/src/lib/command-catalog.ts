@@ -31,7 +31,8 @@ export const commandCatalog: readonly CommandEntry[] = [
   {
     "name": "auth client-credentials list",
     "family": "auth",
-    "summary": "clientSecret is included in list responses; treat CLI output as sensitive.",
+    "summary": "List this project's machine-to-machine client credentials.",
+    "details": "clientSecret is included in list responses; treat CLI output as sensitive.",
     "scope": "project",
     "mutating": false,
     "flags": []
@@ -87,8 +88,8 @@ export const commandCatalog: readonly CommandEntry[] = [
   {
     "name": "auth idp create",
     "family": "auth",
-    "summary": "--client-id <id> [--client-secret] [--display-name] [--issuer] Apple-specific fields (teamId, keyId, privateKey, appleAudience) go in...",
-    "details": "--client-id <id> [--client-secret] [--display-name] [--issuer] Apple-specific fields (teamId, keyId, privateKey, appleAudience) go in --body/--file so no private key lands in shell history. IAM's create endpoint stores issuer/jwksUri/wellKnownUrl but drops authorizationUrl/tokenUrl/userInfoUrl -- set those with 'idp update' afterward.",
+    "summary": "Register an identity provider so end users can sign in through it.",
+    "details": "Apple-specific fields (teamId, keyId, privateKey, appleAudience) go in --body/--file so no private key lands in shell history. IAM's create endpoint stores issuer/jwksUri/wellKnownUrl but drops authorizationUrl/tokenUrl/userInfoUrl -- set those with 'auth idp update' afterward.",
     "scope": "project",
     "mutating": true,
     "flags": [
@@ -343,8 +344,9 @@ export const commandCatalog: readonly CommandEntry[] = [
   {
     "name": "data files access-grant",
     "family": "data",
-    "summary": "--principal-type User|Role|Everyone|Organization",
+    "summary": "Grant a principal access to a file or directory.",
     "positional": "<resourceId>",
+    "details": "--principal-type is one of User, Role, Everyone, or Organization.",
     "scope": "project",
     "mutating": true,
     "flags": [
@@ -777,14 +779,15 @@ export const commandCatalog: readonly CommandEntry[] = [
   {
     "name": "data files upload-to-url",
     "family": "data",
-    "summary": "--content-type <type> [--blob-type BlockBlob] [--no-blob-type-header] Step 2.",
-    "details": "Provider-direct PUT - no Blocks auth headers by design.",
+    "summary": "PUT a local file straight to a pre-signed storage URL (upload step 2).",
+    "details": "Follows 'data files presigned-upload-url'. Provider-direct PUT - no x-blocks-key and no bearer token, by design. Adds 'x-ms-blob-type: BlockBlob' for Azure; pass --blob-type to change it or --no-blob-type-header to omit it for other providers. The URL's query string is itself a write credential, so dry-run output shows the origin and path only.",
     "scope": "local",
     "mutating": true,
     "flags": [
       "blob-type",
       "content-type",
       "file",
+      "no-blob-type-header",
       "url"
     ]
   },
@@ -1073,8 +1076,8 @@ export const commandCatalog: readonly CommandEntry[] = [
   {
     "name": "data validation save",
     "family": "data",
-    "summary": "--body '<json>' (must include a \"validations\" array, e.g.",
-    "details": "'{\"validations\":[{\"type\":1,\"value\":\"^[0-9]+$\",\"isActive\":true}]}') Upsert: omit --item-id to create, pass it to update.",
+    "summary": "Create or update the field-level validation rules on a schema field.",
+    "details": "Upsert: omit --item-id to create, pass it to update. --body must include a \"validations\" array, e.g. '{\"validations\":[{\"type\":1,\"value\":\"^[0-9]+$\",\"isActive\":true}]}'.",
     "scope": "project",
     "mutating": true,
     "flags": [
@@ -1231,8 +1234,8 @@ export const commandCatalog: readonly CommandEntry[] = [
   {
     "name": "iam permissions by-severity",
     "family": "iam",
-    "summary": "--type is IAM's ResourceType: 0 None, 1 Endpoint, 2 FrontendAction, 3 DataProtection.",
-    "details": "--severity is PermissionSeverity, ordered most-severe-first, not least: 0 None, 1 Critical, 2 High, 3 Medium, 4 Low.",
+    "summary": "List permissions filtered by severity and resource type.",
+    "details": "--severity is PermissionSeverity, ordered most-severe-first, not least: 0 None, 1 Critical, 2 High, 3 Medium, 4 Low. --type is IAM's ResourceType: 0 None, 1 Endpoint, 2 FrontendAction, 3 DataProtection.",
     "scope": "project",
     "mutating": false,
     "flags": []
@@ -1547,8 +1550,8 @@ export const commandCatalog: readonly CommandEntry[] = [
   {
     "name": "iam users list",
     "family": "iam",
-    "summary": "Query users.",
-    "details": "--filter merges a raw JSON filter object over the convenience flags.",
+    "summary": "Query users with paging, sorting, and filters.",
+    "details": "Convenience filters are --email/--name/--organization-id. For any other filter, pass a raw JSON object in --body/--file with a \"filter\" key, e.g. --body '{\"filter\":{\"isActive\":true}}'; the convenience flags are merged over it.",
     "scope": "project",
     "mutating": false,
     "flags": [
@@ -1593,7 +1596,8 @@ export const commandCatalog: readonly CommandEntry[] = [
   {
     "name": "localization assistant translation-suggestion",
     "family": "localization",
-    "summary": "--destination-language <culture> [--current-language]",
+    "summary": "Ask the localization assistant to suggest a translation for one string.",
+    "details": "--source-text is required. --glossary-ids constrains the suggestion to agreed terminology; --temperature and --max-character-length tune the output.",
     "scope": "project",
     "mutating": false,
     "flags": [
@@ -1623,7 +1627,8 @@ export const commandCatalog: readonly CommandEntry[] = [
   {
     "name": "localization config save-webhook",
     "family": "localization",
-    "summary": "--secret <s> --header-key <k> [--item-id <id>] [--is-disabled]",
+    "summary": "Create or update the webhook the Localization service calls on changes.",
+    "details": "Upsert: omit --item-id to create, pass it to update. --secret and --header-key sign the callback so the receiver can verify it; both are redacted from dry-run output.",
     "scope": "project",
     "mutating": true,
     "flags": [
@@ -1973,7 +1978,8 @@ export const commandCatalog: readonly CommandEntry[] = [
   {
     "name": "localization key uilm-export",
     "family": "localization",
-    "summary": "--output-type: 0 Json (default), 1 Xml, 2 Text, 3 Xlsx, 4 Csv, 5 Xlf.",
+    "summary": "Export translation keys as a downloadable UILM file.",
+    "details": "--output-type selects the format: 0 Json (default), 1 Xml, 2 Text, 3 Xlsx, 4 Csv, 5 Xlf.",
     "scope": "project",
     "mutating": true,
     "flags": [
@@ -2195,7 +2201,8 @@ export const commandCatalog: readonly CommandEntry[] = [
   {
     "name": "mail config save",
     "family": "mail",
-    "summary": "Upsert: omit --configuration-id to create; pass it to update.",
+    "summary": "Create or update an SMTP / inbound mail server configuration.",
+    "details": "Upsert: omit --configuration-id to create; pass it to update. --provider and --port are raw integers. --account-password is redacted from dry-run output, but the live response and the stored value are still sensitive.",
     "scope": "project",
     "mutating": true,
     "flags": [
@@ -2346,7 +2353,8 @@ export const commandCatalog: readonly CommandEntry[] = [
   {
     "name": "mail template save",
     "family": "mail",
-    "summary": "Upsert: omit --item-id to create; pass it to update.",
+    "summary": "Create or update a mail template for one language.",
+    "details": "Upsert: omit --item-id to create; pass it to update.",
     "scope": "project",
     "mutating": true,
     "flags": [

@@ -1,4 +1,4 @@
-import type { RequiredConfig } from "../client.js";
+import type { BlocksResolvedConfig } from "../client.js";
 import type {
   BlocksAuthJsonOptions,
   BlocksAuthLoginRequest,
@@ -18,6 +18,7 @@ import type {
 } from "./types.js";
 
 export type {
+  BlocksAuthJsonOptions,
   BlocksAuthLoginRequest,
   BlocksAuthPassThroughResponse,
   BlocksAuthResponse,
@@ -36,7 +37,7 @@ export type {
 
 export class BlocksAuthenticationClient {
   constructor(
-    private readonly clientConfig: RequiredConfig,
+    private readonly clientConfig: BlocksResolvedConfig,
     private readonly fetchImpl: typeof fetch = globalThis.fetch?.bind(globalThis)
   ) {
     if (!this.fetchImpl) throw new Error("Blocks client requires fetch.");
@@ -490,7 +491,7 @@ export class BlocksAuthenticationClient {
     });
   }
 
-  private get oidcDefaults(): Required<NonNullable<RequiredConfig["oidc"]>> {
+  private get oidcDefaults(): Required<NonNullable<BlocksResolvedConfig["oidc"]>> {
     if (!this.clientConfig.oidc) throw new Error("Blocks OIDC config is required.");
     return this.clientConfig.oidc;
   }

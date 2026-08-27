@@ -3,6 +3,8 @@ name: blocks-mail
 description: "Send transactional email via the SDK's `blocksClient.mail.send()`/`sendToAny()`, or administer mail via the project-scoped `blocks mail config|template|mailbox *` CLI — server config, template CRUD/clone, mailbox reads, none of which have an SDK equivalent. CLI also exposes `mail send`/`sendtoany` as an admin/terminal mirror of the SDK calls. CLI mutations require `--dry-run` before `--yes`. Use for app email sending, or managing SMTP/inbound providers, templates, mailbox history."
 ---
 
+When invoking a project-scoped `blocks` command, either use the resolved account's saved selection or pass `--project <tenantId>` for that one command without changing saved state. `--project` applies to CLI commands only, never SDK calls.
+
 # Blocks Mail
 
 For CLI work, use blocks-bootstrap first when account or project context is
@@ -44,7 +46,7 @@ Everything under `mail config`, `mail template`, and `mail mailbox` is project-s
 
 - **`blocks mail config list [--json]`** — read-only.
 - **`blocks mail config get <name> [--json]`** — read-only (positional arg, or `--name`).
-- **`blocks mail config save [--configuration-id <id>] [--name <n>] [--host <h>] [--port <p>] [--enable-ssl] [--inbound] [--provider <n>] [--sender-name <n>] [--sender-address <addr>] [--sender-username <u>] [--account-password <p>] [--body '<json>'|--file <path>] [--dry-run] [--yes] [--json]`** — upsert: omit `--configuration-id` to create, pass it to update. `--provider` and `--port` are raw integers (the CLI doesn't document the provider enum's meaning — don't guess a value). `--account-password` is redacted (`***`) in `--dry-run` output only; the live response and stored value are still sensitive.
+- **`blocks mail config save [--configuration-id <id>] [--name <n>] [--host <h>] [--port <p>] [--enable-ssl] [--inbound] [--provider <n>] [--sender-name <n>] [--sender-address <addr>] [--sender-username <u>] [--account-password <p>] [--body '<json>'|--file <path>] [--dry-run] [--yes] [--json]`** — the create-or-update call for a mail server, so omitting `--configuration-id` is what makes it a new one. `--provider` and `--port` are raw integers (the CLI doesn't document the provider enum's meaning — don't guess a value). `--account-password` is redacted (`***`) in `--dry-run` output only; the live response and stored value are still sensitive.
 - **`blocks mail config delete <configurationId> [--dry-run] [--yes] [--json]`**
 - **`blocks mail config duplicate <configurationId> [--dry-run] [--yes] [--json]`**
 
@@ -52,7 +54,7 @@ Everything under `mail config`, `mail template`, and `mail mailbox` is project-s
 
 - **`blocks mail template list [--configuration-id <id>] [--language <l>] [--search <q>] [--sort-by <field>] [--sort-desc] [--page-number 1] [--page-size 20] [--json]`** — read-only.
 - **`blocks mail template get <itemId> [--json]`** — read-only.
-- **`blocks mail template save [--item-id <id>] [--name <n>] [--configuration-id <id>] [--language <l>] [--subject <s>] [--template-body <html>] [--json-content <json>] [--image-id <id>] [--image-url <url>] [--body '<json>'|--file <path>] [--dry-run] [--yes] [--json]`** — upsert: omit `--item-id` to create, pass it to update.
+- **`blocks mail template save [--item-id <id>] [--name <n>] [--configuration-id <id>] [--language <l>] [--subject <s>] [--template-body <html>] [--json-content <json>] [--image-id <id>] [--image-url <url>] [--body '<json>'|--file <path>] [--dry-run] [--yes] [--json]`** — one template per language, so a multi-language template means one `save` per `--language`. Omitting `--item-id` creates rather than updates.
 - **`blocks mail template delete <itemId> [--dry-run] [--yes] [--json]`**
 - **`blocks mail template clone <itemId> [--name <n>] [--configuration-id <id>] [--language <l>] [--subject <s>] [--dry-run] [--yes] [--json]`**
 

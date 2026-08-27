@@ -173,50 +173,73 @@ function normalizeSecretStore(store?: Partial<BlocksSecretStore>): BlocksSecretS
 async function resolveBackend(): Promise<SecretBackend> {
   if (process.env.BLOCKS_SECRET_STORE === "file") return "file";
   if (platform() === "win32") return "windows-dpapi";
-  if (platform() === "darwin") return "macos-keychain";
-  if (platform() === "linux" && await commandAvailable("secret-tool")) return "linux-secret-service";
+  // Probed rather than assumed, the same way secret-tool is on Linux: on a
+  // machine where `security` is missing or blocked by policy, claiming the
+  // keychain backend would make every login throw instead of falling through
+  // to the documented 0600-file tier.
+  if (platform() === "darwin" && await commandAvailable("security", ["help"])) return "macos-keychain";
+  if (platform() === "linux" && await commandAvailable("secret-tool", ["--help"])) return "linux-secret-service";
   return "file";
 }
 
-async function commandAvailable(command: string): Promise<boolean> {
+async function commandAvailable(command: string, args: string[]): Promise<boolean> {
   try {
-    await execFileAsync(command, ["--help"]);
+    await execFileAsync(command, args);
     return true;
   } catch {
     return false;
   }
 }
 
+/**
+ * The plaintext reaches PowerShell on stdin rather than through an environment
+ * variable. A process's environment block is readable by other processes running
+ * as the same user, which is the same boundary DPAPI itself protects, so this is
+ * hardening rather than a fix -- but stdin is never exposed that way and costs
+ * nothing here.
+ */
 async function protectWindowsSecret(secret: string): Promise<string> {
-  const { stdout } = await execFileAsync("powershell.exe", [
+  return await spawnWithInputCapturingStdout("powershell.exe", [
     "-NoProfile",
     "-NonInteractive",
     "-Command",
-    "$secure = ConvertTo-SecureString $env:BLOCKS_SECRET_INPUT -AsPlainText -Force; $secure | ConvertFrom-SecureString"
-  ], {
-    env: { ...process.env, BLOCKS_SECRET_INPUT: secret }
-  });
-  return stdout.trim();
+    "$plain = [Console]::In.ReadToEnd(); $secure = ConvertTo-SecureString $plain -AsPlainText -Force; $secure | ConvertFrom-SecureString"
+  ], secret);
 }
 
 async function unprotectWindowsSecret(secret: string): Promise<string | undefined> {
   try {
-    const { stdout } = await execFileAsync("powershell.exe", [
+    const stdout = await spawnWithInputCapturingStdout("powershell.exe", [
       "-NoProfile",
       "-NonInteractive",
       "-Command",
-      "$secure = ConvertTo-SecureString $env:BLOCKS_SECRET_INPUT; $bstr = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($secure); try { [Runtime.InteropServices.Marshal]::PtrToStringBSTR($bstr) } finally { if ($bstr -ne [IntPtr]::Zero) { [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($bstr) } }"
-    ], {
-      env: { ...process.env, BLOCKS_SECRET_INPUT: secret }
-    });
-    return stdout.trim() || undefined;
+      "$blob = [Console]::In.ReadToEnd().Trim(); $secure = ConvertTo-SecureString $blob; $bstr = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($secure); try { [Runtime.InteropServices.Marshal]::PtrToStringBSTR($bstr) } finally { if ($bstr -ne [IntPtr]::Zero) { [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($bstr) } }"
+    ], secret);
+    return stdout || undefined;
   } catch {
     return undefined;
   }
 }
 
+/**
+ * Writes through stdin, not argv. `security add-generic-password -w <secret>`
+ * puts the credential in the process's argument list, where any process running
+ * as the same user can read it out of `ps` for as long as the call lasts -- and
+ * argv is easier to read than the environment block. Passing `-w` with no value
+ * makes `security` read the password from stdin instead, which is how the Linux
+ * `secret-tool` path already works.
+ *
+ * Falls back to the argv form if the stdin form fails, so a `security` build
+ * that insists on a terminal for the prompt still stores the secret rather than
+ * failing the login outright.
+ */
 async function setMacSecret(account: string, secret: string): Promise<void> {
-  await execFileAsync("security", ["add-generic-password", "-a", nativeSecretAccount(account), "-s", SERVICE, "-w", secret, "-U"]);
+  const args = ["add-generic-password", "-a", nativeSecretAccount(account), "-s", SERVICE, "-U", "-w"];
+  try {
+    await spawnWithInput("security", args, secret);
+  } catch {
+    await execFileAsync("security", [...args, secret]);
+  }
 }
 
 async function getMacSecret(account: string): Promise<string | undefined> {
@@ -258,6 +281,35 @@ function nativeSecretAccount(account: string): string {
 
   const namespace = createHash("sha256").update(resolve(override)).digest("hex").slice(0, 16);
   return `${namespace}:${account}`;
+}
+
+/** `spawnWithInput`, but resolves the child's trimmed stdout. */
+function spawnWithInputCapturingStdout(command: string, args: string[], inputText: string): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const child = spawn(command, args, { stdio: ["pipe", "pipe", "pipe"] });
+    let stdout = "";
+    let stderr = "";
+
+    child.stdout.setEncoding("utf8");
+    child.stdout.on("data", (chunk: string) => {
+      stdout += chunk;
+    });
+    child.stderr.setEncoding("utf8");
+    child.stderr.on("data", (chunk: string) => {
+      stderr += chunk;
+    });
+    child.on("error", reject);
+    child.on("close", (code) => {
+      if (code === 0) {
+        resolve(stdout.trim());
+        return;
+      }
+
+      reject(new Error(stderr.trim() || `${command} exited with code ${code}`));
+    });
+
+    child.stdin.end(inputText);
+  });
 }
 
 function spawnWithInput(command: string, args: string[], inputText: string): Promise<void> {

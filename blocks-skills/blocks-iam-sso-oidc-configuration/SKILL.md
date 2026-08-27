@@ -3,6 +3,8 @@ name: blocks-iam-sso-oidc-configuration
 description: "Enable/configure SSO for a Blocks project — register an OIDC client and identity provider so end users can log into the app via hosted login. Use for 'enable SSO', 'set up an OIDC identity provider', 'configure single sign-on', 'add a login provider'. CLI-driven by default (`blocks auth oidc-clients *` / `auth idp *`, project-scoped, --dry-run→--yes), not portal-only — the portal remains a valid alternative, especially for federated external providers (Google/Azure/Okta). Don't confuse with `blocks login` (the CLI's own login — see blocks-bootstrap)."
 ---
 
+When invoking a project-scoped `blocks` command, either use the resolved account's saved selection or pass `--project <tenantId>` for that one command without changing saved state. `--project` applies to CLI commands only, never SDK calls.
+
 # Blocks IAM — SSO / OIDC Configuration
 
 Setting up SSO for a Blocks project means provisioning two related tenant records: an **OIDC client** (the app-facing public client used for hosted login) and an **identity provider** (the record the hosted-login redirect/callback flow actually authenticates against). Both are exposed by real, implemented `blocks` CLI commands — this is not a portal-only action.

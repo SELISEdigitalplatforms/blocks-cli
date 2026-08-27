@@ -90,7 +90,7 @@ Self-service enrollment, challenge, and recovery for the calling (impersonated) 
 | `blocks mfa totp setup [--json]` | Starts TOTP enrollment; prints IAM's secret/QR payload. |
 | `blocks mfa totp verify-setup <code> [--json]` | Confirms TOTP enrollment with the 6-digit code. |
 | `blocks mfa totp enable --mfa-type <n> [--code <c>] [--dry-run] [--yes] [--json]` | Composed enrollment — see below. |
-| `blocks mfa generate --mfa-type <n> [--send-phone-number-as-email-domain <domain>] [--json]` | Sends an OTP challenge; returns an `mfaId` to pass to `resend`/`verify`. |
+| `blocks mfa generate --mfa-type <n> [--send-phone-number-as-email-domain <domain>] [--json]` | Starts an OTP challenge. Keep the returned `mfaId` — `resend` and `verify` both need it, and there is no way to look it up afterward. |
 | `blocks mfa resend <mfaId> [--send-phone-number-as-email-domain <domain>] [--json]` | Re-sends a pending OTP. |
 | `blocks mfa verify <mfaId> <code> --auth-type <n> [--from-token-call] [--json]` | Confirms an OTP/step-up challenge. |
 | `blocks mfa method set --mfa-type <n> [--dry-run] [--yes] [--json]` | Switches the impersonated user's active method. Only `1`/`2` switch — the CLI warns and IAM **disables MFA** for any other value. Guarded by dry-run/confirmation and also accepts the value positionally. |

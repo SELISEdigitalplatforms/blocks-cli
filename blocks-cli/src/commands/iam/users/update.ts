@@ -22,7 +22,7 @@ export async function iamUsersUpdate(argv: string[]): Promise<void> {
   };
 
   if (booleanFlag(flags, "dry-run")) {
-    writeOutput({ dryRun: true, endpoint: `/iam/v4/iam/users/${id}`, request: body }, flags);
+    writeOutput({ dryRun: true, endpoint: `/iam/v4/iam/users/${encodeURIComponent(id)}`, request: body }, flags);
     return;
   }
 

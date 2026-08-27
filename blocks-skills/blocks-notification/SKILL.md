@@ -3,6 +3,8 @@ name: blocks-notification
 description: "Manage SELISE Blocks notification-channel configuration via `blocks notification *` — no SDK path exists (`@seliseblocks/client` has no `notification` namespace, only the unrelated real-time `notifier` surface). Covers `notification list`/`get` (read configs) and `notification save`/`delete` (project-scoped mutations, impersonated-project-token only). Use for 'list/get notification configs', 'save/update a channel', 'delete a config'. Always `--dry-run` before `--yes` on save/delete."
 ---
 
+When invoking a project-scoped `blocks` command, either use the resolved account's saved selection or pass `--project <tenantId>` for that one command without changing saved state. `--project` applies to CLI commands only, never SDK calls.
+
 # Blocks Notification — Channel Configuration
 
 Manage notification-channel configuration through `blocks notification *`. This is **100% CLI, no SDK equivalent** — `@seliseblocks/client` has no `notification` namespace at all. It does have a `notifier` namespace (backing `blocks notifier *`), but that's a **different, unrelated surface**: `notifier` pushes real-time/offline notifications and reads a user's own inbox; `notification` (this skill) manages the tenant's notification *channel configuration* — which channel/method a notification type uses, not sending one. Never write a frontend/app-code path for channel configuration — it's always this CLI.

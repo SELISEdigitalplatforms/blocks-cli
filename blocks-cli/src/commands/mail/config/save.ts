@@ -2,6 +2,7 @@ import { booleanFlag, optionalBooleanFlag, optionalIntegerFlag, stringFlag } fro
 import { blocksRequest } from "../../../lib/api.js";
 import { confirmMutation } from "../../../lib/confirm.js";
 import { compact, jsonBodyFlag } from "../../../lib/json-flag.js";
+import { redactSecrets } from "../../../lib/redact.js";
 import { writeOutput } from "../../../lib/output.js";
 import { requestContext } from "../../../lib/request-context.js";
 import { parseCommand, selectedProject } from "../../../lib/workspace.js";
@@ -26,7 +27,7 @@ export async function mailConfigSave(argv: string[]): Promise<void> {
   };
 
   if (booleanFlag(flags, "dry-run")) {
-    writeOutput({ dryRun: true, endpoint: "/os/v4/Mail/Save", request: redactSecret(body) }, flags);
+    writeOutput({ dryRun: true, endpoint: "/os/v4/Mail/Save", request: redactSecrets(body) }, flags);
     return;
   }
 
@@ -39,9 +40,4 @@ export async function mailConfigSave(argv: string[]): Promise<void> {
     projectTenantId: projectKey
   });
   writeOutput(result, flags);
-}
-
-function redactSecret(body: Record<string, unknown>): Record<string, unknown> {
-  if (!body.accountPassword) return body;
-  return { ...body, accountPassword: "***" };
 }

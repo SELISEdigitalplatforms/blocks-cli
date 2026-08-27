@@ -10,7 +10,7 @@ export async function authOidcClientsDelete(argv: string[]): Promise<void> {
   const clientId = args[0] || stringFlag(flags, "client-id", { required: true });
 
   if (booleanFlag(flags, "dry-run")) {
-    writeOutput({ dryRun: true, endpoint: `/iam/v4/oidc-clients/${clientId}` }, flags);
+    writeOutput({ dryRun: true, endpoint: `/iam/v4/oidc-clients/${encodeURIComponent(clientId)}` }, flags);
     return;
   }
 

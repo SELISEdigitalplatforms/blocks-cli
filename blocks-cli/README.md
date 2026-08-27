@@ -116,7 +116,23 @@ cannot drift from behavior — read it from the CLI instead of a static table:
 blocks --help --json           # every command name, grouped by family
 blocks help <family> [--json]  # one family, with summaries (e.g. 'blocks help data')
 blocks help <command> [--json] # one command: usage, flags, scope, mutation
+blocks <command> --help        # same as 'blocks help <command>'
 ```
+
+### Unknown flags
+
+Flags are matched by name, so a misspelled one used to be dropped in silence —
+`--hostt` for `--host` produced a clean-looking dry-run with the field simply
+missing. The CLI now names any flag the command will not read:
+
+```text
+Warning: --hostt is not a flag 'blocks mail config save' reads, so its value is
+ignored. Run 'blocks help mail config save' for the flags it accepts.
+```
+
+The warning goes to stderr, so `--json` output stays parseable. Set
+`BLOCKS_STRICT_FLAGS=1` to turn it into a hard failure instead — worth doing in
+CI and in scripted agent runs, where nothing is watching stderr.
 
 Use `--json` on commands when AI or automation needs machine-readable output. Use `--dry-run` before mutations and `--yes` only after approval.
 

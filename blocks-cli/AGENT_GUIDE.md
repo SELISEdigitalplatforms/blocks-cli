@@ -42,7 +42,19 @@ blocks help <family> [--json]           # one family, with summaries (e.g. 'bloc
 blocks help <command> [--json]          # one command: usage, flags, scope, mutation (~0.8 KB)
 ```
 
-`blocks help <command>` is the only safe way to inspect a single command. **Do not use `<command> --help`** - most subcommands don't treat `--help` as special and just run their real logic with it as an ordinary argument (`login --help` performs an actual login attempt). The `help` command never reaches a handler, so it cannot do that.
+`<command> --help` and `-h` are safe too: both are intercepted before dispatch
+and render the same thing `blocks help <command>` does, so no handler ever sees
+them. (They were not always — `--help` used to reach the handler as an ordinary
+argument, and `login --help` performed a real login attempt. Any older guidance
+warning you off that spelling is describing a CLI before 0.3.0.)
+
+**A flag the command does not read is now reported, not ignored.** A misspelled
+flag prints a warning to stderr naming it, and the command still runs with that
+value dropped. Treat that warning as a failure: re-read `blocks help <command>`,
+fix the spelling, and re-run before approving any mutation, because the dry-run
+you just showed the user was missing a field. In non-interactive runs set
+`BLOCKS_STRICT_FLAGS=1` so the CLI exits 1 with `code: "unknown_flag"` instead of
+warning past it.
 
 Every field it reports is derived from the command's own source, not from prose, so `flags`, `scope`, and `mutating` cannot drift from behavior. `blocks --help` (no subcommand) remains the human-readable overview.
 

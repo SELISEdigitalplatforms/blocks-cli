@@ -3,6 +3,7 @@ import { blocksRequest } from "../../../lib/api.js";
 import { confirmMutation } from "../../../lib/confirm.js";
 import { compact, jsonBodyFlag } from "../../../lib/json-flag.js";
 import { writeOutput } from "../../../lib/output.js";
+import { redactSecrets } from "../../../lib/redact.js";
 import { requestContext } from "../../../lib/request-context.js";
 import { parseCommand, selectedProject } from "../../../lib/workspace.js";
 
@@ -19,7 +20,7 @@ export async function dataConfigCreate(argv: string[]): Promise<void> {
   if (!body.connectionString) throw new Error("Provide --connection-string (or set it in --body/--file).");
 
   if (booleanFlag(flags, "dry-run")) {
-    writeOutput({ dryRun: true, endpoint: "/data/v4/configurations", request: redactSecret(body) }, flags);
+    writeOutput({ dryRun: true, endpoint: "/data/v4/configurations", request: redactSecrets(body) }, flags);
     return;
   }
 
@@ -33,9 +34,4 @@ export async function dataConfigCreate(argv: string[]): Promise<void> {
     projectTenantId: projectKey
   });
   writeOutput(result, flags);
-}
-
-function redactSecret(body: Record<string, unknown>): Record<string, unknown> {
-  if (!body.connectionString) return body;
-  return { ...body, connectionString: "***" };
 }

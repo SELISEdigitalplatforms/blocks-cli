@@ -53,8 +53,8 @@
     "details": "The server resolves this to the root identity either way, so the impersonated project session works too."
   },
   "iam users list": {
-    "summary": "Query users.",
-    "details": "--filter merges a raw JSON filter object over the convenience flags."
+    "summary": "Query users with paging, sorting, and filters.",
+    "details": "Convenience filters are --email/--name/--organization-id. For any other filter, pass a raw JSON object in --body/--file with a \"filter\" key, e.g. --body '{\"filter\":{\"isActive\":true}}'; the convenience flags are merged over it."
   },
   "iam users get": {
     "summary": "Read one IAM user by id.",
@@ -132,8 +132,8 @@
     "positional": "<id> [same flags as create, plus"
   },
   "iam permissions by-severity": {
-    "summary": "--type is IAM's ResourceType: 0 None, 1 Endpoint, 2 FrontendAction, 3 DataProtection.",
-    "details": "--severity is PermissionSeverity, ordered most-severe-first, not least: 0 None, 1 Critical, 2 High, 3 Medium, 4 Low."
+    "summary": "List permissions filtered by severity and resource type.",
+    "details": "--severity is PermissionSeverity, ordered most-severe-first, not least: 0 None, 1 Critical, 2 High, 3 Medium, 4 Low. --type is IAM's ResourceType: 0 None, 1 Endpoint, 2 FrontendAction, 3 DataProtection."
   },
   "iam resources groups": {
     "summary": "List IAM resource groups.",
@@ -233,7 +233,8 @@
     "positional": "<name>"
   },
   "mail config save": {
-    "summary": "Upsert: omit --configuration-id to create; pass it to update."
+    "summary": "Create or update an SMTP / inbound mail server configuration.",
+    "details": "Upsert: omit --configuration-id to create; pass it to update. --provider and --port are raw integers. --account-password is redacted from dry-run output, but the live response and the stored value are still sensitive."
   },
   "mail config delete": {
     "summary": "Delete a mail configuration.",
@@ -251,7 +252,8 @@
     "positional": "<itemId>"
   },
   "mail template save": {
-    "summary": "Upsert: omit --item-id to create; pass it to update."
+    "summary": "Create or update a mail template for one language.",
+    "details": "Upsert: omit --item-id to create; pass it to update."
   },
   "mail template delete": {
     "summary": "Delete a mail template.",
@@ -342,8 +344,8 @@
     "positional": "<id>"
   },
   "auth idp create": {
-    "summary": "--client-id <id> [--client-secret] [--display-name] [--issuer] Apple-specific fields (teamId, keyId, privateKey, appleAudience) go in...",
-    "details": "--client-id <id> [--client-secret] [--display-name] [--issuer] Apple-specific fields (teamId, keyId, privateKey, appleAudience) go in --body/--file so no private key lands in shell history. IAM's create endpoint stores issuer/jwksUri/wellKnownUrl but drops authorizationUrl/tokenUrl/userInfoUrl -- set those with 'idp update' afterward."
+    "summary": "Register an identity provider so end users can sign in through it.",
+    "details": "Apple-specific fields (teamId, keyId, privateKey, appleAudience) go in --body/--file so no private key lands in shell history. IAM's create endpoint stores issuer/jwksUri/wellKnownUrl but drops authorizationUrl/tokenUrl/userInfoUrl -- set those with 'auth idp update' afterward."
   },
   "auth idp update": {
     "summary": "provider/providerType/protocol/clientId are immutable: omit them, or echo the existing values exactly if you also pass --body/--file.",
@@ -366,7 +368,8 @@
     "details": "Fetches and merges current values first. Enabling OIDC requires accountActionBaseUrl."
   },
   "auth client-credentials list": {
-    "summary": "clientSecret is included in list responses; treat CLI output as sensitive."
+    "summary": "List this project's machine-to-machine client credentials.",
+    "details": "clientSecret is included in list responses; treat CLI output as sensitive."
   },
   "auth client-credentials save": {
     "summary": "Omit --item-id to create; pass it to update.",
@@ -497,8 +500,8 @@
     "positional": "<schemaId> <fieldName>"
   },
   "data validation save": {
-    "summary": "--body '<json>' (must include a \"validations\" array, e.g.",
-    "details": "'{\"validations\":[{\"type\":1,\"value\":\"^[0-9]+$\",\"isActive\":true}]}') Upsert: omit --item-id to create, pass it to update."
+    "summary": "Create or update the field-level validation rules on a schema field.",
+    "details": "Upsert: omit --item-id to create, pass it to update. --body must include a \"validations\" array, e.g. '{\"validations\":[{\"type\":1,\"value\":\"^[0-9]+$\",\"isActive\":true}]}'."
   },
   "data validation delete": {
     "summary": "Delete a validation rule.",
@@ -523,8 +526,8 @@
     "summary": "Mutating cloud step 1: creates metadata/version and returns uploadUrl/fileId."
   },
   "data files upload-to-url": {
-    "summary": "--content-type <type> [--blob-type BlockBlob] [--no-blob-type-header] Step 2.",
-    "details": "Provider-direct PUT - no Blocks auth headers by design."
+    "summary": "PUT a local file straight to a pre-signed storage URL (upload step 2).",
+    "details": "Follows 'data files presigned-upload-url'. Provider-direct PUT - no x-blocks-key and no bearer token, by design. Adds 'x-ms-blob-type: BlockBlob' for Azure; pass --blob-type to change it or --no-blob-type-header to omit it for other providers. The URL's query string is itself a write credential, so dry-run output shows the origin and path only."
   },
   "data files upload-to-local-storage": {
     "summary": "One-call alternative to the two commands above, for local-storage-backed projects."
@@ -609,8 +612,9 @@
     "positional": "<resourceId>"
   },
   "data files access-grant": {
-    "summary": "--principal-type User|Role|Everyone|Organization",
-    "positional": "<resourceId>"
+    "summary": "Grant a principal access to a file or directory.",
+    "positional": "<resourceId>",
+    "details": "--principal-type is one of User, Role, Everyone, or Organization."
   },
   "data files access-update": {
     "summary": "Update one access policy on a resource.",
@@ -640,13 +644,15 @@
     "summary": "Download published cloud localization via /localization/v4/Key/GetCloudUilmFile and write a local JSON dictionary."
   },
   "localization assistant translation-suggestion": {
-    "summary": "--destination-language <culture> [--current-language]"
+    "summary": "Ask the localization assistant to suggest a translation for one string.",
+    "details": "--source-text is required. --glossary-ids constrains the suggestion to agreed terminology; --temperature and --max-character-length tune the output."
   },
   "localization config get-webhook": {
     "summary": "Read the tenant's localization change webhook."
   },
   "localization config save-webhook": {
-    "summary": "--secret <s> --header-key <k> [--item-id <id>] [--is-disabled]"
+    "summary": "Create or update the webhook the Localization service calls on changes.",
+    "details": "Upsert: omit --item-id to create, pass it to update. --secret and --header-key sign the callback so the receiver can verify it; both are redacted from dry-run output."
   },
   "localization glossary save": {
     "summary": "Create or update a glossary term.",
@@ -728,7 +734,8 @@
     "positional": "<fileId>"
   },
   "localization key uilm-export": {
-    "summary": "--output-type: 0 Json (default), 1 Xml, 2 Text, 3 Xlsx, 4 Csv, 5 Xlf."
+    "summary": "Export translation keys as a downloadable UILM file.",
+    "details": "--output-type selects the format: 0 Json (default), 1 Xml, 2 Text, 3 Xlsx, 4 Csv, 5 Xlf."
   },
   "localization key get-uilm-exported-files": {
     "summary": "List previously exported UILM files."

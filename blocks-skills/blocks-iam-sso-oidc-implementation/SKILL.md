@@ -1,6 +1,6 @@
 ---
 name: blocks-iam-sso-oidc-implementation
-description: "Extend or debug the hosted SSO/OIDC login flow `blocks new web` scaffolds into every Blocks app: redirectToProvider → `/login/callback` → session, via the single `blocksClient`. Covers `AuthProvider` status/claims, `RequireAuth`/`RedirectIfAuthenticated` guards, and token refresh. Use for a login button, the OIDC callback, protected routes, a disabled login button, redirect loops, or a session that doesn't stick — on an app `blocks new web` already created. Requires a registered OIDC client (`blocks-iam-sso-oidc-configuration`) and HTTPS on the real domain for testing (`blocks-frontend-local-https`)."
+description: "Extend or debug the hosted SSO/OIDC login flow `blocks new web` scaffolds into every Blocks app: redirectToProvider → `/login/callback` → session, through the single `blocksClient`. Covers `AuthProvider` status/claims, `RequireAuth`/`RedirectIfAuthenticated` guards, and token refresh. Use for a login button, the OIDC callback, protected routes, redirect loops, or a session that doesn't stick. Needs a registered OIDC client and HTTPS on the real domain to test."
 ---
 
 When invoking a project-scoped `blocks` command, either use the resolved account's saved selection or pass `--project <tenantId>` for that one command without changing saved state. `--project` applies to CLI commands only, never SDK calls.

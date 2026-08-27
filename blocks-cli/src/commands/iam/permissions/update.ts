@@ -27,7 +27,7 @@ export async function iamPermissionsUpdate(argv: string[]): Promise<void> {
   };
 
   if (booleanFlag(flags, "dry-run")) {
-    writeOutput({ dryRun: true, endpoint: `/iam/v4/iam/permissions/${itemId}`, request: body }, flags);
+    writeOutput({ dryRun: true, endpoint: `/iam/v4/iam/permissions/${encodeURIComponent(itemId)}`, request: body }, flags);
     return;
   }
 

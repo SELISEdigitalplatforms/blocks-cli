@@ -7,6 +7,13 @@ const root = resolve(import.meta.dirname, "..");
 const commandsDir = join(root, "blocks-cli", "src", "commands");
 const errors = [];
 
+// Credential-bearing flag names. `url` is matched exactly, never as a suffix:
+// a bare `--url` is the pre-signed upload URL, whose query string is itself a
+// write credential, while `--website-url` / `--image-url` /
+// `--account-action-base-url` are ordinary public addresses that belong in a
+// dry-run verbatim.
+const SECRET_FLAG_PATTERN = /^(?:(?:.*-)?(?:secret|password|private-key|access-key|connection-string|key-value-pairs)|url)$/;
+
 for (const filePath of sourceFiles(commandsDir)) checkFile(filePath);
 
 if (errors.length > 0) {
@@ -55,8 +62,45 @@ function checkFile(filePath) {
     if (!ts.isCallExpression(node) || !ts.isIdentifier(node.expression)) return;
 
     if (node.expression.text === "blocksRequest") checkProjectRequest(source, filePath, node);
+    if (node.expression.text === "writeOutput") checkDryRunRedaction(source, filePath, node);
     if (commandImports.has(node.expression.text)) checkComposedCall(source, filePath, node, contextVariables);
   });
+}
+
+/**
+ * A `--dry-run` that prints a request body carrying a credential must run it
+ * through lib/redact.js first. Redaction used to be nine hand-rolled helpers,
+ * one per command, so a new secret-bearing command shipped unredacted by
+ * default and nothing noticed -- `data files upload-to-url` echoed a whole
+ * pre-signed URL, signature included. The shared helper covers the field names;
+ * this check covers remembering to call it.
+ */
+function checkDryRunRedaction(source, filePath, call) {
+  const printed = call.arguments[0];
+  if (!printed || !ts.isObjectLiteralExpression(printed)) return;
+
+  const isDryRun = printed.properties.some((property) => ts.isPropertyAssignment(property)
+    && propertyName(property.name) === "dryRun"
+    && property.initializer.kind === ts.SyntaxKind.TrueKeyword);
+  if (!isDryRun) return;
+
+  // Only commands that actually read a credential-shaped flag are in scope.
+  const fileText = source.getFullText();
+  const secretFlags = [...fileText.matchAll(/Flag\s*\(\s*flags\s*,\s*"([a-z0-9-]+)"/g)]
+    .map((match) => match[1])
+    .filter((flag) => SECRET_FLAG_PATTERN.test(flag));
+  if (secretFlags.length === 0) return;
+
+  const printedText = printed.getText();
+  if (/\bredact[A-Za-z]*\s*\(/.test(printedText)) return;
+
+  report(
+    source,
+    filePath,
+    call,
+    `this dry-run prints a body built from credential-shaped flag(s) (${secretFlags.map((f) => `--${f}`).join(", ")}) `
+    + "without redacting it -- wrap it in redactSecrets()/redactUrlSecrets() from lib/redact.js"
+  );
 }
 
 function checkProjectRequest(source, filePath, call) {

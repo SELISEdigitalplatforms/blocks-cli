@@ -3,6 +3,8 @@ name: blocks-notifier
 description: "Push real-time/offline notifications and manage a signed-in user's own notification inbox, via both the SDK (`blocksClient.notifier.*`) and the CLI (`blocks notifier notify|list|unread|mark-read|mark-all-read`). Distinct from the sibling blocks-notification skill, which configures tenant notification-*channel* settings on a different backing service, not sending. `notifier unread` flattens its subscription filter into GET query params since Fetch forbids a GET body. `--dry-run` before `--yes` on CLI `notify`/`mark-read`/`mark-all-read`."
 ---
 
+When invoking a project-scoped `blocks` command, either use the resolved account's saved selection or pass `--project <tenantId>` for that one command without changing saved state. `--project` applies to CLI commands only, never SDK calls.
+
 # Blocks Notifier — Send & Inbox
 
 `notifier` pushes real-time/offline notifications to users, roles, or subscription-filter matches, and reads/manages the signed-in user's own notification inbox. This is a **separate, deliberate concern from the blocks-notification skill**, which manages a tenant's notification-*channel configuration* — which channel/method a notification type uses — on an unrelated backing service. Both this skill and the sibling skill confirm the same distinction from their own side. Don't merge them, and don't reconcile them as if one were a typo for the other — they hit different backing services. If the ask is "configure which channel a notification type uses," route to the blocks-notification skill instead.

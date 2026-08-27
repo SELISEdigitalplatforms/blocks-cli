@@ -5,6 +5,7 @@ import { defaults } from "../../../lib/config.js";
 import { compact, jsonBodyFlag, listFlag } from "../../../lib/json-flag.js";
 import { withBlocksIdentityProviderDiscovery } from "../../../lib/oidc-discovery.js";
 import { writeOutput } from "../../../lib/output.js";
+import { redactSecrets } from "../../../lib/redact.js";
 import { requestContext } from "../../../lib/request-context.js";
 import { parseCommand, selectedProject } from "../../../lib/workspace.js";
 
@@ -60,7 +61,7 @@ export async function authOidcClientsSave(argv: string[]): Promise<void> {
   const body = withBlocksIdentityProviderDiscovery({ ...current, ...overrides }, oidcUrl, projectKey);
 
   if (booleanFlag(flags, "dry-run")) {
-    writeOutput({ dryRun: true, endpoint: "/iam/v4/oidc-clients", request: redactSecret(body) }, flags);
+    writeOutput({ dryRun: true, endpoint: "/iam/v4/oidc-clients", request: redactSecrets(body) }, flags);
     return;
   }
 
@@ -72,9 +73,4 @@ export async function authOidcClientsSave(argv: string[]): Promise<void> {
     projectTenantId: projectKey
   });
   writeOutput(result, flags);
-}
-
-function redactSecret(body: Record<string, unknown>): Record<string, unknown> {
-  if (!body.clientSecret) return body;
-  return { ...body, clientSecret: "***" };
 }
