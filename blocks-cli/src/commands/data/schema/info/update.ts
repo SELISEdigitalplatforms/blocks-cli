@@ -5,6 +5,7 @@ import { compact, jsonBodyFlag } from "../../../../lib/json-flag.js";
 import { writeOutput } from "../../../../lib/output.js";
 import { requestContext } from "../../../../lib/request-context.js";
 import { parseCommand, selectedProject } from "../../../../lib/workspace.js";
+import { withGatewayReload } from "../../../../lib/data-gateway.js";
 
 export async function dataSchemaInfoUpdate(argv: string[]): Promise<void> {
   const { flags } = parseCommand(argv);
@@ -34,5 +35,5 @@ export async function dataSchemaInfoUpdate(argv: string[]): Promise<void> {
     ...requestContext(flags),
     projectTenantId: projectKey
   });
-  writeOutput(result, flags);
+  writeOutput(await withGatewayReload(flags, projectKey, result), flags);
 }

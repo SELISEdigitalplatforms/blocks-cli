@@ -1,4 +1,4 @@
-# AI Usage Guide
+# Blocks Client Guide for AI Agents
 
 Use this file only for `@seliseblocks/client` app-code work. For full method details, read the source docstrings.
 
@@ -159,7 +159,7 @@ await blocks.auth.refresh({
 npm test
 npm run lint
 npm pack --dry-run
-rg -n "v4[/\\]api|iam[/\\]v4[/\\]api|data[/\\]v4[/\\]api|localization[/\\]v4[/\\]api" src README.md AI_USAGE_GUIDE.md test
+rg -n "v4[/\\]api|iam[/\\]v4[/\\]api|data[/\\]v4[/\\]api|localization[/\\]v4[/\\]api" src README.md AGENT_GUIDE.md test
 ```
 
 Only negative route-guard tests should match.

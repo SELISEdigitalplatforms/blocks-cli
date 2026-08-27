@@ -5,6 +5,7 @@ import { compact, jsonBodyFlag } from "../../../lib/json-flag.js";
 import { writeOutput } from "../../../lib/output.js";
 import { requestContext } from "../../../lib/request-context.js";
 import { parseCommand, selectedProject } from "../../../lib/workspace.js";
+import { withGatewayReload } from "../../../lib/data-gateway.js";
 
 /**
  * Upsert: omit --item-id to create, pass it to update. `validations` (an array of
@@ -42,5 +43,5 @@ export async function dataValidationSave(argv: string[]): Promise<void> {
     ...requestContext(flags),
     projectTenantId: projectKey
   });
-  writeOutput(result, flags);
+  writeOutput(await withGatewayReload(flags, projectKey, result), flags);
 }

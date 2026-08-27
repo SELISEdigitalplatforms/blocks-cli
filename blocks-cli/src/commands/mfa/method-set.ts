@@ -1,5 +1,6 @@
-import { optionalIntegerFlag } from "../../lib/args.js";
+import { booleanFlag, optionalIntegerFlag } from "../../lib/args.js";
 import { blocksRequest } from "../../lib/api.js";
+import { confirmMutation } from "../../lib/confirm.js";
 import { writeOutput } from "../../lib/output.js";
 import { requestContext } from "../../lib/request-context.js";
 import { parseCommand, selectedProject } from "../../lib/workspace.js";
@@ -22,6 +23,13 @@ export async function mfaMethodSet(argv: string[]): Promise<void> {
       `Warning: IAM only switches to 1 (TOTP) or 2 (Email). --mfa-type ${mfaType} disables MFA for this user instead -- use 'blocks mfa disable' if that is what you meant.`
     );
   }
+
+  if (booleanFlag(flags, "dry-run")) {
+    writeOutput({ dryRun: true, endpoint: "/iam/v4/mfa/method", request: { mfaType } }, flags);
+    return;
+  }
+
+  await confirmMutation(flags, `Set the signed-in user's active MFA method to ${mfaType}.`);
   const projectKey = await selectedProject(flags);
 
   const result = await blocksRequest<unknown>("/iam/v4/mfa/method", {

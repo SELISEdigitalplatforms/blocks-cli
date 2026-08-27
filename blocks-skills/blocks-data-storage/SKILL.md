@@ -3,6 +3,8 @@ name: blocks-data-storage
 description: "Build file and document-management features on SELISE Blocks Data: upload/download, directory trees, cursor-paginated browsing and search, file versions, rename/move/copy, soft delete/trash/restore, sharing, access policies, and inheritance. Use for attachments, file browsers, folders, shared files, permissions, or version history. Use 'blocks data files *' for terminal/admin work and @seliseblocks/client data.files/data.directories/data.objects for app code."
 ---
 
+When invoking a project-scoped `blocks` command, either use the resolved account's saved selection or pass `--project <tenantId>` for that one command without changing saved state. `--project` applies to CLI commands only, never SDK calls.
+
 # Blocks Data — Storage
 
 Treat storage as one permission-aware object tree containing **directories** and **files**. Uploading a new file now creates the file object in that tree; there is no second DMS registration step.
@@ -23,10 +25,13 @@ The current CLI and SDK follow the backend's file, directory, and object resourc
 
 ```bash
 blocks --version
-blocks data files --help
+blocks --help
 ```
 
-- Use `blocks data files *` for terminal/admin work and inspect `blocks --help` for exact flags.
+- Use `blocks data files *` for terminal/admin work and run
+  `blocks help data files <command> --json` for exact flags. Do not probe a
+  subcommand with `--help`; subcommands do not consistently treat it as help and
+  may execute real logic. The `help` command never reaches a handler.
 - Use `blocksClient.data.files` for bytes, metadata, versions, and file operations.
 - Use `blocksClient.data.directories` for directory create/get/update/delete/move.
 - Use `blocksClient.data.objects` for browse/search/trash/shared/restore/share/access/inheritance.

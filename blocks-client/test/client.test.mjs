@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { createBlocksClient } from "../dist/index.js";
+import { BlocksApiError, createBlocksClient } from "../dist/index.js";
 
 test("creates a framework-neutral client", async () => {
   const calls = [];
@@ -588,6 +588,77 @@ test("an onUnauthorized that dedupes itself resolves one refresh for concurrent 
 
   assert.equal(onUnauthorizedCalls, 1, "three concurrent 401s should resolve one refresh, not one each");
   assert.deepEqual(responses.map((r) => r.auth), ["Bearer fresh-token", "Bearer fresh-token", "Bearer fresh-token"]);
+});
+
+test("a non-2xx body that lies about being JSON still throws BlocksApiError, not a SyntaxError", async () => {
+  const blocks = createBlocksClient({
+    apiUrl: "https://api.seliseblocks.com",
+    // A proxy/WAF in front of the API answering with an HTML error page while
+    // still claiming application/json -- the status is what the caller needs.
+    fetch: async () => new Response("<html><body>502 Bad Gateway</body></html>", {
+      headers: { "content-type": "application/json" },
+      status: 502
+    }),
+    xBlocksKey: "tenant-1"
+  });
+
+  await assert.rejects(
+    () => blocks.iam.me(),
+    (error) => {
+      assert.equal(error instanceof BlocksApiError, true, "expected BlocksApiError, got " + error.name);
+      assert.equal(error.status, 502);
+      assert.match(String(error.body), /502 Bad Gateway/);
+      return true;
+    }
+  );
+});
+
+test("http.request refuses to send Blocks credentials to a foreign origin", async () => {
+  let called = 0;
+  const blocks = createBlocksClient({
+    accessToken: () => "user-token",
+    apiUrl: "https://api.seliseblocks.com",
+    fetch: async (url, init) => {
+      called += 1;
+      return jsonResponse({ url, headers: Object.fromEntries(init.headers ?? []) });
+    },
+    xBlocksKey: "tenant-1"
+  });
+
+  await assert.rejects(
+    () => blocks.http.request("https://evil.example/steal"),
+    /Refusing to send Blocks credentials to https:\/\/evil\.example/
+  );
+  assert.equal(called, 0, "the request must not be attempted at all");
+
+  // An absolute URL on the configured API is still a legitimate caller spelling.
+  const ok = await blocks.http.request("https://api.seliseblocks.com/iam/v4/iam/me");
+  assert.equal(ok.url, "https://api.seliseblocks.com/iam/v4/iam/me");
+  assert.equal(ok.headers.authorization, "Bearer user-token");
+
+  // external() is the sanctioned path for third-party URLs and sends no Blocks credentials.
+  const external = await blocks.http.external("https://storage.example/presigned");
+  assert.equal(external.url, "https://storage.example/presigned");
+  assert.equal(external.headers.authorization, undefined);
+  assert.equal(external.headers["x-blocks-key"], undefined);
+});
+
+test("blocks.config exposes settings but never the caller's token resolver", async () => {
+  const blocks = createBlocksClient({
+    accessToken: () => "user-token",
+    apiUrl: "https://api.seliseblocks.com/",
+    onUnauthorized: () => "fresh-token",
+    xBlocksKey: "tenant-1"
+  });
+
+  assert.equal(blocks.config.apiUrl, "https://api.seliseblocks.com");
+  assert.equal(blocks.config.xBlocksKey, "tenant-1");
+  assert.equal("accessToken" in blocks.config, false, "config must not carry the token resolver");
+  assert.equal("onUnauthorized" in blocks.config, false, "config must not carry the 401 hook");
+  assert.equal(JSON.stringify(blocks.config).includes("user-token"), false);
+
+  // The token stays reachable through the documented accessor.
+  assert.equal(await blocks.auth.accessToken(), "user-token");
 });
 
 function jsonResponse(body, status = 200) {

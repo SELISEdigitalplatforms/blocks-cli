@@ -2,6 +2,7 @@ import { booleanFlag, optionalBooleanFlag, optionalIntegerFlag, stringFlag } fro
 import { blocksRequest } from "../../../lib/api.js";
 import { confirmMutation } from "../../../lib/confirm.js";
 import { compact, jsonBodyFlag, listFlag } from "../../../lib/json-flag.js";
+import { redactSecrets } from "../../../lib/redact.js";
 import { writeOutput } from "../../../lib/output.js";
 import { requestContext } from "../../../lib/request-context.js";
 import { parseCommand, selectedProject } from "../../../lib/workspace.js";
@@ -23,7 +24,7 @@ export async function authClientCredentialsSave(argv: string[]): Promise<void> {
   if (!body.name && !body.itemId) throw new Error("Provide --name (create) or --item-id (update), or set them in --body/--file.");
 
   if (booleanFlag(flags, "dry-run")) {
-    writeOutput({ dryRun: true, endpoint: "/iam/v4/auth/client-credentials", request: redactSecret(body) }, flags);
+    writeOutput({ dryRun: true, endpoint: "/iam/v4/auth/client-credentials", request: redactSecrets(body) }, flags);
     return;
   }
 
@@ -36,9 +37,4 @@ export async function authClientCredentialsSave(argv: string[]): Promise<void> {
     projectTenantId: projectKey
   });
   writeOutput(result, flags);
-}
-
-function redactSecret(body: Record<string, unknown>): Record<string, unknown> {
-  if (!body.clientSecret) return body;
-  return { ...body, clientSecret: "***" };
 }

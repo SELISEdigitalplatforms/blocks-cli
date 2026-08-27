@@ -1,6 +1,8 @@
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { homedir, platform } from "node:os";
 import { dirname, join } from "node:path";
+import { CliActionableError } from "./errors.js";
+import { isInteractive, selectFromList } from "./prompt.js";
 
 export type AccountProfile = {
   apiUrl: string;
@@ -9,6 +11,7 @@ export type AccountProfile = {
   oidcUrl: string;
   osUrl: string;
   rootTenantId?: string;
+  selectedProject?: BlocksProjectSelection;
   scope: string;
   updatedAt: string;
 };
@@ -33,6 +36,7 @@ export type BlocksProjectSelection = {
 export type BlocksCliConfig = {
   activeAccount?: string;
   accounts: Record<string, AccountProfile>;
+  /** Accepted for metadata-only migration from the pre-account-scoped format. */
   selectedProject?: BlocksProjectSelection;
 };
 
@@ -103,12 +107,26 @@ export function normalizeAccountName(account?: string): string {
 }
 
 export function getActiveAccountName(config: BlocksCliConfig, override?: string): string {
-  const account = normalizeAccountName(override ?? config.activeAccount);
-  if (!config.accounts[account]) {
-    throw new Error("OIDC account is not configured.");
+  const requested = override?.trim();
+  if (requested) {
+    if (!config.accounts[requested]) {
+      throw new CliActionableError(
+        `Account '${requested}' is not configured in the current config store.`,
+        "account_not_configured",
+        `blocks login --account ${requested}`
+      );
+    }
+    return requested;
   }
 
-  return account;
+  const active = config.activeAccount?.trim();
+  if (active && config.accounts[active]) return active;
+
+  throw new CliActionableError(
+    "No active account is configured in the current config store.",
+    "account_not_selected",
+    "Pass --account <name> or run 'blocks login --account <name>'."
+  );
 }
 
 export function getAccountProfile(config: BlocksCliConfig, account?: string): { name: string; profile: AccountProfile } {
@@ -117,6 +135,40 @@ export function getAccountProfile(config: BlocksCliConfig, account?: string): { 
     name,
     profile: config.accounts[name]
   };
+}
+
+export async function resolveAccountProfile(
+  config: BlocksCliConfig,
+  override?: string,
+  options: { allowPrompt?: boolean } = {}
+): Promise<{ name: string; profile: AccountProfile }> {
+  try {
+    return getAccountProfile(config, override);
+  } catch (error) {
+    if (override?.trim() || options.allowPrompt === false || !isInteractive()) throw error;
+  }
+
+  const names = Object.keys(config.accounts);
+  if (names.length === 0) {
+    throw new CliActionableError(
+      "No accounts are configured in the current config store.",
+      "account_not_selected",
+      "Run 'blocks login --account <name>'."
+    );
+  }
+
+  const index = names.length === 1
+    ? 0
+    : await selectFromList("Choose an account for this config store:", names);
+  const name = names[index];
+  await writeConfig({ ...config, activeAccount: name });
+  return { name, profile: config.accounts[name] };
+}
+
+export function createAccountProfile(): AccountProfile {
+  const profile = defaultProfile();
+  const now = new Date().toISOString();
+  return { ...profile, createdAt: now, updatedAt: now };
 }
 
 function normalizeConfig(config: Partial<BlocksCliConfig>): BlocksCliConfig {
@@ -137,16 +189,19 @@ function normalizeConfig(config: Partial<BlocksCliConfig>): BlocksCliConfig {
   }
 
   if (Object.keys(accounts).length === 0) {
-    return {
-      ...defaultConfig(),
-      selectedProject: config.selectedProject
-    };
+    const fallback = defaultConfig();
+    if (config.selectedProject) fallback.accounts.default.selectedProject = config.selectedProject;
+    return fallback;
+  }
+
+  const activeAccount = config.activeAccount ?? "default";
+  if (config.selectedProject && accounts[activeAccount] && !accounts[activeAccount].selectedProject) {
+    accounts[activeAccount] = { ...accounts[activeAccount], selectedProject: config.selectedProject };
   }
 
   return {
-    activeAccount: config.activeAccount ?? "default",
-    accounts,
-    selectedProject: config.selectedProject
+    activeAccount,
+    accounts
   };
 }
 
@@ -168,6 +223,7 @@ function defaultProfile(existing?: Partial<AccountProfile>): AccountProfile {
     oidcUrl: env.oidcUrl,
     osUrl: env.osUrl,
     rootTenantId: env.rootTenantId,
+    selectedProject: existing?.selectedProject,
     scope: env.scope,
     updatedAt: DEFAULT_PROFILE_TIMESTAMP
   };

@@ -29,7 +29,7 @@ export async function writeRootFiles(root: string, options: WebOptions): Promise
     },
     dependencies: {
       "@radix-ui/react-dropdown-menu": "^2.1.24",
-      "@seliseblocks/client": "^0.1.3",
+      "@seliseblocks/client": "^0.2.0",
       "@tanstack/react-query": "^5.101.4",
       clsx: "^2.1.1",
       "lucide-react": "^1.28.0",
@@ -164,9 +164,9 @@ export async function writeRootFiles(root: string, options: WebOptions): Promise
   await write(root, "README.md", [
     `# ${options.name}`,
     "",
-    "Blocks starter app: React 18 + Vite + TypeScript, with a real hosted Blocks IAM login and a project-scoped profile page.",
+    "Blocks starter app: React 18 + Vite + TypeScript, with a real hosted Blocks IAM login and a project-scoped profile page as the landing page.",
     "",
-    "Every Blocks API call in this app goes through [`@seliseblocks/client`](https://www.npmjs.com/package/@seliseblocks/client) via a single `createBlocksClient()` instance in `src/lib/blocks/client.ts` — there is no hand-written `fetch()` wrapper for Blocks endpoints anywhere in this app. Each SDK module is exercised in context rather than in one dedicated demo panel: `auth` in the hosted login flow, `iam` on the Profile page and user menu, `data` in Assets, and `localization` in `LocalizationProvider`.",
+    "Every Blocks API call in this app goes through [`@seliseblocks/client`](https://www.npmjs.com/package/@seliseblocks/client) via a single `createBlocksClient()` instance in `src/lib/blocks/client.ts` — there is no hand-written `fetch()` wrapper for Blocks endpoints anywhere in this app. Each SDK module is exercised in context rather than in one dedicated demo panel: `auth` in the hosted login flow, `iam` on the Profile page and user menu, and `localization` in `LocalizationProvider`. Add more pages under `src/features/` as your app needs them.",
     "",
     "## Setup",
     "",

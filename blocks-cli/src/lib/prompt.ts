@@ -1,7 +1,13 @@
 import { createInterface } from "node:readline/promises";
 import { stdin as input, stdout as output } from "node:process";
+import { CliActionableError } from "./errors.js";
+
+export function isInteractive(): boolean {
+  return Boolean(input.isTTY && output.isTTY);
+}
 
 export async function promptText(message: string): Promise<string> {
+  requireInteractiveInput();
   const rl = createInterface({ input, output });
   try {
     return (await rl.question(message)).trim();
@@ -11,6 +17,7 @@ export async function promptText(message: string): Promise<string> {
 }
 
 export async function selectFromList(message: string, options: string[]): Promise<number> {
+  requireInteractiveInput();
   const rl = createInterface({ input, output });
   try {
     console.log(message);
@@ -25,4 +32,13 @@ export async function selectFromList(message: string, options: string[]): Promis
   } finally {
     rl.close();
   }
+}
+
+function requireInteractiveInput(): void {
+  if (isInteractive()) return;
+  throw new CliActionableError(
+    "Interactive input is required, but this command is running without a TTY.",
+    "interactive_input_required",
+    "Re-run the command with the explicit flags requested by its help output."
+  );
 }

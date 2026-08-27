@@ -4,7 +4,7 @@ import { blocksRequest } from "../../../lib/api.js";
 import { confirmMutation } from "../../../lib/confirm.js";
 import { CliActionableError } from "../../../lib/errors.js";
 import { writeOutput } from "../../../lib/output.js";
-import { requestContext } from "../../../lib/request-context.js";
+import { commandContextArgs, requestContext } from "../../../lib/request-context.js";
 import { parseCommand, selectedProject } from "../../../lib/workspace.js";
 import { localizationKeyGenerateUilmFile } from "./generate-uilm-file.js";
 import { localizationKeyTranslateAll } from "./translate-all.js";
@@ -49,6 +49,7 @@ export async function localizationKeyTranslateAndExport(argv: string[]): Promise
     flags,
     `Translate all untranslated keys in module '${moduleId}'${wait ? ", wait for completion," : ""} then generate and export the UILM file.`
   );
+  const contextArgs = commandContextArgs(flags);
 
   console.log("== localization:key:translate-all ==");
   await localizationKeyTranslateAll([
@@ -57,6 +58,7 @@ export async function localizationKeyTranslateAndExport(argv: string[]): Promise
     ...(stringFlag(flags, "default-language") ? ["--default-language", stringFlag(flags, "default-language")] : []),
     "--message-co-relation-id",
     correlationId,
+    ...contextArgs,
     "--yes"
   ]);
 
@@ -66,10 +68,10 @@ export async function localizationKeyTranslateAndExport(argv: string[]): Promise
 
   const guid = stringFlag(flags, "guid");
   console.log("== localization:key:generate-uilm-file ==");
-  await localizationKeyGenerateUilmFile(["--module-id", moduleId, ...(guid ? ["--guid", guid] : []), "--yes"]);
+  await localizationKeyGenerateUilmFile(["--module-id", moduleId, ...(guid ? ["--guid", guid] : []), ...contextArgs, "--yes"]);
 
   console.log("== localization:key:uilm-export ==");
-  await localizationKeyUilmExport([...passThroughUilmExportFlags(flags), "--yes"]);
+  await localizationKeyUilmExport([...passThroughUilmExportFlags(flags), ...contextArgs, "--yes"]);
 }
 
 function passThroughUilmExportFlags(flags: Record<string, string | boolean>): string[] {

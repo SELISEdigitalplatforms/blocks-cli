@@ -3,9 +3,13 @@ name: blocks-release-deployment
 description: "Trigger and inspect SELISE Blocks Release builds/deploys entirely through `blocks release *` — never raw fetch/curl; there is no SDK path (Release has no `@seliseblocks/client` namespace). Covers `release deploy` (auto-resolves the repo, verifies branch matches environment), `release status`/`builds get` (build lookup by id), and `builds list` (list builds for a repo). Use for 'deploy/trigger a release', 'check build status', 'list recent builds'. Always `--dry-run` before `--yes`. No artifact-upload capability — deploy triggers a configured pipeline only."
 ---
 
+When invoking a project-scoped `blocks` command, either use the resolved account's saved selection or pass `--project <tenantId>` for that one command without changing saved state. `--project` applies to CLI commands only, never SDK calls.
+
 # Blocks Release — Deployment
 
-Trigger and read Release builds through `blocks release *`. This is **100% CLI, no SDK equivalent** — `@seliseblocks/client` (`createBlocksClient()`) exposes only `auth`, `data`, `iam`, and `localization`; there is no `release` namespace anywhere in the SDK. Never write a frontend/app-code path for this — it's always a terminal command.
+Trigger and read Release builds through `blocks release *`. This is **100% CLI,
+no SDK equivalent**: `@seliseblocks/client` has no `release` namespace. Never
+write a frontend/app-code path for this; use the terminal command.
 
 **Prerequisite:** a project is selected (`blocks use <tenantId>`) and that project has a repo linked from the Blocks portal — see the blocks-bootstrap skill. There is no local config file for release settings; `blocks init` only scaffolds `blocks/data/schemas/`, `blocks/data/rules.json`, and `.env.example` — it has no release-related output at all. `deploy` and `builds list` both resolve which repo to act on directly from the project's linked assets (see below), not from any file on disk.
 

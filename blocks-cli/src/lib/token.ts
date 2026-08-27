@@ -87,7 +87,8 @@ export function applyAccountToken(
   store: BlocksTokenStore,
   account: string,
   clientId: string,
-  response: TokenResponse
+  response: TokenResponse,
+  options: { activateAccount?: boolean } = {}
 ): { config: BlocksCliConfig; store: BlocksTokenStore } {
   if (!response.access_token) {
     throw new Error(response.error_description ?? response.error ?? "Token response did not include an access token");
@@ -116,7 +117,7 @@ export function applyAccountToken(
   return {
     config: {
       ...config,
-      activeAccount: account,
+      activeAccount: options.activateAccount ? account : config.activeAccount,
       accounts: {
         ...config.accounts,
         [account]: {
@@ -130,7 +131,6 @@ export function applyAccountToken(
       accounts: {
         ...store.accounts,
         [account]: {
-          ...(store.accounts[account] ?? {}),
           account: tokenSet
         }
       }
@@ -165,20 +165,12 @@ export function applyProjectToken(
   };
 
   return {
-    config: {
-      ...config,
-      selectedProject: {
-        ...config.selectedProject,
-        tenantId
-      }
-    },
+    config,
     store: {
       accounts: {
         ...store.accounts,
         [account]: {
-          ...(store.accounts[account] ?? {}),
           projects: {
-            ...(store.accounts[account]?.projects ?? {}),
             [tenantId]: tokenSet
           }
         }

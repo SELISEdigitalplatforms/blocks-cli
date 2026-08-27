@@ -1,4 +1,4 @@
-import { booleanFlag } from "../../../lib/args.js";
+import { booleanFlag, optionalBooleanFlag } from "../../../lib/args.js";
 import { blocksRequest } from "../../../lib/api.js";
 import { confirmMutation } from "../../../lib/confirm.js";
 import { compact, jsonBodyFlag } from "../../../lib/json-flag.js";
@@ -11,12 +11,12 @@ export async function iamOrganizationsConfigSave(argv: string[]): Promise<void> 
   const body = {
     ...(await jsonBodyFlag(flags)),
     ...compact({
-      allowOrgCreationFromCloud: booleanFlag(flags, "allow-org-creation-from-cloud") || undefined,
-      allowOrgCreationFromConstruct: booleanFlag(flags, "allow-org-creation-from-construct") || undefined,
-      allowOrgCreationFromPortal: booleanFlag(flags, "allow-org-creation-from-portal") || undefined,
-      allowOrgCreationFromSignup: booleanFlag(flags, "allow-org-creation-from-signup") || undefined,
-      consentForMultiOrgEnable: booleanFlag(flags, "consent-for-multi-org-enable") || undefined,
-      isMultiOrgEnabled: booleanFlag(flags, "multi-org-enabled") || undefined
+      allowOrgCreationFromCloud: optionalBooleanFlag(flags, "allow-org-creation-from-cloud"),
+      allowOrgCreationFromConstruct: optionalBooleanFlag(flags, "allow-org-creation-from-construct"),
+      allowOrgCreationFromPortal: optionalBooleanFlag(flags, "allow-org-creation-from-portal"),
+      allowOrgCreationFromSignup: optionalBooleanFlag(flags, "allow-org-creation-from-signup"),
+      consentForMultiOrgEnable: optionalBooleanFlag(flags, "consent-for-multi-org-enable"),
+      isMultiOrgEnabled: optionalBooleanFlag(flags, "multi-org-enabled")
     })
   };
 

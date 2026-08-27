@@ -28,11 +28,35 @@ Namespaced commands accept either spaces or colons, e.g. `blocks data schema lis
 
 - `--json` - print machine-readable JSON where supported.
 - `--api-url <url>` - override the Blocks API URL for this command.
-- `--account <name>` - use a named account profile; default is implicit.
-- `--project <tenantId>` - use a project tenant for project-scoped commands.
+- `--account <name>` - use exactly that named account in the resolved config store; never falls back to another account.
+- `--project <tenantId>` - override the project for this command without changing the saved selection.
 - `--dry-run` / `--yes` - see Operating Rules below.
 
-Use `blocks --help` (no subcommand) as command ground truth for what exists. Do not probe an individual subcommand with `<command> --help` to check its flags - most subcommands don't recognize `--help` as special and just run their real logic with it as a no-op argument (e.g. `login --help` performs an actual login attempt; `new web <name> --help` runs real arg validation). If you need a subcommand's full flag list, read this guide's section for it or infer from `--dry-run`/error output instead.
+### Looking commands up cheaply
+
+Three queries, smallest first. Prefer them over the full text help, which is ~47 KB and cannot be read in part:
+
+```bash
+blocks --help --json                    # every command name, grouped by family (~8 KB)
+blocks help <family> [--json]           # one family, with summaries (e.g. 'blocks help mfa')
+blocks help <command> [--json]          # one command: usage, flags, scope, mutation (~0.8 KB)
+```
+
+`<command> --help` and `-h` are safe too: both are intercepted before dispatch
+and render the same thing `blocks help <command>` does, so no handler ever sees
+them. (They were not always — `--help` used to reach the handler as an ordinary
+argument, and `login --help` performed a real login attempt. Any older guidance
+warning you off that spelling is describing a CLI before 0.3.0.)
+
+**A flag the command does not read is now reported, not ignored.** A misspelled
+flag prints a warning to stderr naming it, and the command still runs with that
+value dropped. Treat that warning as a failure: re-read `blocks help <command>`,
+fix the spelling, and re-run before approving any mutation, because the dry-run
+you just showed the user was missing a field. In non-interactive runs set
+`BLOCKS_STRICT_FLAGS=1` so the CLI exits 1 with `code: "unknown_flag"` instead of
+warning past it.
+
+Every field it reports is derived from the command's own source, not from prose, so `flags`, `scope`, and `mutating` cannot drift from behavior. `blocks --help` (no subcommand) remains the human-readable overview.
 
 ## Operating Rules
 
@@ -44,14 +68,49 @@ Use `blocks --help` (no subcommand) as command ground truth for what exists. Do 
 - Treat any secret pasted into chat or logs as exposed and rotate it before production use.
 - Generated apps must not contain CLI tokens.
 - If a CLI command returns an error, fix or report the CLI path. Do not bypass the CLI with a one-off API request when the command exists.
+- Run `blocks` commands one at a time per resolved config directory. Token transitions are mutex-protected; parallel invocations can fail with `auth_transition_busy`.
+- Treat every paginated `list` result as one page. Read `totalCount` when the response provides it, and request subsequent pages when completeness matters; never report a total from the returned array length alone.
 
 ## Login
+
+The CLI resolves its state store from non-empty `BLOCKS_CONFIG_DIR`, otherwise
+from the normal per-user OS config directory. The same store owns account
+profiles, `activeAccount`, selected project, tokens, and secrets. Do not infer VM
+or Studio state inside the CLI.
+
+Account resolution is `--account`, then the valid `activeAccount` in that store.
+If neither exists, interactive terminals select from configured accounts and
+non-interactive commands fail. Project resolution is `--project`, then
+`blocks.json` `project.tenantId`, then the resolved account's `selectedProject`; interactive
+terminals ask for a tenant id only if all are missing, while non-interactive
+commands fail. Automation should pass both flags explicitly.
 
 Device-code login uses the packaged OS client id. It prints a verification URL and user code, opens the browser to the verification page when possible, then polls until approved:
 
 ```bash
-blocks login
+blocks login --account <name>
 ```
+
+Login is the explicit bootstrap path for a missing named profile. It creates
+profile metadata from packaged defaults and writes newly issued credentials only
+to the resolved store. It never imports tokens from another account or directory.
+Successful login sets `activeAccount`; normal project commands then use
+`blocks use <tenantId>` and `blocks deselect` without repeating `--account`.
+
+The token store keeps one mode per account, never simultaneous account and
+project refresh-token state:
+
+```text
+login -> account AT+RT -> use/impersonate -> project AT+RT
+project AT+RT -> deselect/stop -> fresh account AT+RT
+```
+
+Project token refresh uses the project RT directly. Account refresh and other
+account-only operations temporarily stop an active project session and restore
+it afterward. Token-mode transitions are serialized per resolved config
+directory. Fresh login, impersonation, and stop responses must contain a refresh
+token; ordinary refresh responses may omit it when the existing RT remains
+valid.
 
 Check current auth state:
 
@@ -63,16 +122,78 @@ If local auth state is stale or corrupted (Windows profile change, machine migra
 
 ```bash
 blocks auth remove <account>
-blocks login
+blocks login --account <account>
 ```
 
-Use `blocks logout` to revoke the current refresh token when possible and remove local session data. Use `blocks auth refresh --json` to force account token refresh, and `blocks auth refresh --project --json` after a project session already exists.
+Use `blocks logout`, `blocks auth refresh [--project] --json` as needed — see `blocks help auth` for exact behavior.
 
-Run health checks without mutation:
+For Code Studio, authorization happens before launch: the portal backend must
+validate portal user identity plus `x-blocks-key` plus the requested Studio
+application/project. `x-blocks-key` identifies the tenant/project only and is not
+proof of permission. The launcher must assign a unique session/user-specific
+`BLOCKS_CONFIG_DIR`; the CLI uses only that context and performs no VM detection.
+
+### AI agent startup
+
+For normal local work, leave `BLOCKS_CONFIG_DIR` unchanged and use the user's
+OS-scoped store. Probe with `blocks auth status --json`; if login is missing,
+ask for the account name, run `blocks login --account <name>`, relay the device
+URL/code, and wait for approval. Do not create an isolated directory and copy
+existing credentials into it.
+
+In Code Studio, the launcher provides `BLOCKS_CONFIG_DIR` and authentication
+context before the agent starts. Never change that directory or fall back to OS
+state. If `blocks auth status --json` reports missing context, report a
+launcher/bootstrap failure. The current CLI has no unattended Studio bootstrap
+command, so device login requires explicit user approval unless the platform
+implements an approved backend bootstrap flow.
+
+After resolution, agent automation passes `--account <name>` and
+`--project <tenantId>` explicitly. Interactive local use may rely on the active
+account and its account-specific selection.
+
+Run cache-only health checks without token refresh or network mutation:
 
 ```bash
 blocks doctor --json
 ```
+
+
+### Session state machine
+
+Each account persists exactly one refreshable authentication mode in its resolved
+store: either the account access/refresh pair, or one project's impersonated pair.
+`blocks use` exchanges account mode for project mode; `blocks deselect` exchanges it
+back. Account-only operations such as project creation temporarily stop impersonation
+and restore the previous project afterward. These exchanges are locked per config
+directory so concurrent CLI processes cannot overwrite each other's token transition.
+
+```mermaid
+flowchart TD
+  L[blocks login --account name] --> A[Account access token + refresh token]
+  A --> U[blocks use tenantId]
+  U --> I[IAM impersonate]
+  I --> P[One project access token + refresh token]
+  P --> R[Project API calls and project refresh]
+  P --> D[blocks deselect]
+  D --> S[IAM stop impersonation]
+  S --> A
+  P --> C[Account-only operation]
+  C --> S
+  A --> O[Run operation]
+  O --> I
+```
+
+### Multi-user hosts (Code Studio)
+
+The portal backend must validate the portal identity, `x-blocks-key`, and the
+requested Studio application/project before creating a session. `x-blocks-key`
+identifies a tenant/project; it does not prove user permission. The launcher must
+supply a unique session/user-specific `BLOCKS_CONFIG_DIR`; a new directory starts
+with no imported tokens and requires an explicit login or approved bootstrap. Local
+terminals without an override use the normal OS config directory, so two portal users
+can share a tenant on one VM without sharing account, project selection, secrets, or
+tokens.
 
 ## Project Workflow
 
@@ -82,13 +203,13 @@ List projects:
 blocks projects list --json
 ```
 
-Create a project when none suitable exists (ask the user first - it accepts the Blocks terms on their behalf):
+Create a project when none suitable exists (ask the user first - it accepts the Blocks terms on their behalf; see `blocks help projects create` for exact behavior — dev-only environment, terms confirmation, session handling):
 
 ```bash
 blocks projects create "<project name>" --json      # add --dry-run first to show the payload
 ```
 
-It always creates exactly one application in the `dev` environment; environment, domain, cookie domain, and production flag are fixed. Adding further environments (`test`, `stg`, `prod`, ...) to an existing project is still portal-only. The command does not select the new project - run `blocks use <tenantId>` with the `tenantId` it prints.
+It does not select the new project; run `blocks use <tenantId>` with the returned id.
 
 Select a project:
 
@@ -119,19 +240,19 @@ blocks use <projectTenantId>   # if not already selected
 blocks new web <appName>
 ```
 
-This is interactive when a value isn't already known: if the project has more than one registered domain you're prompted to choose; the OIDC client is offered as a pick-list of the project's existing clients, plus "create a new one now" (prompts only for display name + redirect URI, defaulting to `https://<appDomain>/login/callback`) or "skip, register later." Do not fabricate a client id or domain value yourself.
+This is interactive when a value isn't already known (domain pick-list; OIDC client pick-list, create-new, or skip — see `blocks help new web` for the exact prompts). Do not fabricate a client id or domain value yourself.
 
-**An AI agent running this non-interactively will hang on these prompts** - there's no stdin to answer "Choose 1-3:" from an automated process. Before running `new web`, gather the values yourself and pass them explicitly:
+**An AI agent running this non-interactively cannot answer these prompts.** The CLI fails with `interactive_input_required` instead of waiting on stdin. Before running `new web`, gather the values yourself and pass them explicitly:
 
 ```bash
 blocks projects get --json                     # see the project's domain(s) under project.applications
 blocks auth oidc-clients list --json           # see existing OIDC clients, if any
 ```
 
-Then run with explicit flags so no prompt is reached:
+Then run with explicit flags. The command checks AuthController and may enable OIDC login before scaffolding; after the user approves that possible tenant mutation, pass `--yes` so no non-interactive confirmation is reached:
 
 ```bash
-blocks new web <appName> --x-blocks-key <projectTenantId> --app-domain <appDomainOrUrl> --client-id <publicOidcClientId>
+blocks new web <appName> --x-blocks-key <projectTenantId> --app-domain <appDomainOrUrl> --client-id <publicOidcClientId> --yes
 ```
 
 `new web` also accepts `--blocks-api-url <url>` and `--oidc-url <url>`. When `--blocks-api-url` is omitted, the scaffold derives it from the app domain as
@@ -162,32 +283,25 @@ The generated cert script uses the `selfsigned` Node dependency, so it works fro
 
 ## IAM, MFA, and Auth Admin
 
-`iam me` reads the CLI operator's own account identity (bootstrapping, not a project resource):
+`iam me` reads the CLI operator's identity. It prefers an impersonated project token when a project resolves and falls back to account auth only when none does:
 
 ```bash
 blocks iam me --json
 ```
 
-Every other command below is project-scoped: it requires a project already selected (`blocks use <tenantId>`) and always calls IAM through an impersonated project token - never the account token, and never something you construct yourself. If no project is selected, the command fails with `project_not_selected`; run `blocks use <tenantId>` first (see Agent Failure Handling).
+Every other command below is strictly project-scoped: it requires a selected project and always calls IAM through an impersonated project token. If no project is selected, it fails with `project_not_selected`.
 
-Command families (run `blocks --help` for the full flag reference on each):
-
-- `iam users *`, `iam email available` - list/get/create/update/activate/deactivate, access grant/revoke, existence and email-availability checks.
-- `iam roles *` - list/get/create/update, assign-permissions, assignable. `assign-permissions` accepts permission resource strings and resolves them to itemIds before sending IAM's id-based mutation.
-- `iam permissions *` - list/get/create/update, by-severity.
-- `iam resources *` - resource groups and feature flags (read-only).
-- `iam organizations *` - list/get/create/update, `my`, and organization config get/save.
-- `iam signup-settings *` - get/save tenant signup policy.
-- `mfa config *`, `mfa totp *`, `mfa generate`/`resend`/`verify`, `mfa method set`, `mfa disable`, `mfa backup-codes *` - tenant MFA policy plus enrollment/verification/backup-code flows. `mfa method set` only switches on `1`/`2`; every other value makes IAM disable the user's MFA. A tenant policy with `enableMfa` but an empty `userMfaType` list never actually requires MFA at login.
-- `mfa totp enable --mfa-type <n>` - composed TOTP enrollment: `totp setup` → prints the QR/secret → `totp verify-setup` → `method set` → `backup-codes generate`, one confirmation. Prefer this over running the individual steps. `--mfa-type` is required and not defaulted - pass `1`, IAM's `UserMfaType` value for TOTP (`0` None, `1` TOTP, `2` Email, `3` Sms and `4` WhatsApp are declared but have no provider). The same enum drives `--auth-type`, `--user-mfa-type`, and a client's `--allowed-mfa-methods`. **Prompts interactively for the verification code unless `--code <c>` is given** - an agent running this non-interactively must supply `--code` (from wherever the user's authenticator app output is captured) or it will hang waiting on stdin. Deliberately excludes `mfa config save` (a separate tenant-wide admin policy, not part of one user's enrollment).
-- `auth idp *` - identity provider (SSO/OIDC) configuration: list/get/create/update/delete/status.
-- `auth config *` - AuthController tenant config (token lifetimes, lockout policy, etc.).
-- `auth client-credentials *` - machine-to-machine client credentials: list/save/delete.
-- `auth oidc-clients *` - OIDC client app registrations: list/get/save (upsert)/delete/rotate-secret.
+See `blocks help iam`, `blocks help mfa`, and `blocks help auth` for the full
+family list, summaries, and flags — every family (`iam users`, `iam roles`,
+`iam permissions`, `iam resources`, `iam organizations`, `iam signup-settings`,
+`mfa config`/`totp`/`generate`/`resend`/`verify`/`method set`/`disable`/
+`backup-codes`, `auth idp`, `auth config`, `auth client-credentials`,
+`auth oidc-clients`, including the composed `mfa totp enable`) is covered
+there and cannot drift from behavior the way prose can.
 
 Rules:
 
-- Use `--dry-run` before any mutating command in these families, the same as Data/Localization/Release, then `--yes` only after explicit approval.
+- Use `--dry-run` before guarded configuration/admin mutations, then `--yes` only after explicit approval. MFA challenge/setup/verify/resend and backup-code consumption are live authentication protocol steps without dry-run; run them only inside the user's explicit authentication flow.
 - Rich payloads (identity provider config, OIDC client config, user/role/permission create-update bodies, etc.) accept `--body '<json>'` or `--file <path.json>` on top of the documented convenience flags - use whichever is easier for the exact fields you need to set.
 - `auth idp create`/`update`, `auth client-credentials save`, and `auth oidc-clients save`/`rotate-secret` can return a `client_secret` shown only once. Never print, log, commit, or otherwise persist it outside what the user explicitly asked to store; treat that response the same as any other CLI-managed secret.
 - Do not add IAM/MFA/Auth admin behavior outside these supported CLI commands unless the CLI package is explicitly extended and tested.
@@ -265,13 +379,7 @@ It validates first and hard-fails with no API calls made if schemas or the rules
 
 ### Raw Data API
 
-`validate`/`schema list`/`schema pull`/`schema push`/`rules pull`/`rules deploy`/`reload` above cover the common file-oriented workflow. The rest of `/data/v4/*` is exposed directly, project-scoped with an impersonated project token only. Run `blocks --help` for the full flag reference on each; command families:
-
-- `data schema get`/`get-by-name`/`aggregation`/`change-logs`/`delete` - single-schema lookup by id or collection name, access-level aggregation summary, unadapted change logs (cleared by `data reload`), and irreversible delete. `schema get` also prints the schema's exact GraphQL operation names in non-`--json` output; do not guess pluralized names -- generated names are naive string concatenation (`Company` -> `getCompanys`, not `getCompanies`), read them from `querySchema`/`mutationSchemas` instead.
-- `data schema info list`/`save`/`update` + `data schema fields` - a two-step alternative to `schema push` (create/update schema metadata, then add/update field definitions separately). Prefer the file-oriented `schema push` workflow for normal authoring; use these only for a targeted metadata or field-only change without touching the local schema JSON.
-- `data rules policy get`/`delete` - read or delete one data-access policy without a full `rules pull`/edit/`rules deploy` round-trip.
-- `data validation list`/`get`/`by-schema`/`by-schema-field`/`save`/`delete` - field-level validation rules. No file-oriented workflow exists for these (no local JSON file to pull/push). `save` is an upsert (omit `--item-id` to create, pass it to update) and requires a `validations` array passed via `--body`/`--file` - there's no scalar flag for it, e.g. `--body '{"validations":[{"type":1,"value":"^[0-9]+$","isActive":true}]}'`.
-- `data files *` - permission-aware storage object tree: upload/download, directory CRUD/move, cursor list/search, versions, copy/move/rename, trash/restore/purge, shared objects, and access policies/inheritance.
+`validate`/`schema list`/`schema pull`/`schema push`/`rules pull`/`rules deploy`/`reload` above cover the common file-oriented workflow. The rest of `/data/v4/*` is exposed directly, project-scoped with an impersonated project token only — see `blocks help data` for the full family list (schema get/get-by-name/aggregation/change-logs/delete, schema info/fields, rules policy, validation, files) and `blocks help <command> --json` for exact flags.
 
 Same rules as everywhere else: `--dry-run` before any mutating command, then `--yes` only after explicit approval.
 
@@ -327,17 +435,17 @@ Example:
 
 ```json
 {
-  "dashboard.title": "Dashboard",
+  "title": "Dashboard",
   "products.empty": "No products found"
 }
 ```
 
-Nested JSON is accepted on input and flattened before validation:
+The module already provides the namespace, so a `dashboard` module uses `title`, not `dashboard.title`. Nested JSON is accepted for meaningful key groups and flattened before validation:
 
 ```json
 {
-  "dashboard": {
-    "title": "Dashboard"
+  "products": {
+    "empty": "No products found"
   }
 }
 ```
@@ -365,18 +473,7 @@ Use Localization gateway v4 paths without `/api`: `/localization/v4/Module/Gets`
 
 ### Raw Localization API
 
-`validate`/`push`/`pull` above cover the common i18n file workflow. Every other `/localization/v4/*` endpoint is also exposed directly, project-scoped with an impersonated project token only (never the account token). Run `blocks --help` for the full flag reference on each; command families:
-
-- `localization assistant translation-suggestion` - AI translation suggestion for a single string (`--source-text`, `--destination-language`, optional glossary/context flags).
-- `localization config get-webhook`/`save-webhook` - tenant webhook config for localization change notifications.
-- `localization glossary save`/`list`/`get`/`suggested`/`delete` - glossary term CRUD and AI-suggested glossary lookup.
-- `localization key save`/`list`/`get-by-names`/`get`/`delete`/`delete-keys` - key CRUD and search beyond the bulk `push`/`pull` flow.
-- `localization key get-timeline`/`get-localization-timeline`/`get-timeline-by-operation-id`/`rollback` - key/tenant change history and rollback.
-- `localization key get-uilm-file`/`generate-uilm-file`/`uilm-import`/`uilm-export`/`get-uilm-exported-files`/`get-language-file-generation-history` - UILM language-file generation and import/export jobs.
-- `localization key translate-all`/`translate-key`/`translate-keys` - trigger AI machine translation for a module or specific keys.
-- `localization key translate-and-export --module-id <id> [--wait]` - composed: `translate-all` → `generate-uilm-file` → `uilm-export`. Prefer this over running the three by hand. `--wait` polls translation progress first via a self-generated correlation id (translation is async and has no documented "done" field, so this is a best-effort heuristic - it prints the raw response every poll); without `--wait` it just fires all three back to back like running them manually in sequence.
-- `localization language save`/`list`/`list-for-tenant`/`delete`/`set-default` - tenant language catalog management.
-- `localization module save`/`list`/`list-for-tenant`/`tag-glossary` - module CRUD and glossary tagging.
+`validate`/`push`/`pull` above cover the common i18n file workflow. Every other `/localization/v4/*` endpoint is also exposed directly, project-scoped with an impersonated project token only (never the account token) — see `blocks help localization` for the full family list (assistant, config, glossary, key CRUD/search/timeline/translate/UILM, language, module — including the composed `translate-and-export`) and `blocks help <command> --json` for exact flags.
 
 Same rules as everywhere else: `--dry-run` before any mutating command, then `--yes` only after explicit approval; rich payloads accept `--body '<json>'`/`--file <path.json>` on top of the documented convenience flags. `localization config save-webhook`'s `--secret` is redacted in `--dry-run` output only - treat the live response as a secret.
 
@@ -400,7 +497,7 @@ blocks mail template save --configuration-id <id> --name <n> --language <l> \
 blocks mail template delete <itemId> --dry-run --json
 blocks mail template clone <itemId> --name <n> --dry-run --json
 
-blocks mail mailbox list --configuration-id <id> --json
+blocks mail mailbox list --inbound=false --page-number 1 --page-size 20 --json
 blocks mail mailbox get <messageId> --json
 ```
 
@@ -445,7 +542,7 @@ blocks notifier notify --roles admin --denormalized-payload '{"orderId":"123"}' 
 blocks notifier notify --subscription-filters '[{"context":"orders","actionName":"created","value":"*"}]' --yes --json
 
 blocks notifier list --unread-only --page 1 --page-size 20 --json
-blocks notifier unread --user-id <id> --context orders --action-name created --json
+blocks notifier unread --user-id <id> --context orders --action-name created --order-by 1 --json
 blocks notifier mark-read <notificationId> --dry-run --json
 blocks notifier mark-all-read --dry-run --json
 ```
@@ -453,22 +550,6 @@ blocks notifier mark-all-read --dry-run --json
 Target `notify` with at least one of `--user-ids`/`--roles`/`--subscription-filters`. `notifier unread`
 sends its filter as query parameters even though swagger documents that endpoint as GET with a JSON
 body, which the Fetch spec forbids — the CLI and SDK both flatten it into the query string instead.
-
-## Secrets
-
-Generic tenant secret storage via `/os/v4/Secrets/*` (e.g. captcha provider config):
-
-```bash
-blocks secrets get captcha --json
-blocks secrets save --secret-key captcha \
-  --key-value-pairs '{"isEnable":"true","provider":"recaptcha","captchaKey":"...","captchaSecret":"..."}' \
-  --dry-run --json
-blocks secrets save --secret-key captcha --item-id <itemId> --key-value-pairs '{...}' --yes --json
-```
-
-`--key-value-pairs` is a flat JSON object of provider-specific fields — its shape depends entirely on
-`--secret-key` (there's no fixed schema across secrets). `save` is an upsert: omit `--item-id` to
-create, pass it to update. Fields that look like secrets/keys are redacted in `--dry-run` output only.
 
 ## Storage
 
@@ -506,7 +587,7 @@ blocks release status <buildId> --json
 blocks release builds get <buildId> --json
 ```
 
-List builds for a repository (repoId is optional now - omit it to resolve from the selected project's linked repo assets, auto-picked if there's exactly one, otherwise interactively prompted, which will hang a non-interactive agent - pass `--repo-id` explicitly if you don't already know there's exactly one):
+List builds for a repository (repoId is optional - omit it to resolve from the selected project's linked repo assets, auto-picked if there's exactly one, otherwise prompted interactively; a non-interactive agent receives `interactive_input_required`, so pass `--repo-id` explicitly if you don't already know there's exactly one):
 
 ```bash
 blocks release builds list --repo-id <repoId> --json
@@ -514,13 +595,29 @@ blocks release builds list --repo-id <repoId> --json
 
 ## Agent Failure Handling
 
-- `not_logged_in`: run `blocks login`, then `blocks projects list`, then `blocks use <tenantId>`.
-- `refresh_token_rejected`: run `blocks login`.
+- `not_logged_in`: locally run `blocks login --account <account>`, then `blocks projects list --account <account>`, then `blocks use <tenantId> --account <account>`; in Studio, require bootstrap or explicitly supported device approval.
+- `account_not_configured`: the requested account does not exist in this config store; run `blocks login --account <account>` in that same store.
+- `account_not_selected`: pass `--account <account>` or establish one with `blocks login --account <account>`; never select a different account silently.
+- `account_session_suspended`: the account is currently in project mode; run `blocks deselect` before the account-only operation, then reselect the project when needed.
+- `auth_transition_busy`: another CLI process is changing auth state in the same config directory. Wait for it to finish, then retry sequentially.
+- `device_login_denied`: the user denied device authorization. Do not retry unless they ask to start a new `blocks login`.
+- `device_login_expired`: approval did not finish before the device code expired; run `blocks login --account <account>` again.
+- `device_login_failed`: the identity provider rejected device login for the reason in `message`; correct that reason before retrying login.
+- `device_login_network_error`: check connectivity to the configured identity provider, then restart `blocks login --account <account>`.
+- `refresh_token_rejected`: locally run `blocks login --account <account>`; in Studio, replace/rebootstrap the isolated session unless device approval is explicitly supported.
 - `refresh_network_error`: check the network and configured OIDC URL, then retry.
-- `auth_repair_required`: inspect `blocks auth status --json`; if local storage is unreadable or stale, run `blocks auth remove <account>`, then `blocks auth status --json` and `blocks login`.
+- `auth_repair_required`: inspect `blocks auth status --json`; if local storage is unreadable or stale, run `blocks auth remove <account>`, then `blocks auth status --json` and `blocks login --account <account>`.
 - `project_not_selected`: run `blocks projects list`, then `blocks use <projectTenantId>`.
+- `project_refresh_token_missing`: the current project session cannot refresh or stop safely; run `blocks login --account <account>` to establish a fresh account session, then select the project again.
+- `missing_project_name`: pass a project name, for example `blocks projects create "<name>"`.
+- `invalid_project_name`: use a project name between 3 and 100 characters.
+- `project_create_failed`: creation was rejected; inspect `message`, then run `blocks projects list --json` before deciding whether to retry.
+- `interactive_input_required`: the command needs a value that was not supplied and cannot prompt without a TTY. Re-run with the explicit flag named by the command documentation; common cases are `new web --app-domain ... --client-id ...`, `mfa totp enable --code ...`, and `release builds list --repo-id ...`.
+- `unknown_help_target` (from `blocks help <name>`): no command or family matches that name. List what exists with `blocks --help --json`, then retry with a name from it.
+- `impersonation_invalid_client`: give an admin the CLI client id printed in the error and have that client registered for project impersonation. Re-login and `auth config` cannot repair it.
 - `api_auth_failed`: run `blocks auth status --json`, then login again. If the failure is specifically a stale/expired impersonated project token rather than the account token, `blocks deselect` followed by `blocks use <tenantId>` re-impersonates without a full re-login.
 - `repo_not_linked` (from `release deploy`): no repo is linked to this project. This needs GitHub OAuth - tell the user to link it from the Blocks portal, do not retry from the CLI.
+- `no_tenant_group` (from `release builds list`): project metadata cannot resolve linked repositories; pass a known `--repo-id` explicitly.
 - `repo_ambiguous` (from `release deploy`): multiple repos are linked and none is named for the current environment. Tell the user to check the project's repo links in the portal.
 - `repo_not_found` (from `release deploy`): the linked asset's repo id doesn't exist in blocks-release. Tell the user to check the project's repo link in the portal.
 - `branch_environment_mismatch` (from `release deploy`): the connected repo's branch doesn't match this environment's name. The message states the branch found and the environment required - do not retry; the repo's connected branch must be fixed first.

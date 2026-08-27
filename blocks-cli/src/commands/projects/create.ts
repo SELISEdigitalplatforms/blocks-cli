@@ -1,6 +1,7 @@
 import { randomBytes } from "node:crypto";
 import { booleanFlag, stringFlag } from "../../lib/args.js";
 import { blocksRequest } from "../../lib/api.js";
+import { withAccountMode } from "../../lib/auth.js";
 import { confirmMutation } from "../../lib/confirm.js";
 import { CliActionableError } from "../../lib/errors.js";
 import { isRecord } from "../../lib/data-response.js";
@@ -76,10 +77,6 @@ export async function createProject(argv: string[]): Promise<void> {
     return;
   }
 
-  if (!booleanFlag(flags, "allow-duplicate-name")) {
-    await assertNameIsFree(name, flags);
-  }
-
   await confirmMutation(
     flags,
     `Create Blocks project '${name}' with a single '${ENVIRONMENT}' environment. This accepts the Blocks terms (isAcceptBlocksTerms, isUseBlocksExclusively) on your behalf.`
@@ -88,25 +85,29 @@ export async function createProject(argv: string[]): Promise<void> {
   // No tenantGroupId in the body: omitting it is what makes this a new
   // project. Sending one would instead add an environment to an existing
   // project, which this command deliberately cannot do.
-  const result = await blocksRequest<CreateProjectResponse>(CREATE_ENDPOINT, {
-    accountAuth: true,
-    ...requestContext(flags),
-    body
+  const transition = await withAccountMode(stringFlag(flags, "account") || undefined, async () => {
+    if (!booleanFlag(flags, "allow-duplicate-name")) await assertNameIsFree(name, flags);
+
+    const result = await blocksRequest<CreateProjectResponse>(CREATE_ENDPOINT, {
+      acceptFailureEnvelope: true,
+      accountAuth: true,
+      ...requestContext(flags),
+      body
+    });
+
+    if (!result?.isSuccess || !result.tenantGroupId) {
+      throw new CliActionableError(
+        `Project/Create rejected '${name}': ${formatErrors(result?.errors)}`,
+        "project_create_failed",
+        "blocks projects list --json"
+      );
+    }
+
+    const tenantGroupId = result.tenantGroupId;
+    const created = await findCreatedProject(tenantGroupId, flags);
+    return { created, tenantGroupId };
   });
-
-  // Project/Create answers validation failures with HTTP 200 and
-  // { isSuccess: false, errors: { property: message } }, so the status code
-  // alone never proves the project was created.
-  if (!result?.isSuccess || !result.tenantGroupId) {
-    throw new CliActionableError(
-      `Project/Create rejected '${name}': ${formatErrors(result?.errors)}`,
-      "project_create_failed",
-      "blocks projects list --json"
-    );
-  }
-
-  const tenantGroupId = result.tenantGroupId;
-  const created = await findCreatedProject(tenantGroupId, flags);
+  const { created, tenantGroupId } = transition.result;
   const tenantId = created?.tenantId ?? `${ENVIRONMENT_TENANT_PREFIX}${tenantGroupId}`;
 
   writeOutput(
@@ -127,10 +128,13 @@ export async function createProject(argv: string[]): Promise<void> {
     }
     console.log(`Next: blocks use ${tenantId}`);
   }
+  if (transition.restoreError) {
+    console.warn(`Warning: project '${name}' was created, but project session '${transition.previousProject}' could not be restored: ${transition.restoreError.message}`);
+  }
 }
 
 async function assertNameIsFree(name: string, flags: Record<string, string | boolean>): Promise<void> {
-  const groups = await listProjectGroups(flags);
+  const groups = await listProjectGroups(flags, { accountOnly: true });
   const target = name.toLowerCase();
   const clash = groups.some(
     (group) =>
@@ -161,7 +165,7 @@ async function findCreatedProject(
   for (let attempt = 0; attempt < VERIFY_ATTEMPTS; attempt += 1) {
     if (attempt > 0) await delay(VERIFY_INTERVAL_MS);
 
-    const groups = await listProjectGroups(flags).catch(() => []);
+    const groups = await listProjectGroups(flags, { accountOnly: true }).catch(() => []);
     const group = groups.find((item) => item.tenantGroupId === tenantGroupId);
     const project = (group?.projects ?? []).find(
       (item) => item.tenantId === expectedTenantId || item.environment === ENVIRONMENT

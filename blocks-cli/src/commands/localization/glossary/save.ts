@@ -1,4 +1,4 @@
-import { booleanFlag, stringFlag } from "../../../lib/args.js";
+import { booleanFlag, optionalBooleanFlag, stringFlag } from "../../../lib/args.js";
 import { blocksRequest } from "../../../lib/api.js";
 import { confirmMutation } from "../../../lib/confirm.js";
 import { compact, jsonBodyFlag, listFlag } from "../../../lib/json-flag.js";
@@ -13,7 +13,7 @@ export async function localizationGlossarySave(argv: string[]): Promise<void> {
     ...compact({
       additionalNote: stringFlag(flags, "additional-note") || undefined,
       context: stringFlag(flags, "context") || undefined,
-      isGlobal: booleanFlag(flags, "is-global") || undefined,
+      isGlobal: optionalBooleanFlag(flags, "is-global"),
       itemId: stringFlag(flags, "item-id") || undefined,
       language: stringFlag(flags, "language") || undefined,
       moduleIds: listFlag(flags, "module-ids"),

@@ -1,4 +1,4 @@
-import { booleanFlag, optionalIntegerFlag } from "../../lib/args.js";
+import { booleanFlag, optionalBooleanFlag, optionalIntegerFlag } from "../../lib/args.js";
 import { blocksRequest } from "../../lib/api.js";
 import { confirmMutation } from "../../lib/confirm.js";
 import { compact, jsonBodyFlag, listFlag } from "../../lib/json-flag.js";
@@ -11,13 +11,13 @@ export async function mfaConfigSave(argv: string[]): Promise<void> {
   const body = {
     ...(await jsonBodyFlag(flags)),
     ...compact({
-      allowBackupCodes: booleanFlag(flags, "allow-backup-codes") || undefined,
-      allowUserOptOut: booleanFlag(flags, "allow-user-opt-out") || undefined,
+      allowBackupCodes: optionalBooleanFlag(flags, "allow-backup-codes"),
+      allowUserOptOut: optionalBooleanFlag(flags, "allow-user-opt-out"),
       backupCodesCount: optionalIntegerFlag(flags, "backup-codes-count"),
-      enableMfa: booleanFlag(flags, "enable") || undefined,
+      enableMfa: optionalBooleanFlag(flags, "enable"),
       mfaExemptRoles: listFlag(flags, "exempt-roles"),
       mfaRequiredRoles: listFlag(flags, "required-roles"),
-      requireMfaForAllUsers: booleanFlag(flags, "require-for-all-users") || undefined,
+      requireMfaForAllUsers: optionalBooleanFlag(flags, "require-for-all-users"),
       userMfaType: listFlag(flags, "user-mfa-type")?.map(Number)
     })
   };

@@ -3,6 +3,8 @@ name: blocks-notifier
 description: "Push real-time/offline notifications and manage a signed-in user's own notification inbox, via both the SDK (`blocksClient.notifier.*`) and the CLI (`blocks notifier notify|list|unread|mark-read|mark-all-read`). Distinct from the sibling blocks-notification skill, which configures tenant notification-*channel* settings on a different backing service, not sending. `notifier unread` flattens its subscription filter into GET query params since Fetch forbids a GET body. `--dry-run` before `--yes` on CLI `notify`/`mark-read`/`mark-all-read`."
 ---
 
+When invoking a project-scoped `blocks` command, either use the resolved account's saved selection or pass `--project <tenantId>` for that one command without changing saved state. `--project` applies to CLI commands only, never SDK calls.
+
 # Blocks Notifier — Send & Inbox
 
 `notifier` pushes real-time/offline notifications to users, roles, or subscription-filter matches, and reads/manages the signed-in user's own notification inbox. This is a **separate, deliberate concern from the blocks-notification skill**, which manages a tenant's notification-*channel configuration* — which channel/method a notification type uses — on an unrelated backing service. Both this skill and the sibling skill confirm the same distinction from their own side. Don't merge them, and don't reconcile them as if one were a typo for the other — they hit different backing services. If the ask is "configure which channel a notification type uses," route to the blocks-notification skill instead.
@@ -19,9 +21,19 @@ Unlike `blocks-notification` (100% CLI, no SDK path), **`notifier` has both a CL
 
 ## CLI — `blocks notifier *`
 
-Every CLI command is project-scoped: each requires an impersonated project session — there is no account-level mode for any of the five. Project resolution follows the same order as everywhere else in this CLI: `--project <tenantId>` flag, then the workspace's `blocks.json`, then the globally selected project from `blocks use <tenantId>`. See the blocks-bootstrap skill if no project is selected yet.
+Every CLI command is project-scoped: each requires an impersonated project
+session, and there is no account-level mode for any of the five. Project
+resolution is `--project <tenantId>`, then the workspace's `blocks.json`, then
+the resolved account's selected project from `blocks use <tenantId>`. See the
+blocks-bootstrap skill if account or project context is unknown.
 
-- **`blocks notifier notify [--user-ids a,b] [--roles a,b] [--connection-id <id>] [--configuration-name <n>] [--subscription-filters '<json>'] [--denormalized-payload <text>] [--save-denormalized-payload-as-object] [--content-available] [--response-key <k>] [--response-value <v>] [--body '<json>'|--file <path>] [--dry-run] [--yes] [--json]`** — target with at least one of `--user-ids`/`--roles`/`--subscription-filters`. `--user-ids` and `--roles` are comma-separated lists; `--subscription-filters` is a raw JSON array string (e.g. `[{"context":"orders","actionName":"created","value":"*"}]`, matching `BlocksNotifierSubscriptionFilter[]`). The body is built by merging `--body`/`--file` first, then layering the convenience flags on top — so an explicit convenience flag always wins over the same field in `--body`/`--file`, and an unset one never overwrites what `--body`/`--file` supplied. `--content-available` and `--save-denormalized-payload-as-object` are true-only booleans (absent when not passed, never an explicit `false`).
+Once context is known, AI automation should pass it explicitly:
+
+```bash
+blocks notifier <command> --account <name> --project <tenantId> --json
+```
+
+- **`blocks notifier notify [--user-ids a,b] [--roles a,b] [--connection-id <id>] [--configuration-name <n>] [--subscription-filters '<json>'] [--denormalized-payload <text>] [--save-denormalized-payload-as-object] [--content-available] [--response-key <k>] [--response-value <v>] [--body '<json>'|--file <path>] [--dry-run] [--yes] [--json]`** — the request should target at least one of `--user-ids`/`--roles`/`--subscription-filters`; the CLI does not reject an empty target locally, so inspect the dry-run before approval. `--user-ids` and `--roles` are comma-separated lists; `--subscription-filters` is a raw JSON array string (e.g. `[{"context":"orders","actionName":"created","value":"*"}]`, matching `BlocksNotifierSubscriptionFilter[]`). The body is built by merging `--body`/`--file` first, then layering the convenience flags on top — so an explicit convenience flag always wins over the same field in `--body`/`--file`, and an unset one never overwrites what `--body`/`--file` supplied. `--content-available` and `--save-denormalized-payload-as-object` are true-only booleans (absent when not passed, never an explicit `false`).
 - **`blocks notifier list [--unread-only] [--page <n>] [--page-size <n>] [--sort-by <property>] [--sort-desc] [--filter <text>] [--json]`** — read-only.
 - **`blocks notifier unread [--user-id <id>] [--context <c>] [--action-name <a>] [--value <v>] [--order-by <1|2>] [--json]`** — read-only. See "The GET-with-a-body quirk" below.
 - **`blocks notifier mark-read <id> [--dry-run] [--yes] [--json]`** — `id` may be positional or `--id`; one of the two is required (`Missing --id` if neither given).
@@ -58,6 +70,7 @@ await blocksClient.notifier.notify({
 const inbox = await blocksClient.notifier.getNotifications({ isUnreadOnly: true, page: 1, pageSize: 20 });
 
 const unread = await blocksClient.notifier.getUnreadNotificationsBySubscriptionFilter({
+  orderBy: 1,
   userId: "user-1",
   subscriptionFilterData: { context: "orders", actionName: "created" }
 });
@@ -100,7 +113,7 @@ Always show the `--dry-run` output and get explicit approval before re-running w
 
 - "Send a notification to these user IDs from my app." -> SDK `blocksClient.notifier.notify({ userIds: [...] })`.
 - "Push a notification to everyone matching this subscription filter." -> SDK `notify({ subscriptionFilters: [...] })`, or `blocks notifier notify --subscription-filters '<json>' --dry-run --json` from the terminal.
-- "Show me a user's unread notifications for the 'orders' context." -> `blocks notifier unread --user-id <id> --context orders --json`, or SDK `getUnreadNotificationsBySubscriptionFilter({ userId, subscriptionFilterData: { context: "orders" } })`.
+- "Show me a user's unread notifications for the 'orders' context." -> `blocks notifier unread --user-id <id> --context orders --order-by 1 --json`, or SDK `getUnreadNotificationsBySubscriptionFilter({ orderBy: 1, userId, subscriptionFilterData: { context: "orders" } })`.
 - "List my notification inbox, unread only." -> `blocks notifier list --unread-only --json`, or SDK `getNotifications({ isUnreadOnly: true })`.
 - "Mark this notification as read." -> `blocks notifier mark-read <id> --dry-run --json`, then `--yes`.
 - "Mark everything in the inbox as read." -> `blocks notifier mark-all-read --dry-run --json`, then `--yes`.

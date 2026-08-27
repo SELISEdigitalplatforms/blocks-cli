@@ -1,55 +1,68 @@
 import { parseFlags, stringFlag } from "../lib/args.js";
-import { getImpersonatedProjectSession, pollDeviceToken, requestDeviceAuthorization } from "../lib/auth.js";
-import { getAccountProfile, readConfig, writeConfig } from "../lib/config.js";
+import { getImpersonatedProjectSession, pollDeviceToken, requestDeviceAuthorization, storeAccountLogin } from "../lib/auth.js";
+import { createAccountProfile, readConfig, resolveAccountProfile, writeConfig } from "../lib/config.js";
 import { openBrowser } from "../lib/open-browser.js";
+import { writeOutput } from "../lib/output.js";
 import { listProjectGroups } from "../lib/project-info.js";
-import { applyAccountToken } from "../lib/token.js";
-import { readTokenStore, writeTokenStore } from "../lib/token-store.js";
 import { readWorkspaceConfig } from "../lib/workspace.js";
 
 export async function login(argv: string[]): Promise<void> {
   const { flags } = parseFlags(argv);
-  const accountOverride = stringFlag(flags, "account");
-  const config = await readConfig();
-  const { name, profile } = getAccountProfile(config, accountOverride);
+  const progress = (message: string): void => flags.json ? console.error(message) : console.log(message);
+  const accountOverride = stringFlag(flags, "account").trim();
+  let config = await readConfig();
 
-  const device = await requestDeviceAuthorization(profile);
-  console.log("Authorize this device:");
-  console.log(`URL: ${device.verification_uri_complete ?? device.verification_uri}`);
-  console.log(`Code: ${device.user_code}`);
+  if (accountOverride && !config.accounts[accountOverride]) {
+    config = {
+      ...config,
+      accounts: {
+        ...config.accounts,
+        [accountOverride]: createAccountProfile()
+      }
+    };
+    await writeConfig(config);
+  }
+
+  const { name, profile } = await resolveAccountProfile(config, accountOverride || undefined);
+
+  const device = await requestDeviceAuthorization(profile, name);
+  progress("Authorize this device:");
+  progress(`URL: ${device.verification_uri_complete ?? device.verification_uri}`);
+  progress(`Code: ${device.user_code}`);
 
   if (device.verification_uri_complete) {
     const opened = await openBrowser(device.verification_uri_complete);
-    console.log(opened
+    progress(opened
       ? "Opened your browser to approve this device -- just confirm the code above."
       : "Browser auto-open is unavailable on this machine. Open the URL above manually.");
   } else {
-    console.log("Open the URL above and enter the code to approve this device.");
+    progress("Open the URL above and enter the code to approve this device.");
   }
 
-  console.log("Waiting for approval...");
+  progress("Waiting for approval...");
 
   const token = await pollDeviceToken(profile, device, {
-    onWait: (seconds) => console.log(`Checking for approval in ${seconds}s...`)
+    accountName: name,
+    onWait: (seconds) => progress(`Checking for approval in ${seconds}s...`)
   });
+  await storeAccountLogin(name, profile, token);
   const latest = await readConfig();
-  const latestStore = await readTokenStore();
-  const next = applyAccountToken(latest, latestStore, name, profile.clientId, token);
-  await writeConfig(next.config);
-  await writeTokenStore(next.store);
 
-  console.log("Login done.");
+  progress("Login done.");
 
   const workspace = await readWorkspaceConfig();
-  const rememberedTenantId = workspace.project?.tenantId ?? next.config.selectedProject?.tenantId;
+  const rememberedTenantId = workspace.project?.tenantId ?? latest.accounts[name]?.selectedProject?.tenantId;
 
   if (rememberedTenantId) {
     try {
       await getImpersonatedProjectSession(name, rememberedTenantId);
-      console.log(`Re-selected project tenant ${rememberedTenantId}.`);
+      progress(`Re-selected project tenant ${rememberedTenantId}.`);
+      if (flags.json) writeOutput({ account: name, authenticated: true, projectReselected: true, tenantId: rememberedTenantId }, flags);
     } catch (error) {
-      console.log(`Could not re-select project tenant ${rememberedTenantId}: ${error instanceof Error ? error.message : String(error)}`);
-      console.log("Run 'blocks use <tenantId>' to select a project.");
+      const projectError = error instanceof Error ? error.message : String(error);
+      progress(`Could not re-select project tenant ${rememberedTenantId}: ${projectError}`);
+      progress("Run 'blocks use <tenantId>' to select a project.");
+      if (flags.json) writeOutput({ account: name, authenticated: true, projectError, projectReselected: false, tenantId: rememberedTenantId }, flags);
     }
     return;
   }
@@ -58,16 +71,28 @@ export async function login(argv: string[]): Promise<void> {
     const groups = await listProjectGroups(flags);
     const projects = groups.flatMap((group) => group.projects ?? []);
     if (projects.length === 0) {
-      console.log("No projects found for this account.");
+      progress("No projects found for this account.");
+      if (flags.json) writeOutput({ account: name, authenticated: true, projects: [] }, flags);
       return;
     }
 
-    console.log("Available projects:");
+    progress("Available projects:");
     for (const project of projects) {
-      console.log(`  ${project.tenantId ?? "-"}  ${project.name ?? "-"}  ${project.environment ?? "-"}`);
+      progress(`  ${project.tenantId ?? "-"}  ${project.name ?? "-"}  ${project.environment ?? "-"}`);
     }
-    console.log("Run 'blocks use <tenantId>' to select one.");
+    progress("Run 'blocks use <tenantId>' to select one.");
+    if (flags.json) writeOutput({
+      account: name,
+      authenticated: true,
+      projects: projects.map((project) => ({
+        environment: project.environment ?? null,
+        name: project.name ?? null,
+        tenantId: project.tenantId ?? null
+      }))
+    }, flags);
   } catch (error) {
-    console.log(`Could not list projects: ${error instanceof Error ? error.message : String(error)}`);
+    const projectListError = error instanceof Error ? error.message : String(error);
+    progress(`Could not list projects: ${projectListError}`);
+    if (flags.json) writeOutput({ account: name, authenticated: true, projectListError, projects: null }, flags);
   }
 }

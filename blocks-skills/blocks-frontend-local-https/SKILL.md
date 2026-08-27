@@ -3,6 +3,8 @@ name: blocks-frontend-local-https
 description: "Run a scaffolded (`blocks new web`) Blocks app locally over HTTPS on its real project domain — required for hosted IAM login, since plain HTTP or localhost never gets the session cookie. The scaffold already automates cert generation (npm run cert, no OpenSSL needed) and HTTPS serving via vite.config.ts. Covers running that flow, trusting the cert, the hosts-file entry, and troubleshooting. Use when running a scaffolded app over HTTPS, hitting 'SSO cookie not set' / Vite 'Blocked request' errors, trusting the dev cert, or asking why local login redirects back but doesn't stay signed in."
 ---
 
+When invoking a project-scoped `blocks` command, either use the resolved account's saved selection or pass `--project <tenantId>` for that one command without changing saved state. `--project` applies to CLI commands only, never SDK calls.
+
 # Blocks Frontend — Local HTTPS for a Scaffolded App
 
 The local dev loop for an app already created with `blocks new web` (blocks-bootstrap covers the scaffold command itself). The scaffold **already generates its own cert tooling** — nothing here is built from scratch, and nothing uses raw `openssl`/`curl`/`fetch`.

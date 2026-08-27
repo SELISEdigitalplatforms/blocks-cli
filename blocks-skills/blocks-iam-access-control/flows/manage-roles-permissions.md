@@ -4,7 +4,7 @@ This is the write side, and it's legitimate **only in direct response to a human
 
 ## CLI command reference
 
-All project-scoped — every command resolves the active project (`blocks use <tenantId>` or an explicit `--project <tenantId>`) and runs on an impersonated project token, not the account token `iam me` uses.
+All project-scoped — every command resolves the active project (`blocks use <tenantId>` or an explicit `--project <tenantId>`) and runs on an impersonated project token. `iam me` also prefers that token when a project resolves, but can fall back to account auth when none does.
 
 ```
 blocks iam roles list [--page] [--page-size] [--search] [--slugs a,b] [--organization-id] [--filter '<json>'] [--json]
@@ -113,7 +113,7 @@ blocks iam roles assign-permissions editor --add-permissions content::publish --
 
 ## Gotchas
 
-- **CLI mutations are project-scoped, not account-scoped** — `blocks iam roles create/update/assign-permissions` and `blocks iam permissions create/update` all require a selected project (`blocks use <tenantId>` or `--project <tenantId>`) and run against the impersonated-project token; `blocks iam me` is the one IAM command that uses the account token instead, so don't expect `iam me`'s auth context to carry over to these.
+- **CLI mutations are project-scoped, not account-scoped** — `blocks iam roles create/update/assign-permissions` and `blocks iam permissions create/update` all require a selected project (`blocks use <tenantId>` or `--project <tenantId>`) and run against the impersonated-project token. `blocks iam me` prefers the same mode when a project resolves and falls back to account auth only when none does.
 - **Role hierarchy and permission assignment key off `slug`**, not `itemId` — grab it from `roles.list()`/`roles.get()` (or `blocks iam roles list/get`) before calling `assignPermissions`.
 - **Permission assignment ultimately uses permission `itemId`s** — the CLI resolves `resource` strings like `content::publish` before mutation; SDK/backend callers should pass permission ids directly in `addPermissions` / `removePermissions`.
 - **`roles.assignPermissions` is additive/subtractive** (`addPermissions[]` / `removePermissions[]` in one call), not a full-set replace — compute the delta from what's checked/unchecked, don't resend the entire permission list as "adds."

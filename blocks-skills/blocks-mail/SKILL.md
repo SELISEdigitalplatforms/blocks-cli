@@ -3,7 +3,13 @@ name: blocks-mail
 description: "Send transactional email via the SDK's `blocksClient.mail.send()`/`sendToAny()`, or administer mail via the project-scoped `blocks mail config|template|mailbox *` CLI — server config, template CRUD/clone, mailbox reads, none of which have an SDK equivalent. CLI also exposes `mail send`/`sendtoany` as an admin/terminal mirror of the SDK calls. CLI mutations require `--dry-run` before `--yes`. Use for app email sending, or managing SMTP/inbound providers, templates, mailbox history."
 ---
 
+When invoking a project-scoped `blocks` command, either use the resolved account's saved selection or pass `--project <tenantId>` for that one command without changing saved state. `--project` applies to CLI commands only, never SDK calls.
+
 # Blocks Mail
+
+For CLI work, use blocks-bootstrap first when account or project context is
+unknown. Mail operations must not choose or repair authentication context as a
+side effect.
 
 Blocks mail has **two distinct surfaces that don't fully overlap**:
 
@@ -34,13 +40,13 @@ await blocksClient.mail.send({
 
 ## CLI — administering mail (`blocks mail config|template|mailbox *`)
 
-Everything under `mail config`, `mail template`, and `mail mailbox` is project-scoped: every command requires an impersonated project session, resolving the target project from whichever project is selected with `blocks use <tenantId>`, the workspace's `blocks.json`, or an explicit `--project <tenantId>`. There is no account-level mode for any mail command, including `mail send`/`mail sendtoany`.
+Everything under `mail config`, `mail template`, and `mail mailbox` is project-scoped: every command requires an impersonated project session. Project resolution is an explicit `--project <tenantId>`, then the workspace's `blocks.json`, then the resolved account's selection from `blocks use <tenantId>`. There is no account-level mode for any mail command, including `mail send`/`mail sendtoany`.
 
 ### `mail config` — SMTP/inbound provider configuration
 
 - **`blocks mail config list [--json]`** — read-only.
 - **`blocks mail config get <name> [--json]`** — read-only (positional arg, or `--name`).
-- **`blocks mail config save [--configuration-id <id>] [--name <n>] [--host <h>] [--port <p>] [--enable-ssl] [--inbound] [--provider <n>] [--sender-name <n>] [--sender-address <addr>] [--sender-username <u>] [--account-password <p>] [--body '<json>'|--file <path>] [--dry-run] [--yes] [--json]`** — upsert: omit `--configuration-id` to create, pass it to update. `--provider` and `--port` are raw integers (the CLI doesn't document the provider enum's meaning — don't guess a value). `--account-password` is redacted (`***`) in `--dry-run` output only; the live response and stored value are still sensitive.
+- **`blocks mail config save [--configuration-id <id>] [--name <n>] [--host <h>] [--port <p>] [--enable-ssl] [--inbound] [--provider <n>] [--sender-name <n>] [--sender-address <addr>] [--sender-username <u>] [--account-password <p>] [--body '<json>'|--file <path>] [--dry-run] [--yes] [--json]`** — the create-or-update call for a mail server, so omitting `--configuration-id` is what makes it a new one. `--provider` and `--port` are raw integers (the CLI doesn't document the provider enum's meaning — don't guess a value). `--account-password` is redacted (`***`) in `--dry-run` output only; the live response and stored value are still sensitive.
 - **`blocks mail config delete <configurationId> [--dry-run] [--yes] [--json]`**
 - **`blocks mail config duplicate <configurationId> [--dry-run] [--yes] [--json]`**
 
@@ -48,13 +54,13 @@ Everything under `mail config`, `mail template`, and `mail mailbox` is project-s
 
 - **`blocks mail template list [--configuration-id <id>] [--language <l>] [--search <q>] [--sort-by <field>] [--sort-desc] [--page-number 1] [--page-size 20] [--json]`** — read-only.
 - **`blocks mail template get <itemId> [--json]`** — read-only.
-- **`blocks mail template save [--item-id <id>] [--name <n>] [--configuration-id <id>] [--language <l>] [--subject <s>] [--template-body <html>] [--json-content <json>] [--image-id <id>] [--image-url <url>] [--body '<json>'|--file <path>] [--dry-run] [--yes] [--json]`** — upsert: omit `--item-id` to create, pass it to update.
+- **`blocks mail template save [--item-id <id>] [--name <n>] [--configuration-id <id>] [--language <l>] [--subject <s>] [--template-body <html>] [--json-content <json>] [--image-id <id>] [--image-url <url>] [--body '<json>'|--file <path>] [--dry-run] [--yes] [--json]`** — one template per language, so a multi-language template means one `save` per `--language`. Omitting `--item-id` creates rather than updates.
 - **`blocks mail template delete <itemId> [--dry-run] [--yes] [--json]`**
 - **`blocks mail template clone <itemId> [--name <n>] [--configuration-id <id>] [--language <l>] [--subject <s>] [--dry-run] [--yes] [--json]`**
 
 ### `mail mailbox` — mailbox message reads
 
-- **`blocks mail mailbox list [--inbound] [--page-number 1] [--page-size 20] [--search <q>] [--start-date <date>] [--end-date <date>] [--status <s>] [--json]`** — read-only. There is **no `--configuration-id` flag** on this command (see Gotchas — this corrects a stale example elsewhere in this repo's own docs).
+- **`blocks mail mailbox list [--inbound[=false]] [--page-number 1] [--page-size 20] [--search <q>] [--start-date <date>] [--end-date <date>] [--status <s>] [--json]`** — read-only. There is **no `--configuration-id` flag** on this command.
 - **`blocks mail mailbox get <messageId> [--json]`** — read-only (positional arg, or `--id`).
 
 ### `mail send` / `mail sendtoany` — CLI mirror of the SDK send calls
@@ -76,7 +82,7 @@ Every write command (`config save/delete/duplicate`, `template save/delete/clone
 ## Gotchas
 
 - **The premise that mail has no SDK path at all is wrong for sending.** `blocksClient.mail.send()`/`sendToAny()` exist and are the correct answer for "send email from my app." Only `config`/`template`/`mailbox` administration is CLI-only.
-- **`mail mailbox list` does not take `--configuration-id`.** This CLI's own usage guide has previously shown an example with that flag that isn't backed by the actual flag list — the real command only reads `--inbound`, `--page-number`, `--page-size`, `--search`, `--start-date`, `--end-date`, `--status`. The CLI's flag parser silently ignores unrecognized `--` flags rather than erroring, so a stale example like that "works" without doing what it implies. Don't repeat it; use the real flags above.
+- **`mail mailbox list` does not take `--configuration-id`.** The real command only reads `--inbound`, `--page-number`, `--page-size`, `--search`, `--start-date`, `--end-date`, and `--status`. Unknown flags are ignored by the generic parser, so use only the documented surface.
 - **`--account-password` (config save) is redacted only in `--dry-run` output.** The live `config save`/`config get` response is not redacted — treat it as a secret regardless.
 - **`--provider` and `--port` on `config save` are raw values with no documented enum/meaning in the CLI** — don't invent what a given integer means; ask the user or read it back from `config get` on an existing configuration.
 - **`purpose`/`language` on `send`/`sendtoany` select a template implicitly** — there's no lookup or validation for which `purpose` strings are valid for a tenant. Confirm against `mail template list`/`get` rather than guessing a purpose name.

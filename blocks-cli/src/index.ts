@@ -202,13 +202,21 @@ import { notifierMarkAllRead } from "./commands/notifier/mark-all-read.js";
 import { notifierMarkRead } from "./commands/notifier/mark-read.js";
 import { notifierNotify } from "./commands/notifier/notify.js";
 import { notifierUnread } from "./commands/notifier/unread.js";
-import { secretsGet } from "./commands/secrets/get.js";
-import { secretsSave } from "./commands/secrets/save.js";
 import { storageConfigDelete } from "./commands/storage/config/delete.js";
 import { storageConfigGet } from "./commands/storage/config/get.js";
 import { storageConfigList } from "./commands/storage/config/list.js";
 import { storageConfigSave } from "./commands/storage/config/save.js";
+import type { CommandEntry } from "./lib/command-catalog.js";
 import { CliActionableError } from "./lib/errors.js";
+import {
+  findCommand,
+  renderCommand,
+  renderFamily,
+  renderIndex,
+  resolveHelpTarget,
+  unknownFlagMessage,
+  unknownFlags
+} from "./lib/help.js";
 
 type CommandHandler = (args: string[]) => Promise<void>;
 
@@ -220,7 +228,7 @@ const commands: Partial<Record<string, CommandHandler>> = {
   "auth:status": authStatus,
   "auth:refresh": authRefresh,
   "doctor": doctor,
-  "init": () => init(),
+  "init": init,
   "login": login,
   "logout": logout,
   "projects:create": createProject,
@@ -399,8 +407,6 @@ const commands: Partial<Record<string, CommandHandler>> = {
   "notifier:unread": notifierUnread,
   "notifier:mark-read": notifierMarkRead,
   "notifier:mark-all-read": notifierMarkAllRead,
-  "secrets:get": secretsGet,
-  "secrets:save": secretsSave,
   "storage:config:list": storageConfigList,
   "storage:config:get": storageConfigGet,
   "storage:config:save": storageConfigSave,
@@ -429,7 +435,7 @@ const commands: Partial<Record<string, CommandHandler>> = {
 
 const MAX_COMMAND_WORDS = 4;
 
-function resolveCommand(argv: string[]): { handler: CommandHandler; args: string[] } | null {
+function resolveCommand(argv: string[]): { args: string[]; handler: CommandHandler; name: string } | null {
   const words: string[] = [];
   let tokensConsumed = 0;
 
@@ -440,7 +446,7 @@ function resolveCommand(argv: string[]): { handler: CommandHandler; args: string
     tokensConsumed++;
 
     const handler = commands[words.join(":")];
-    if (handler) return { handler, args: argv.slice(tokensConsumed) };
+    if (handler) return { args: argv.slice(tokensConsumed), handler, name: words.join(" ") };
     if (words.length >= MAX_COMMAND_WORDS) break;
   }
 
@@ -450,17 +456,50 @@ function resolveCommand(argv: string[]): { handler: CommandHandler; args: string
 const argv = process.argv.slice(2);
 const [command, subcommand] = argv;
 
+const asJson = argv.includes("--json");
+const isHelpRequest = !command || command === "help" || command === "--help" || command === "-h";
+// 'blocks help <command>' is a registered path rather than '<command> --help':
+// most handlers treat --help as an ordinary argument and would run for real
+// (e.g. 'login --help' would perform an actual login), so the safe spelling is
+// a dedicated help command that never reaches a handler.
+const helpWords = command === "help" ? argv.slice(1).filter((token) => !token.startsWith("-")) : [];
+
 try {
   if (command === "--version" || command === "-v" || command === "version") {
     await printVersion();
-  } else if (!command || command === "help" || command === "--help" || command === "-h") {
+  } else if (isHelpRequest && helpWords.length > 0) {
+    const target = resolveHelpTarget(helpWords.flatMap((word) => word.split(":").filter(Boolean)));
+    if (!target) {
+      throw new CliActionableError(
+        `No command or family matches '${helpWords.join(" ")}'.`,
+        "unknown_help_target",
+        "blocks --help --json"
+      );
+    }
+    console.log(target.exact
+      ? renderCommand(target.exact, asJson)
+      : renderFamily(target.name, target.entries, asJson));
+  } else if (isHelpRequest && asJson) {
+    console.log(renderIndex());
+  } else if (isHelpRequest) {
     printHelp();
   } else {
     const resolved = resolveCommand(argv);
     if (!resolved) {
       throw new Error(`Unknown command: ${[command, subcommand].filter(Boolean).join(" ")}`);
     }
-    await resolved.handler(resolved.args);
+
+    const entry = findCommand(resolved.name);
+    if (entry && (resolved.args.includes("--help") || resolved.args.includes("-h"))) {
+      // '<command> --help' used to fall through to the handler, which treats
+      // --help as an ordinary argument and runs for real -- 'login --help'
+      // performed an actual login. Route it to the same renderer
+      // 'blocks help <command>' uses instead of ever reaching a handler.
+      console.log(renderCommand(entry, asJson));
+    } else {
+      if (entry) reportUnknownFlags(entry, resolved.args);
+      await resolved.handler(resolved.args);
+    }
   }
 } catch (error) {
   const cliError = toCliError(error);
@@ -471,6 +510,27 @@ try {
     if (cliError.nextStep) console.error(`Next: ${cliError.nextStep}`);
   }
   process.exitCode = 1;
+}
+
+/**
+ * Says something when a command was handed a flag it will never read.
+ *
+ * Warns rather than failing by default: the flag list is derived from source,
+ * and a false positive that refused a working command would be worse than the
+ * silence this replaces. Set BLOCKS_STRICT_FLAGS=1 (CI, scripted agent runs)
+ * to turn the warning into a hard failure before anything is sent.
+ */
+function reportUnknownFlags(entry: CommandEntry, args: string[]): void {
+  const unknown = unknownFlags(entry, args);
+  if (unknown.length === 0) return;
+
+  const message = unknownFlagMessage(entry, unknown);
+  if (process.env.BLOCKS_STRICT_FLAGS) {
+    throw new CliActionableError(message, "unknown_flag", `blocks help ${entry.name}`);
+  }
+
+  // stderr, so it stays out of a --json document being piped into a parser.
+  console.error(`Warning: ${message}`);
 }
 
 async function printVersion(): Promise<void> {
@@ -526,8 +586,8 @@ Global options:
   --version                 Print CLI version.
   --json                    Print machine-readable JSON where supported.
   --api-url <url>           Override Blocks API URL for this command.
-  --account <name>          Use a named account profile; default is implicit.
-  --project <tenantId>      Use a project tenant for project-scoped commands.
+  --account <name>          Use exactly this account from the resolved config store.
+  --project <tenantId>      Override the project for this command only.
   --dry-run                 Show planned mutation without calling the API.
   --yes                     Skip mutation confirmation after explicit approval.
 
@@ -537,15 +597,17 @@ Setup and health:
     and .env.example.
 
   blocks doctor [--json]
-    Check local Node.js, OIDC config, token cache, selected project, and config
-    file locations. Does not mutate cloud resources.
+    Inspect cached Node.js, OIDC config, token, optional project, and storage
+    health. Account-only mode is valid. Performs no token refresh, network
+    request, or state write.
 
 Auth:
-  blocks login
+  blocks login [--account <name>]
     Device-code login. Prints a verification URL and user code, opens the
     browser to the verification page when possible so you only need to click
-    approve, then polls until the device is authorized; stores account access
-    and refresh tokens and auto-refreshes later. If a project was previously
+    approve, then polls until the device is authorized; bootstraps a missing
+    named profile without importing credentials, stores account access and
+    refresh tokens, and makes that account active. If a project was previously
     selected, re-impersonates it automatically; otherwise lists projects and
     prompts you to run 'blocks use <tenantId>'.
 
@@ -575,6 +637,8 @@ Projects:
     --allow-duplicate-name is passed. Verifies the result against
     Project/Gets and prints the new tenantId, tenantGroupId, and assigned
     domain. Does not select the project -- run 'blocks use <tenantId>' next.
+    If the account is in project mode, temporarily stops that session for the
+    account-level create call and restores it afterward.
 
   blocks projects list [--json]
     List accessible Blocks projects via /os/v4/Project/Gets. Uses the
@@ -588,14 +652,14 @@ Projects:
     to resolve its target. Read-only.
 
   blocks use <project-tenant-id>
-    Save the selected project tenant globally and in blocks.json when present,
+    Save the selected project tenant for the resolved account and in blocks.json,
     then immediately impersonate it. If a different project was selected,
     stops that impersonation first to reclaim a fresh account refresh token
     before starting the new one.
 
   blocks deselect
     Stop the active impersonation (restoring a fresh account refresh token),
-    then clear the selected project tenant (globally and in blocks.json) and
+    then clear that account's selected project tenant and blocks.json entry and
     drop its cached impersonation token. Run 'blocks use <tenantId>' again to
     reselect and re-impersonate.
 
@@ -710,14 +774,14 @@ MFA (/iam/v4/mfa*, project-scoped: requires a selected project, impersonated pro
     Composed enrollment: totp setup -> (scan the printed QR/secret, enter the code --
     interactively prompted if --code is omitted) -> totp verify-setup -> method set
     --mfa-type <n> -> backup-codes generate. One sitting, one confirmation.
-    --mfa-type is required and not defaulted: the numeric value meaning "TOTP" is
-    tenant-defined and undocumented here (same value plain mfa method set expects) --
-    look it up rather than guessing.
+    Non-interactive callers must pass --code or receive interactive_input_required.
+    --mfa-type is required and not defaulted: pass IAM UserMfaType 1 for TOTP
+    (the same value plain mfa method set expects).
   blocks mfa generate --mfa-type <n> [--send-phone-number-as-email-domain <domain>] [--json]
     Send an OTP challenge; returns an mfaId to pass to resend/verify.
   blocks mfa resend <mfaId> [--send-phone-number-as-email-domain <domain>] [--json]
   blocks mfa verify <mfaId> <code> --auth-type <n> [--from-token-call] [--json]
-  blocks mfa method set --mfa-type <n> [--json]
+  blocks mfa method set --mfa-type <n> [--dry-run] [--yes] [--json]
     Switch the impersonated user's active MFA method. IAM only branches on 1 (TOTP) and
     2 (Email) here -- any other value falls through to its disable path and turns the
     user's MFA off. Use 'blocks mfa disable' when that is what you mean.
@@ -794,15 +858,6 @@ Notifier (/logic/v4/Notifier/* — real-time/offline notification sends and inbo
   blocks notifier mark-read <id> [--dry-run] [--yes] [--json]
   blocks notifier mark-all-read [--dry-run] [--yes] [--json]
 
-Secrets (/os/v4/Secrets/* — project-scoped: requires a selected project, impersonated project
-          token only; generic tenant secret storage, e.g. captcha provider config):
-  blocks secrets get <secretKey> [--page-number 0] [--page-size 10] [--json]
-  blocks secrets save --secret-key <key> [--item-id <id>] --key-value-pairs '<json>'
-                              [--body '<json>'|--file <path>] [--dry-run] [--yes] [--json]
-    Upsert: omit --item-id to create, pass it to update. --key-value-pairs is a flat
-    JSON object of provider-specific fields, e.g.
-    --key-value-pairs '{"isEnable":"true","provider":"recaptcha","captchaKey":"...","captchaSecret":"..."}'.
-
 Storage (/os/v4/Storage/* — project-scoped: requires a selected project, impersonated project token only):
   blocks storage config list [--json]
   blocks storage config get <name> [--json]
@@ -854,13 +909,13 @@ Auth Admin (/iam/v4/auth/identity-providers*, /config, /client-credentials, /oid
   blocks auth client-credentials save --name <n> [--item-id <id>] [--roles a,b]
                               [--permissions a,b] [--access-token-valid-minutes] [--active]
                               [--body '<json>'|--file <path>] [--dry-run] [--yes] [--json]
-    Omit --item-id to create; pass it to update. The response's clientSecret is
-    shown once and is not retrievable again afterward.
+    Omit --item-id to create; pass it to update. The response carries no clientSecret;
+    read it back from 'auth client-credentials list', which returns it in full.
   blocks auth client-credentials delete <id> [--dry-run] [--yes] [--json]
 
   blocks auth oidc-clients list [--json]
-    List registered OAuth 2.0 / OIDC client applications for the tenant. client_secret
-    is excluded from list/get responses.
+    List registered OAuth 2.0 / OIDC client applications for the tenant. The service
+    returns client_secret in full here; the CLI redacts it. Use rotate-secret to get one.
   blocks auth oidc-clients get <clientId> [--json]
   blocks auth oidc-clients save [--item-id <id>] [--client-display-name] [--client-type]
                               [--redirect-uris a,b] [--post-logout-redirect-uris a,b]
@@ -873,7 +928,7 @@ Auth Admin (/iam/v4/auth/identity-providers*, /config, /client-credentials, /oid
                               [--register-as-identity-provider] [--oidc-url] [--device-flow-client]
                               [--body '<json>'|--file <path>] [--dry-run] [--yes] [--json]
     Upsert: omit --item-id to register a new client, pass it to update an existing one.
-    The response's client_secret is shown once and is not retrievable again afterward.
+    The response's client_secret is shown here; the service also returns it on list/get, where the CLI redacts it.
     --client-type is not optional in practice: IAM derives tokenEndpointAuthMethod from it,
     so omitting it stores a browser/SPA client as confidential ("client_secret_post") and
     lets it request the client_credentials grant. Pass --client-type public for any
@@ -1187,22 +1242,23 @@ Release:
   blocks release builds list [repoId] [--repo-id <repoId>] [--json]
     List Release build details for a repository using an impersonated project
     token. When repoId is omitted, resolves it from the selected project's
-    linked repo assets (Project/GetAsset, account token) -- auto-picked if
-    there's exactly one, otherwise you're prompted to choose. Read-only.
+    linked repo assets (Project/GetAsset, preferring project auth) -- auto-picked if
+    there's exactly one, otherwise you're prompted to choose. Non-interactive callers
+    must pass repoId/--repo-id or receive interactive_input_required. Read-only.
 
   blocks release builds get <buildId> [--json]
     Alias for release status. Read-only.
 
 Scaffold:
-  blocks new web <name> [--app-domain <domain>] [--client-id <oidcClientId>]
+  blocks new web <name> [--app-domain <domain>] [--client-id <oidcClientId>] [--yes]
                     [--x-blocks-key <tenantId>] [--blocks-api-url <url>] [--oidc-url <url>]
     Create a Vite React starter app that talks to Blocks exclusively through
     @seliseblocks/client (a single createBlocksClient() instance) using the SDK
     hosted IdP flow: blocksClient.auth.idp.redirectToProvider() on login click
     and blocksClient.auth.idp.callback() on /login/callback. Includes route
     guards, auto-refresh through auth.oidc.refreshToken(), live
-    auth/iam/data/localization SDK examples, environment config, and safe
-    .gitignore defaults.
+    auth/iam/localization SDK examples, a Profile landing page, environment
+    config, and safe .gitignore defaults.
     Uses the selected project (see 'use') unless --x-blocks-key overrides it.
     --app-domain and --client-id are resolved from the project when omitted:
     if the project has one domain it's used automatically, otherwise you're
@@ -1211,6 +1267,11 @@ Scaffold:
     name + redirect URI, active, registered as a Blocks OIDC identity
     provider) on the spot, or skip and register one later from the portal or
     'auth oidc-clients save'.
+    Non-interactive callers must provide --app-domain and --client-id or receive
+    interactive_input_required.
+    When a client id resolves, the command checks AuthController and may enable
+    OIDC login. In non-interactive runs, pass --yes only after approving that
+    possible tenant mutation; failure stops before scaffold files are written.
     If --blocks-api-url is omitted, it is derived from the app domain:
     https://blocksapi.<registrable-domain> (for example, app domain
     https://dqrsf.slsblx.com uses https://blocksapi.slsblx.com). Pass a

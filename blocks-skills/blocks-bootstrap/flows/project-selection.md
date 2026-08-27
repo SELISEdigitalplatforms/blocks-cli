@@ -2,7 +2,10 @@
 
 Three ways in, one exit: a project is selected and verified. Pick the branch that matches what the user already gave you — do not walk them through the others.
 
-Everything below needs the CLI logged in first. If `blocks auth status --json` shows the account tokens `missing` or `expired` with no refresh, go back and run `blocks login`.
+Everything below needs a usable account or project token pair for the resolved
+account. Missing account tokens are normal while a valid project pair exists.
+If all tokens are missing, return to the bootstrap skill: log in explicitly for
+local use, or require launcher bootstrap for Code Studio.
 
 ## Branch A — the user supplied an x-blocks-key
 
@@ -52,7 +55,7 @@ blocks use <tenantId>
 
 `--dry-run` returns before the duplicate-name check, so a dry run never tells you the name is taken. The real run does: it refuses with `project_name_taken` if any project on the account already uses that name, and only `--allow-duplicate-name` overrides that. Names must be 3–100 characters.
 
-What it creates is deliberately narrow: exactly one application, always in the `dev` environment. Domain, cookie domain, and production flag are fixed and not configurable. The domain it sends is a placeholder the platform discards and replaces with one it assigns, so read the real domain back from the result rather than from the request. Provisioning is asynchronous, so the command polls briefly and reports whether the new project has been published yet. Adding further environments to an existing project is portal-only.
+What it creates is deliberately narrow (see `blocks help projects create` for the exact shape — dev-only environment, placeholder domain, session handling). Provisioning is asynchronous, so the command polls briefly and reports whether the new project has been published yet; read the real domain back from the result rather than from the request. The new project is not selected automatically.
 
 **If it fails with `{"code": "command_failed", "message": "Unknown command: projects create"}`**, this build cannot create projects. Check whether that is fixable before sending the user elsewhere:
 
@@ -74,9 +77,10 @@ blocks deselect
 blocks use <x-blocks-key>
 ```
 
-`deselect` drops both the selection and its cached impersonation token; reselecting the same key forces a fresh one.
+`deselect` exchanges the project pair for a fresh account pair and clears the
+account-specific selection; reselecting exchanges back to a fresh project pair.
 
-One failure that looks like this but is not: `impersonation_invalid_client` means the account's OIDC client is not registered for impersonation. Re-selecting will not fix it — check `blocks auth config get` and have an admin register it.
+One failure that looks like this but is not: `impersonation_invalid_client` means the CLI client id printed in the error is not registered for project impersonation. Give that id to an admin. Re-login, re-selection, and `auth config` cannot repair it.
 
 ## Done when
 

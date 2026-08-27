@@ -5,6 +5,7 @@ import { defaults } from "../../../lib/config.js";
 import { compact, jsonBodyFlag, listFlag } from "../../../lib/json-flag.js";
 import { withBlocksIdentityProviderDiscovery } from "../../../lib/oidc-discovery.js";
 import { writeOutput } from "../../../lib/output.js";
+import { redactSecrets } from "../../../lib/redact.js";
 import { requestContext } from "../../../lib/request-context.js";
 import { parseCommand, selectedProject } from "../../../lib/workspace.js";
 
@@ -57,10 +58,25 @@ export async function authOidcClientsSave(argv: string[]): Promise<void> {
         projectTenantId: projectKey
       })
     : {};
-  const body = withBlocksIdentityProviderDiscovery({ ...current, ...overrides }, oidcUrl, projectKey);
+
+  // Registering a NEW client is the bootstrap path, and a bootstrap client that
+  // omits these two is not a working login:
+  //   isAutoRedirect        -- without it IAM parks the user on an interstitial
+  //                            "continue" page instead of redirecting to the provider.
+  //   registerAsIdentityProvider -- without it no identity provider is linked, so
+  //                            '/idp/initiate' has nothing to redirect to.
+  // Both stay explicitly overridable (`--auto-redirect=false`), and neither is
+  // defaulted when updating an existing client, where `current` already carries
+  // whatever was chosen at registration time.
+  const newClientDefaults = itemId ? {} : { isAutoRedirect: true, registerAsIdentityProvider: true };
+  const body = withBlocksIdentityProviderDiscovery(
+    { ...newClientDefaults, ...current, ...overrides },
+    oidcUrl,
+    projectKey
+  );
 
   if (booleanFlag(flags, "dry-run")) {
-    writeOutput({ dryRun: true, endpoint: "/iam/v4/oidc-clients", request: redactSecret(body) }, flags);
+    writeOutput({ dryRun: true, endpoint: "/iam/v4/oidc-clients", request: redactSecrets(body) }, flags);
     return;
   }
 
@@ -72,9 +88,4 @@ export async function authOidcClientsSave(argv: string[]): Promise<void> {
     projectTenantId: projectKey
   });
   writeOutput(result, flags);
-}
-
-function redactSecret(body: Record<string, unknown>): Record<string, unknown> {
-  if (!body.clientSecret) return body;
-  return { ...body, clientSecret: "***" };
 }

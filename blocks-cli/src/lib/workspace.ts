@@ -1,7 +1,9 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { parseFlags, stringFlag } from "./args.js";
-import { readConfig, writeConfig } from "./config.js";
+import { CliActionableError } from "./errors.js";
+import { BlocksProjectSelection, readConfig, resolveAccountProfile, writeConfig } from "./config.js";
+import { isInteractive, promptText } from "./prompt.js";
 
 export type BlocksWorkspaceConfig = {
   data?: {
@@ -32,6 +34,22 @@ export async function writeWorkspaceConfig(config: BlocksWorkspaceConfig): Promi
 }
 
 export async function selectedProject(flags: Record<string, string | boolean>): Promise<string> {
+  const selected = await optionalSelectedProject(flags);
+  if (selected) return selected;
+
+  if (!flags.json && isInteractive()) {
+    const tenantId = await promptText("Project tenant ID: ");
+    if (tenantId) return tenantId;
+  }
+
+  throw new CliActionableError(
+    "No project is selected in the current context.",
+    "project_not_selected",
+    "Pass --project <tenantId> or run 'blocks use <tenantId>'."
+  );
+}
+
+export async function optionalSelectedProject(flags: Record<string, string | boolean>): Promise<string | undefined> {
   const fromFlag = stringFlag(flags, "project");
   if (fromFlag) return fromFlag;
 
@@ -39,18 +57,32 @@ export async function selectedProject(flags: Record<string, string | boolean>): 
   if (local.project?.tenantId) return local.project.tenantId;
 
   const global = await readConfig();
-  if (global.selectedProject?.tenantId) return global.selectedProject.tenantId;
+  const accountOverride = stringFlag(flags, "account") || undefined;
+  const { profile } = await resolveAccountProfile(global, accountOverride);
+  if (profile.selectedProject?.tenantId) return profile.selectedProject.tenantId;
 
-  throw new Error("No project selected. Run 'blocks use <tenantId>' or pass --project <tenantId>.");
+  return undefined;
 }
 
-export async function saveSelectedProject(tenantId: string): Promise<void> {
+export async function saveSelectedProject(
+  tenantId: string,
+  accountOverride?: string,
+  details: Omit<BlocksProjectSelection, "tenantId"> = {}
+): Promise<void> {
   const global = await readConfig();
+  const { name, profile } = await resolveAccountProfile(global, accountOverride);
   await writeConfig({
     ...global,
-    selectedProject: {
-      ...global.selectedProject,
-      tenantId
+    accounts: {
+      ...global.accounts,
+      [name]: {
+        ...profile,
+        selectedProject: {
+          ...profile.selectedProject,
+          ...details,
+          tenantId
+        }
+      }
     }
   });
 
@@ -66,15 +98,20 @@ export async function saveSelectedProject(tenantId: string): Promise<void> {
   }
 }
 
-export async function clearSelectedProject(): Promise<string | undefined> {
+export async function clearSelectedProject(accountOverride?: string): Promise<string | undefined> {
   const global = await readConfig();
-  const tenantId = global.selectedProject?.tenantId;
-  if (!tenantId) return undefined;
-
-  const { selectedProject: _dropped, ...rest } = global;
-  await writeConfig(rest);
-
+  const { name, profile } = await resolveAccountProfile(global, accountOverride);
   const local = await readWorkspaceConfig();
+  const tenantId = local.project?.tenantId ?? profile.selectedProject?.tenantId;
+
+  if (profile.selectedProject) {
+    const { selectedProject: _dropped, ...restProfile } = profile;
+    await writeConfig({
+      ...global,
+      accounts: { ...global.accounts, [name]: restProfile }
+    });
+  }
+
   if (local.project?.tenantId) {
     const { tenantId: _localTenantId, ...restProject } = local.project;
     await writeWorkspaceConfig({

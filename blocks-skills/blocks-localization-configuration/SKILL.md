@@ -3,6 +3,8 @@ name: blocks-localization-configuration
 description: "Configure app translations (i18n) for a SELISE Blocks project through the `blocks` CLI — never raw fetch/curl. Covers authoring local i18n JSON dictionaries, validate/push/pull with the Localization service, managing languages and modules directly, glossary terms, AI translation suggestions, and the composed translate-and-export flow. Use for 'add translations for my login screen', 'push/pull localization changes', 'create a module', 'add a new language'."
 ---
 
+When invoking a project-scoped `blocks` command, either use the resolved account's saved selection or pass `--project <tenantId>` for that one command without changing saved state. `--project` applies to CLI commands only, never SDK calls.
+
 # Blocks Localization — Configuration
 
 Translations (i18n) for a Blocks project's static UI text — labels, titles, button copy — are authored locally as JSON and synced to the Localization service entirely through the `blocks` CLI. There is no supported reason to hand-roll raw `fetch`/`curl` calls anymore, and there's no SDK-based authoring path either — `@seliseblocks/client`'s localization surface (`languages()`, `modules()`, `languagesForCurrentTenant()`, `translations()`, `cloudTranslations()`, `keysByNames()`) is entirely **read-only**, meant for apps to *consume* translations at runtime, not to author them. Authoring is CLI-only.
@@ -14,7 +16,7 @@ Translations (i18n) for a Blocks project's static UI text — labels, titles, bu
 | Command | What it does |
 |---|---|
 | `blocks localization validate --module <name> --language <culture> [--file <path>] [--json]` | Validates a local i18n JSON dictionary. **Local-only, no API call.** |
-| `blocks localization push --module <name> --language <culture> [--file <path>] [--route <route>] [--context <text>] [--dry-run] [--yes] [--json]` | Creates/updates keys from the local dictionary. If the module doesn't exist yet, creates it first — **this is the only way this tooling creates a module.** Mutating. |
+| `blocks localization push --module <name> --language <culture> [--file <path>] [--route <route>] [--context <text>] [--dry-run] [--yes] [--json]` | Creates/updates keys from the local dictionary. If the module doesn't exist yet, creates it as a convenience; `localization module save` can also create an empty module directly. Mutating. |
 | `blocks localization pull --module <name> --language <culture> [--out <path>] [--json]` | Downloads the **published** cloud dictionary into a local JSON file. Read-only, overwrites the local file. |
 
 `--module` is the feature-area bundle name (`common`, `login`, `dashboard`, …). `--language` is a culture code (`en`, `de-DE`, `bn-BD`, …) — see the culture-matching gotcha below before picking one.
@@ -30,11 +32,13 @@ blocks/localization/<module>.<language>.json
 for example `blocks/localization/login.de-DE.json`. Pass `--file`/`--out` to override the path. Content is a flat or nested JSON object of string values — nested objects are flattened with `.` before validation/push, so either of these is fine and produces the same keys:
 
 ```json
-{ "login.title": "Anmelden", "login.submit": "Absenden" }
+{ "form.title": "Anmelden", "form.submit": "Absenden" }
 ```
 
+The module already provides the namespace, so do not repeat it in key names: a `login` module uses `title` or `form.title`, not `login.title`.
+
 ```json
-{ "login": { "title": "Anmelden", "submit": "Absenden" } }
+{ "form": { "title": "Anmelden", "submit": "Absenden" } }
 ```
 
 Key names must match `^[A-Za-z0-9][A-Za-z0-9._:-]*$` (letters, numbers, dot, dash, underscore, colon — no spaces) after flattening, and every value must be a non-empty string. `localization validate` enforces exactly this, locally, before anything touches the network.

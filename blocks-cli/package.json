@@ -1,7 +1,25 @@
 {
   "name": "@seliseblocks/cli-os",
-  "version": "0.2.12",
+  "version": "0.3.1",
   "description": "CLI for SELISE Blocks project setup and configuration.",
+  "keywords": [
+    "selise",
+    "blocks",
+    "cli",
+    "scaffolding",
+    "iam",
+    "typescript"
+  ],
+  "homepage": "https://github.com/SELISEdigitalplatforms/blocks-cli/tree/main/blocks-cli#readme",
+  "bugs": {
+    "url": "https://github.com/SELISEdigitalplatforms/blocks-cli/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/SELISEdigitalplatforms/blocks-cli.git",
+    "directory": "blocks-cli"
+  },
+  "author": "SELISE Digital Platforms",
   "license": "MIT",
   "type": "module",
   "bin": {
@@ -24,7 +42,8 @@
     "bin",
     "dist",
     "README.md",
-    "AI_USAGE_GUIDE.md",
+    "CHANGELOG.md",
+    "AGENT_GUIDE.md",
     "LICENSE"
   ],
   "scripts": {

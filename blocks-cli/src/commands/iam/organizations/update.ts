@@ -26,7 +26,7 @@ export async function iamOrganizationsUpdate(argv: string[]): Promise<void> {
   };
 
   if (booleanFlag(flags, "dry-run")) {
-    writeOutput({ dryRun: true, endpoint: `/iam/v4/iam/organizations/${id}`, request: body }, flags);
+    writeOutput({ dryRun: true, endpoint: `/iam/v4/iam/organizations/${encodeURIComponent(id)}`, request: body }, flags);
     return;
   }
 

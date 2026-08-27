@@ -2,9 +2,10 @@ import { parseFlags } from "../../lib/args.js";
 import { normalizeAccountName, readConfig, writeConfig } from "../../lib/config.js";
 import { removeAccountSecrets } from "../../lib/secret-store.js";
 import { removeAccountTokens } from "../../lib/token-store.js";
+import { writeOutput } from "../../lib/output.js";
 
 export async function authRemove(argv: string[]): Promise<void> {
-  const { args } = parseFlags(argv);
+  const { args, flags } = parseFlags(argv);
   const account = normalizeAccountName(args[0]);
   const config = await readConfig();
 
@@ -23,5 +24,6 @@ export async function authRemove(argv: string[]): Promise<void> {
   await removeAccountSecrets(account);
   await removeAccountTokens(account);
 
-  console.log(`Removed OIDC account '${account}'.`);
+  if (flags.json) writeOutput({ account, activeAccount: nextActive ?? null, removed: true }, flags);
+  else console.log(`Removed OIDC account '${account}'.`);
 }

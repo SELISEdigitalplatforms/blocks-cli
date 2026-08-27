@@ -10,7 +10,7 @@ export async function authClientCredentialsDelete(argv: string[]): Promise<void>
   const id = args[0] || stringFlag(flags, "id", { required: true });
 
   if (booleanFlag(flags, "dry-run")) {
-    writeOutput({ dryRun: true, endpoint: `/iam/v4/auth/client-credentials/${id}` }, flags);
+    writeOutput({ dryRun: true, endpoint: `/iam/v4/auth/client-credentials/${encodeURIComponent(id)}` }, flags);
     return;
   }
 

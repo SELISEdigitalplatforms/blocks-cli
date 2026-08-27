@@ -35,7 +35,7 @@ Show the dry-run output, get approval, then re-run with `--yes`.
 Four flags carry real weight:
 
 - **`--client-type public`** is not optional in practice. IAM derives the token endpoint auth method from the client type, so leaving it off stores a browser app as *confidential* and lets it request the client-credentials grant. `--require-pkce` alone does not imply it.
-- **`--register-as-identity-provider`** creates the linked identity provider in the same call, filling its authorize, token, userinfo, jwks, and issuer values from the discovery document. Without it you have a client nothing can authenticate against.
+- **`--register-as-identity-provider`** creates the linked identity provider in the same call. The CLI supplies its discovery endpoint; verify the resulting provider has authorize, token, userinfo, jwks, and issuer values because population is backend behavior. Without a usable provider, the client cannot authenticate anyone.
 - **`--auto-redirect`** matters because the scaffolded login page already navigates straight to the provider. Without it the hosted login page adds a redundant manual "continue" click.
 - **`--item-id`** is required when updating an existing client rather than creating one. The save endpoint replaces the whole client document; the CLI fetches the current one first and merges your change into it. Omit `--item-id` and you register a duplicate instead of editing.
 
@@ -50,10 +50,10 @@ blocks auth config get --json
 If `isOidcEnabled` is `false`, no amount of correct client configuration produces a login screen:
 
 ```bash
-blocks auth config save --oidc-enabled --dry-run --json
+blocks auth config save --oidc-enabled --account-action-base-url <https://iam-host> --dry-run --json
 ```
 
-Then `--yes` after approval. `blocks new web` does this step itself once it resolves a client id, so a freshly scaffolded app usually needs nothing here — but check rather than assume, and always check when wiring an app that already exists.
+Then `--yes` after approval. `--account-action-base-url` is required when the current config has no value; use the actual IAM/account-action host, never invent one. `blocks new web` fills this from its resolved OIDC URL when it enables login itself.
 
 ## 4. Verify what actually landed
 

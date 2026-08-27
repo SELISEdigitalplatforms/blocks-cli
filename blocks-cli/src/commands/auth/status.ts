@@ -1,8 +1,9 @@
 import { parseFlags, stringFlag } from "../../lib/args.js";
-import { getAccountProfile, readConfig } from "../../lib/config.js";
+import { readConfig, resolveAccountProfile } from "../../lib/config.js";
 import { isExpiring } from "../../lib/token.js";
 import { readTokenStore } from "../../lib/token-store.js";
 import { writeOutput } from "../../lib/output.js";
+import { optionalSelectedProject } from "../../lib/workspace.js";
 
 export async function authStatus(argv: string[] = []): Promise<void> {
   const { flags } = parseFlags(argv);
@@ -10,10 +11,11 @@ export async function authStatus(argv: string[] = []): Promise<void> {
   const store = await readTokenStore();
   const accountOverride = stringFlag(flags, "account") || undefined;
 
-  const { name } = getAccountProfile(config, accountOverride);
+  const { name } = await resolveAccountProfile(config, accountOverride);
+  const tenantId = await optionalSelectedProject(flags);
   const accountToken = store.accounts[name]?.account;
-  const projectToken = config.selectedProject?.tenantId
-    ? store.accounts[name]?.projects?.[config.selectedProject.tenantId]
+  const projectToken = tenantId
+    ? store.accounts[name]?.projects?.[tenantId]
     : undefined;
 
   if (flags.json) {

@@ -1,14 +1,24 @@
 export { createBlocksClient } from "./client.js";
 export { BlocksAuthenticationClient } from "./auth/auth-client.js";
 export { BlocksDataClient } from "./data/data-client.js";
-export type { BlocksClient, BlocksClientConfig, BlocksOidcConfig } from "./client.js";
+export type {
+  BlocksClient,
+  BlocksClientConfig,
+  BlocksOidcConfig,
+  BlocksPublicConfig,
+  BlocksResolvedConfig,
+  /** @deprecated Renamed to `BlocksResolvedConfig`. */
+  RequiredConfig
+} from "./client.js";
 export { BlocksApiError } from "./http/errors.js";
+export type { BlocksHttpClient } from "./http/http-client.js";
 export { BlocksIAMClient } from "./iam/iam-client.js";
 export { BlocksLocalizationClient } from "./localization/localization-client.js";
 export { BlocksMailClient } from "./mail/mail-client.js";
 export { BlocksMfaClient } from "./mfa/mfa-client.js";
 export { BlocksNotifierClient } from "./notifier/notifier-client.js";
 export type {
+  BlocksAuthJsonOptions,
   BlocksAuthPassThroughResponse,
   BlocksAuthResponse,
   BlocksClientCredentialsRequest,
@@ -24,7 +34,7 @@ export type {
   BlocksSocialLoginRequest,
   BlocksSwitchOrganizationRequest
 } from "./auth/auth-client.js";
-export type { BlocksRequestOptions } from "./types.js";
+export type { BlocksExternalRequestOptions, BlocksRequestOptions } from "./types.js";
 export type {
   BlocksBaseResponse,
   BlocksGetMyOrganizationsResponse,
@@ -47,7 +57,11 @@ export type {
 } from "./iam/types.js";
 export type {
   BlocksDataCollection,
+  BlocksDataCollectionOptions,
+  BlocksDataDeleteOptions,
+  BlocksDataGetOptions,
   BlocksDataListOptions,
+  BlocksDataSchema,
   BlocksDirectoryCreateRequest,
   BlocksDirectoryDeleteRequest,
   BlocksDirectoryMoveRequest,

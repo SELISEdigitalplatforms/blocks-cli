@@ -3,6 +3,8 @@ name: blocks-iam-mfa
 description: "Self-service MFA for the signed-in user's own account — TOTP enroll/verify, OTP generate/resend/verify, method switch, disable, backup codes — via `blocksClient.mfa.*` or the project-scoped `blocks mfa *` CLI, plus tenant-wide MFA policy admin (`mfa.saveConfig` / `blocks mfa config get/save`). Use for an MFA settings screen, scripted enrollment/checks, or reading/setting a tenant's MFA policy. Not for admin-forcing MFA onto another specific user."
 ---
 
+When invoking a project-scoped `blocks` command, either use the resolved account's saved selection or pass `--project <tenantId>` for that one command without changing saved state. `--project` applies to CLI commands only, never SDK calls.
+
 # Blocks IAM — MFA (Multi-Factor Authentication)
 
 Two different things live under "MFA," and this skill covers both without conflating them:
@@ -11,6 +13,9 @@ Two different things live under "MFA," and this skill covers both without confla
 2. **Tenant-wide MFA policy admin** — whether MFA is enabled/required for the tenant at all, which methods are allowed, backup-code settings, and which roles are required/exempt. This is `blocksClient.mfa.config()` / `mfa.saveConfig(request)`, or `blocks mfa config get` / `mfa config save`. It configures the tenant's rules, not any one user's enrollment state.
 
 Source of truth: the `@seliseblocks/client` SDK's `mfa` namespace and the `blocks mfa *` CLI command family — this skill surfaces their documented behavior, it doesn't add new capability.
+
+For CLI work, if account or project context is unknown, use blocks-bootstrap
+first. Do not infer an account or tenant inside an MFA workflow.
 
 ## Scope: this vs. the other IAM skills
 
@@ -76,7 +81,7 @@ Tenant policy admin (reads/mutates the tenant's rules, not a user's enrollment):
 | Command | What |
 |---|---|
 | `blocks mfa config get [--json]` | Reads the tenant's MFA policy. |
-| `blocks mfa config save [--enable] [--require-for-all-users] [--allow-user-opt-out] [--allow-backup-codes] [--backup-codes-count <n>] [--user-mfa-type 1,2] [--required-roles a,b] [--exempt-roles a,b] [--body '<json>'\|--file <path>] [--dry-run] [--yes] [--json]` | Saves the tenant's MFA policy; IAM merges what you send into the stored config. `--body`/`--file` supplies a base payload and the convenience flags overwrite matching keys on top. **The boolean flags can only turn things on** — they are presence flags, so `--enable false` sends nothing at all; to switch one off use `--body '{"enableMfa":false}'`. `mfaTemplate` (which email template delivers the OTP) has no flag either — `--body` only. Requires `--dry-run` or `--yes`. |
+| `blocks mfa config save [--enable[=false]] [--require-for-all-users[=false]] [--allow-user-opt-out[=false]] [--allow-backup-codes[=false]] [--backup-codes-count <n>] [--user-mfa-type 1,2] [--required-roles a,b] [--exempt-roles a,b] [--body '<json>'\|--file <path>] [--dry-run] [--yes] [--json]` | Sends tenant MFA policy fields. Explicit `--flag=false` values are preserved; omitted flags are omitted. `--body`/`--file` supplies additional fields such as `mfaTemplate`. Whether the backend merges or replaces partial payloads is not proven in this repository, so read the current config and include every field that must be preserved. |
 
 Self-service enrollment, challenge, and recovery for the calling (impersonated) user:
 
@@ -85,10 +90,10 @@ Self-service enrollment, challenge, and recovery for the calling (impersonated) 
 | `blocks mfa totp setup [--json]` | Starts TOTP enrollment; prints IAM's secret/QR payload. |
 | `blocks mfa totp verify-setup <code> [--json]` | Confirms TOTP enrollment with the 6-digit code. |
 | `blocks mfa totp enable --mfa-type <n> [--code <c>] [--dry-run] [--yes] [--json]` | Composed enrollment — see below. |
-| `blocks mfa generate --mfa-type <n> [--send-phone-number-as-email-domain <domain>] [--json]` | Sends an OTP challenge; returns an `mfaId` to pass to `resend`/`verify`. |
+| `blocks mfa generate --mfa-type <n> [--send-phone-number-as-email-domain <domain>] [--json]` | Starts an OTP challenge. Keep the returned `mfaId` — `resend` and `verify` both need it, and there is no way to look it up afterward. |
 | `blocks mfa resend <mfaId> [--send-phone-number-as-email-domain <domain>] [--json]` | Re-sends a pending OTP. |
 | `blocks mfa verify <mfaId> <code> --auth-type <n> [--from-token-call] [--json]` | Confirms an OTP/step-up challenge. |
-| `blocks mfa method set --mfa-type <n> [--json]` | Switches the impersonated user's active method. Only `1`/`2` switch — the CLI warns and IAM **disables MFA** for any other value. Also accepts the value positionally (`mfa method set 1`). |
+| `blocks mfa method set --mfa-type <n> [--dry-run] [--yes] [--json]` | Switches the impersonated user's active method. Only `1`/`2` switch — the CLI warns and IAM **disables MFA** for any other value. Guarded by dry-run/confirmation and also accepts the value positionally. |
 | `blocks mfa disable [--dry-run] [--yes] [--json]` | Disables MFA for the impersonated user. Mutating: needs `--dry-run` or `--yes`. |
 | `blocks mfa backup-codes list [--json]` | Returns `{ remaining: <count> }`, not the codes. Read-only. |
 | `blocks mfa backup-codes generate [--dry-run] [--yes] [--json]` | Generates a fresh set, invalidating existing ones. Mutating: needs `--dry-run` or `--yes`. |
@@ -98,7 +103,8 @@ Self-service enrollment, challenge, and recovery for the calling (impersonated) 
 blocks mfa config get --json                         # check tenant policy before prompting enrollment
 blocks mfa totp setup                                # prints secret/QR
 blocks mfa totp verify-setup 123456                  # this alone enrolls and activates TOTP
-blocks mfa method set --mfa-type 1                   # 1 = TOTP; only needed when switching methods
+blocks mfa method set --mfa-type 1 --dry-run         # review switching to TOTP
+blocks mfa method set --mfa-type 1 --yes             # only after approval
 blocks mfa backup-codes generate --dry-run           # preview, no call
 blocks mfa backup-codes generate --yes               # after explicit confirmation
 ```
@@ -150,7 +156,7 @@ Two things worth calling out precisely, both confirmed against source:
 
 - **`--mfa-type` is required, never defaulted.** For this command it is `1` (TOTP) — the value the final `method set` step activates. The command throws rather than assuming it, so pass `--mfa-type 1` explicitly.
 - **The last step fails on a tenant that hasn't allowed backup codes.** `backup-codes generate` returns `backup_codes_disabled` unless `allowBackupCodes` is set in the tenant policy — enrollment itself already succeeded at that point, so treat it as "enrolled, no recovery codes" and fix the policy, not as a failed enrollment.
-- **Two separate prompts can block a non-interactive run**, not just one: the command asks the operator to type `yes` before it starts (skipped by `--yes`, same as `--dry-run`), and then, independently, if `--code` isn't passed, it prompts for the verification code from stdin with no timeout — in a non-interactive/agent context with no TTY to answer it, this hangs indefinitely rather than failing fast. An agent or script running this command must pass **both** `--yes` and `--code <c>` (the code sourced from wherever the authenticator output is captured) to avoid a hang.
+- **Two separate inputs are required for a non-interactive run**, not just one: `--yes` approves the enrollment mutation and `--code <c>` supplies the authenticator verification code. Without `--code`, a non-interactive run fails with `interactive_input_required`; it never waits indefinitely on stdin.
 - `--dry-run` short-circuits before either prompt and before any network call: it prints the planned step list (`mfa:totp:setup`, the scan/enter-code step, `mfa:totp:verify-setup <code>`, `mfa:method:set <n>`, `mfa:backup-codes:generate`) and exits.
 
 Deliberately excluded from this composed command: `mfa config save`. That's the separate tenant-wide policy action covered above, not part of enrolling one user.
@@ -159,13 +165,13 @@ Deliberately excluded from this composed command: `mfa config save`. That's the 
 
 - **`config`/`saveConfig` (SDK) and `mfa config get`/`config save` (CLI) are tenant policy, not a user's enrollment state.** Don't call these expecting to see or change one user's MFA status — that's every other method/command in this file. Reading policy needs `blocks-iam::iam::mfa-configs` and writing it `blocks-iam::iam::mutate-mfa-configs`, so an ordinary end user cannot fetch it from an app.
 - **`1` is TOTP and `2` is Email; `0` is None, and `3`/`4` have no provider.** Same enum for `mfaType`, `authType`, `userMfaType`, and a client's `allowedMfaMethods` — see the table above. `mfa method set` with anything but `1`/`2` disables the user's MFA.
-- **`mfa totp enable` can hang waiting on stdin twice over** if run non-interactively without `--yes` and `--code` — see above. Always pass both when scripting or agent-driving this command.
+- **`mfa totp enable` needs both `--yes` and `--code` in non-interactive use** — see above. Missing approval or input fails clearly instead of waiting on stdin.
 - **Backup codes are shown once**, and only exist if the tenant set `allowBackupCodes` and the user is already enrolled — otherwise generate fails with `backup_codes_disabled` / `mfa_not_enrolled`. `list()` returns a remaining count, never the codes.
 - **No admin can enroll, reset, or disable another user's MFA.** Every self-service route resolves the user from the caller's own token; the one admin-reset code path IAM has is not wired to any route. The nearest lever is role-based policy (`mfaRequiredRoles`/`mfaExemptRoles`), which targets a role, not a user id — don't fabricate an endpoint to satisfy the request.
 - **Every `mfa` CLI command is project-scoped and impersonation-only**, same rule as the rest of the project-scoped CLI surface — `blocks use <tenantId>` first, or commands fail with `project_not_selected`.
 - **The CLI's self-service commands act on the CLI operator's own identity** inside the selected tenant, resolved from the impersonated token. `blocks mfa totp enable` enrolls *you*, not a customer. There is no CLI path to enroll someone else — that has to happen in the app, as that user.
 - **`mfa generate` on a tenant with MFA off** returns `{"errors":{"mfa_not_enable":"Please enable mfa for your application first"}}` — check `mfa config get` before assuming the method value was wrong.
-- **Mutating CLI commands (`config save`, `disable`, `backup-codes generate`, and the composed `totp enable`) require `--dry-run` or `--yes`/an interactive `yes`** before they execute — apply the same confirm-before-mutating discipline an agent uses for any other mutating Blocks CLI command: state the exact change and get explicit go-ahead first.
+- **Guarded mutating CLI commands (`config save`, `method set`, `disable`, `backup-codes generate`, and composed `totp enable`) require `--dry-run` or `--yes`/interactive confirmation.** OTP generation, resend, verification, setup, and backup-code consumption are live self-service protocol steps rather than previewable configuration mutations; invoke them only as part of the user's explicit authentication flow.
 
 ## Example trigger prompts
 

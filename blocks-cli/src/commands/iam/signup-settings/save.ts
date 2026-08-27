@@ -1,4 +1,4 @@
-import { booleanFlag } from "../../../lib/args.js";
+import { booleanFlag, optionalBooleanFlag } from "../../../lib/args.js";
 import { blocksRequest } from "../../../lib/api.js";
 import { confirmMutation } from "../../../lib/confirm.js";
 import { compact, jsonBodyFlag, listFlag } from "../../../lib/json-flag.js";
@@ -13,8 +13,8 @@ export async function iamSignupSettingsSave(argv: string[]): Promise<void> {
     ...compact({
       defaultPermissionsForNewUserOnSignUp: listFlag(flags, "default-permissions"),
       defaultRolesForNewUserOnSignUp: listFlag(flags, "default-roles"),
-      isEmailPasswordSignUpEnabled: booleanFlag(flags, "email-password-signup") || undefined,
-      isSSoSignUpEnabled: booleanFlag(flags, "sso-signup") || undefined
+      isEmailPasswordSignUpEnabled: optionalBooleanFlag(flags, "email-password-signup"),
+      isSSoSignUpEnabled: optionalBooleanFlag(flags, "sso-signup")
     })
   };
 

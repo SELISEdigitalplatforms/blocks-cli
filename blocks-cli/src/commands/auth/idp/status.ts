@@ -12,7 +12,7 @@ export async function authIdpStatus(argv: string[]): Promise<void> {
   const isActive = booleanFlag(flags, "active");
 
   if (booleanFlag(flags, "dry-run")) {
-    writeOutput({ dryRun: true, endpoint: `/iam/v4/auth/identity-providers/${id}/status`, request: { isActive } }, flags);
+    writeOutput({ dryRun: true, endpoint: `/iam/v4/auth/identity-providers/${encodeURIComponent(id)}/status`, request: { isActive } }, flags);
     return;
   }
 

@@ -3,6 +3,8 @@ name: blocks-iam-users
 description: "Manage OTHER users' IAM records via `blocksClient.iam.users.*` (never raw fetch/curl), or the equivalent project-scoped `blocks iam users *` / `blocks iam email available` CLI. Covers reads (`get`, `list`, `emailAvailable`, `exists`) and admin mutations (`create`, `update`, `activate`, `deactivate`, `updateAccess`, `revokeAccess`) — CLI mutations require `--dry-run`/`--yes`. Use to invite, edit, deactivate/reactivate, list/search users, or grant/revoke roles/org access. Not for the current user's own profile (blocks-iam-account) or role/permission definitions (blocks-iam-access-control)."
 ---
 
+When invoking a project-scoped `blocks` command, either use the resolved account's saved selection or pass `--project <tenantId>` for that one command without changing saved state. `--project` applies to CLI commands only, never SDK calls.
+
 # Blocks IAM — Managing Other Users
 
 This skill is about an **admin managing other people's IAM accounts** from inside a Blocks app — inviting them, editing their profile, changing their access, deactivating them. It is not about the signed-in user managing their own account (that's the **blocks-iam-account** skill) and not about defining the roles/permissions being assigned (that's **blocks-iam-access-control**).
@@ -16,6 +18,10 @@ const { data } = await blocksClient.iam.users.get(userId);
 ```
 
 ## Two surfaces, same operations: SDK (in-app) and CLI (`blocks iam users *`)
+
+For CLI work, resolve unknown account/project state through blocks-bootstrap
+before using this skill. Never select an account or tenant as a side effect of
+user administration.
 
 There are two legitimate ways to drive full user administration (create, update, deactivate, activate, access grant/revoke) — both are covered by this skill:
 
@@ -76,13 +82,13 @@ await blocksClient.iam.users.updateAccess({ userId: "usr_8a2f", roles: ["editor"
 
 ## CLI surface — `blocks iam users *`, `blocks iam email available`
 
-These are real, fully-wired commands — not a stub and not limited to `iam me`. `iam me` is a separate, account-scoped command (current CLI operator's own identity via the account token); every command below is **project-scoped**: it requires a project already selected (`blocks use <project-tenant-id>`) and calls IAM with an impersonated project token, same as the rest of the project-scoped CLI surface.
+These are real, fully-wired commands — not a stub and not limited to `iam me`. `iam me` reads the current CLI operator and prefers project auth when a project resolves, falling back to account auth otherwise; every command below is strictly **project-scoped** and requires an impersonated project token.
 
 Reads — no confirmation needed:
 
 | Command | What it does |
 |---|---|
-| `blocks iam users list [--page 1] [--page-size 20] [--email <e>] [--name <n>] [--organization-id <id>] [--sort-by <field>] [--sort-desc] [--filter '<json>'] [--json]` | Paged/filtered user query. `--filter` merges a raw JSON object over the convenience flags. |
+| `blocks iam users list [--page 1] [--page-size 20] [--email <e>] [--name <n>] [--organization-id <id>] [--sort-by <field>] [--sort-desc] [--body '<json>'] [--json]` | Paged/filtered user query. There is no `--filter` flag: for any filter beyond the convenience flags, pass `--body '{"filter":{...}}'` — the convenience flags are merged over it. |
 | `blocks iam users get <id> [--organization-id <id>] [--json]` | One user record, optionally scoped to an org. |
 | `blocks iam users exists <email> [--json]` | Existence check by email. |
 | `blocks iam email available <email> [--json]` | Duplicate-email check. |
@@ -98,7 +104,11 @@ Mutations — every one supports `--dry-run` (print the request body and exit, n
 | `blocks iam users access grant <userId> [--roles a,b] [--permissions a,b] [--organization-id] [--dry-run] [--yes] [--json]` | Grants roles/permissions/org access (requires at least one of `--roles`/`--permissions`). |
 | `blocks iam users access revoke <userId> [--organization-id] [--dry-run] [--yes] [--json]` | Revokes org access for a user. |
 
-Command segments joined by a space also accept a colon (`iam:users:access:grant` etc.) — both forms resolve to the same handler; `blocks iam users --help`-style docs in the CLI's own `--help` output use the space form shown above.
+Command segments joined by a space also accept a colon
+(`iam:users:access:grant` etc.); both forms resolve to the same handler. Use
+`blocks help iam users --json` for the family and `blocks help iam users <command> --json`
+for one command's flags, rather than adding `--help` to a subcommand, which may
+run normal command logic.
 
 Example — deactivating a user from the CLI, dry-run first:
 
@@ -115,7 +125,7 @@ Apply the same confirm-before-mutating discipline here as with the SDK: state wh
 - **Roles are referenced by slug**, as defined in blocks-iam-access-control — not by their internal item ids.
 - **`organizationId`** matters in multi-org projects — pass it to `get` when you need a user's record in a specific org context.
 - **Every request/response type in the SDK is a loosely-typed `Record<string, unknown>`** (`BlocksUser`, `BlocksBaseResponse`, etc. only guarantee a few common fields) — treat fields defensively and confirm shape against a live response for the project rather than assuming a fixed schema.
-- **The CLI is project-scoped, not account-scoped** — `blocks iam users *`/`blocks iam email available` need a selected project (`blocks use <project-tenant-id>`) and use an impersonated project token; `iam me` is the one exception that runs on the account token instead.
+- **The CLI user-admin surface is project-scoped** — `blocks iam users *`/`blocks iam email available` need a selected project and an impersonated project token. `iam me` is different only because it can fall back to account auth when no project resolves.
 - **Don't duplicate blocks-iam-account** — if the ask is "let me update my own profile" or "let me reset my password," that's the current user acting on themselves, not this skill.
 
 ## Example triggers

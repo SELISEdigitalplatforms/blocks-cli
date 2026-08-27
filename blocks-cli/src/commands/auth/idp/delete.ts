@@ -10,7 +10,7 @@ export async function authIdpDelete(argv: string[]): Promise<void> {
   const id = args[0] || stringFlag(flags, "id", { required: true });
 
   if (booleanFlag(flags, "dry-run")) {
-    writeOutput({ dryRun: true, endpoint: `/iam/v4/auth/identity-providers/${id}` }, flags);
+    writeOutput({ dryRun: true, endpoint: `/iam/v4/auth/identity-providers/${encodeURIComponent(id)}` }, flags);
     return;
   }
 
