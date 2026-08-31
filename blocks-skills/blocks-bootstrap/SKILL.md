@@ -25,10 +25,11 @@ Once the CLI is logged in, a project is selected, and the user is asking for a s
 
 ## State detection — probe, don't interrogate
 
-Run all three before asking the user anything. None of them mutates, and none prints a token value.
+Run all four before asking the user anything. None of them mutates, and none prints a token value. (`npm view` is a public registry lookup; if it fails offline, continue without the comparison.)
 
 ```bash
 blocks --version
+npm view @seliseblocks/cli-os version
 blocks auth status --json
 blocks doctor --json
 ```
@@ -47,6 +48,7 @@ normal project mode, not a broken login. Read it like this:
 | Signal | State | Do this |
 |---|---|---|
 | `blocks --version` fails with command not found | CLI not installed | Ask before installing `npm install -g @seliseblocks/cli-os@latest`, then re-probe |
+| `blocks --version` is behind `npm view @seliseblocks/cli-os version` | CLI outdated | Tell the user both versions and ask confirmation to run `npm install -g @seliseblocks/cli-os@latest`; never update without a yes. If they decline, continue on the old version and expect missing commands/flags/defaults relative to these skills — name the gap instead of silently working around it |
 | All four tokens `missing` | No login in this resolved context | Local: `blocks login --account <name>`; Studio: report missing launcher bootstrap/context |
 | Account AT and RT valid/available; project pair missing | Account mode | List/select a project or perform an account-only operation |
 | `accountAccessToken` `expired`, `accountRefreshToken` `valid` | Recoverable | `blocks auth refresh --json`, then re-probe |
@@ -61,6 +63,8 @@ normal project mode, not a broken login. Read it like this:
 project mode is usable only when its project token pair is present. Do not
 require an account pair simultaneously: impersonation replaces it, and
 `blocks deselect` exchanges the project pair for a fresh account pair.
+
+From CLI 0.3.2 onward, any command may print an `Update available` notice on stderr, and `blocks doctor --json` reports `cliUpdateAvailable`. Treat either exactly like the version comparison above: inform the user, ask for confirmation, and only then update.
 
 Use `blocks doctor --json` when something looks broken rather than merely undone — it checks Node version, credential storage backend, account and project token freshness in one pass. Its `detail` fields include the paths of the CLI's config and secret files. That is diagnostic output, not an invitation: never open, read, print, or quote those files. Interact with them only through `blocks` commands.
 

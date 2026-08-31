@@ -19,6 +19,30 @@ blocks --version
 blocks --help
 ```
 
+### Check the version before working
+
+An installed CLI silently ages: commands, flags, and scaffold behavior in this
+guide describe the latest release, not whatever happens to be on the machine.
+At the start of a session, compare the installed version against the registry:
+
+```bash
+blocks --version
+npm view @seliseblocks/cli-os version
+```
+
+If the installed version is behind, tell the user both versions and ask for
+their confirmation to run `npm install -g @seliseblocks/cli-os@latest`. Never
+update on your own initiative. If they decline, continue on the old version and
+expect drift from documented flags and defaults; say so when something is
+missing rather than working around it silently.
+
+The CLI also helps from 0.3.2 onward: after each command it prints an
+`Update available` notice to stderr (checked against the registry at most once
+every 24 hours, cached in the config directory) and `blocks doctor --json`
+reports `cliVersion`, `latestCliVersion`, and `cliUpdateAvailable` from that
+cache. Treat that notice exactly like the manual check above: inform, ask,
+and only then update. Set `BLOCKS_NO_UPDATE_CHECK=1` to disable the check.
+
 For local package development only, contributors may run `node bin/run.js ...` from the source repository. AI agents consuming the npm package should use `blocks ...`.
 
 ## Global Options
@@ -134,6 +158,10 @@ proof of permission. The launcher must assign a unique session/user-specific
 `BLOCKS_CONFIG_DIR`; the CLI uses only that context and performs no VM detection.
 
 ### AI agent startup
+
+First check the CLI is current (see "Check the version before working" above):
+compare `blocks --version` with `npm view @seliseblocks/cli-os version`, and if
+it is behind, tell the user and ask before updating.
 
 For normal local work, leave `BLOCKS_CONFIG_DIR` unchanged and use the user's
 OS-scoped store. Probe with `blocks auth status --json`; if login is missing,

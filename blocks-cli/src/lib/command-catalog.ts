@@ -561,7 +561,6 @@ export const commandCatalog: readonly CommandEntry[] = [
     "mutating": false,
     "flags": [
       "name",
-      "page",
       "page-size",
       "sort-by",
       "sort-desc",
@@ -1100,8 +1099,8 @@ export const commandCatalog: readonly CommandEntry[] = [
   {
     "name": "doctor",
     "family": "doctor",
-    "summary": "Inspect cached Node.js, OIDC config, token, optional project, and storage health.",
-    "details": "Account-only mode is valid. Performs no token refresh, network request, or state write.",
+    "summary": "Inspect cached CLI version, Node.js, OIDC config, token, optional project, and storage health.",
+    "details": "Account-only mode is valid. Performs no token refresh, network request, or state write. The 'CLI up to date' check reads the daily-cached npm registry lookup; an outdated version is reported (JSON: cliUpdateAvailable) but never fails the run -- ask the user before running 'npm install -g @seliseblocks/cli-os@latest'.",
     "scope": "local",
     "mutating": false,
     "flags": []

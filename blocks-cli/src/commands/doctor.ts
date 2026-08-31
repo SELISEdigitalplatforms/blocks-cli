@@ -5,6 +5,7 @@ import { writeOutput } from "../lib/output.js";
 import { isExpiring } from "../lib/token.js";
 import { readTokenStore, tokenPath, tokenStoreInfo } from "../lib/token-store.js";
 import { secretPath, secretStoreInfo } from "../lib/secret-store.js";
+import { installedCliVersion, isNewerVersion, readUpdateCheckCache } from "../lib/update-check.js";
 import { optionalSelectedProject } from "../lib/workspace.js";
 
 export async function doctor(argv: string[] = []): Promise<void> {
@@ -16,7 +17,22 @@ export async function doctor(argv: string[] = []): Promise<void> {
   const tenantId = await optionalSelectedProject(flags);
   let hasFailure = false;
 
+  // Latest version comes from the cache the post-command update notice
+  // maintains, never a live lookup -- doctor's contract is no network request.
+  // An empty cache (fresh install, BLOCKS_NO_UPDATE_CHECK, offline) reports
+  // the installed version alone rather than failing the check.
+  const cliVersion = await installedCliVersion();
+  const latestCliVersion = (await readUpdateCheckCache())?.latest;
+  const cliUpdateAvailable = Boolean(latestCliVersion && isNewerVersion(latestCliVersion, cliVersion));
+
   const checks: Array<{ label: string; ok: boolean; detail: string }> = [
+    {
+      label: "CLI up to date",
+      ok: !cliUpdateAvailable,
+      detail: cliUpdateAvailable
+        ? `${cliVersion} (latest ${latestCliVersion}; ask the user before running 'npm install -g @seliseblocks/cli-os@latest')`
+        : `${cliVersion}${latestCliVersion ? ` (latest ${latestCliVersion})` : " (latest unknown: no cached registry check yet)"}`
+    },
     { label: "Node.js >= 20", ok: Number(process.versions.node.split(".")[0]) >= 20, detail: process.version },
     { label: "OIDC account configured", ok: Object.keys(config.accounts).length > 0, detail: config.activeAccount ?? "missing" }
   ];
@@ -77,11 +93,14 @@ export async function doctor(argv: string[] = []): Promise<void> {
   );
 
   for (const check of checks) {
-    if (!check.ok) hasFailure = true;
+    // An outdated CLI is worth flagging but is not a broken install: scripts
+    // and agents gating on doctor's exit code must not start failing the day
+    // a new version is published.
+    if (!check.ok && check.label !== "CLI up to date") hasFailure = true;
   }
 
   if (flags.json) {
-    writeOutput({ ok: !hasFailure, checks }, flags);
+    writeOutput({ ok: !hasFailure, cliVersion, latestCliVersion: latestCliVersion ?? null, cliUpdateAvailable, checks }, flags);
   } else {
     for (const check of checks) {
       console.log(`${check.ok ? "ok" : "missing"}  ${check.label}  ${check.detail}`);
