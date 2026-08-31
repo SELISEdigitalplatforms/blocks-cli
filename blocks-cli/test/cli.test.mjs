@@ -20,9 +20,26 @@ import {
 import { withAuthTransitionLock } from "../dist/lib/auth-lock.js";
 import { CliActionableError } from "../dist/lib/errors.js";
 import { oidcRedirectUrisFromAppDomain } from "../dist/lib/domains.js";
+import { isNewerVersion } from "../dist/lib/update-check.js";
 
 const repoRoot = resolve(import.meta.dirname, "..");
 const bin = join(repoRoot, "bin", "run.js");
+
+// Every spawned CLI inherits process.env, so this keeps the post-command
+// update notice from making live npm registry calls throughout the suite.
+// Tests that exercise the notice itself override it with an empty value.
+process.env.BLOCKS_NO_UPDATE_CHECK = "1";
+
+test("isNewerVersion orders semver correctly", () => {
+  assert.equal(isNewerVersion("0.4.0", "0.3.1"), true);
+  assert.equal(isNewerVersion("0.3.2", "0.3.1"), true);
+  assert.equal(isNewerVersion("1.0.0", "0.9.9"), true);
+  assert.equal(isNewerVersion("0.3.1", "0.3.1"), false);
+  assert.equal(isNewerVersion("0.3.0", "0.3.1"), false);
+  assert.equal(isNewerVersion("0.3.1", "0.10.0"), false);
+  assert.equal(isNewerVersion("0.4.0", "0.4.0-beta.1"), true);
+  assert.equal(isNewerVersion("0.4.0-beta.1", "0.4.0"), false);
+});
 
 test("account token refresh preserves the previous refresh token when the response omits one", () => {
   const store = {
@@ -2899,6 +2916,70 @@ test("doctor accepts a healthy account-only session without a selected project",
   const output = JSON.parse(result.stdout);
   assert.equal(output.ok, true);
   assert.ok(output.checks.some((check) => check.label === "Project context" && /account-only mode/.test(check.detail)));
+});
+
+test("doctor reports an available CLI update from the cached check without failing", async () => {
+  const { cwd, configDir } = await makeWorkspace();
+  await writeConfig(configDir, {
+    activeAccount: "default",
+    accounts: { default: testAccountProfile("root-tenant") }
+  });
+  await writeFile(join(configDir, "tokens.json"), `${JSON.stringify({
+    accounts: {
+      default: {
+        account: {
+          accessToken: fakeJwt({ exp: Math.floor(Date.now() / 1000) + 3600, tenant_id: "root-tenant" }),
+          accountTenant: "root-tenant",
+          expiresAt: new Date(Date.now() + 3_600_000).toISOString(),
+          refreshToken: "account-refresh"
+        }
+      }
+    }
+  })}\n`);
+  await writeSecretStore(configDir, { accounts: {} });
+  await writeFile(join(configDir, "update-check.json"), `${JSON.stringify({
+    checkedAt: new Date().toISOString(),
+    latest: "99.0.0"
+  })}\n`);
+
+  const result = run(["doctor", "--account", "default", "--json"], {
+    cwd,
+    env: testEnv(configDir, { BLOCKS_SECRET_STORE: "file" })
+  });
+  assert.equal(result.status, 0, result.stderr);
+  const output = JSON.parse(result.stdout);
+  assert.equal(output.ok, true, "an outdated CLI must not fail an otherwise healthy doctor run");
+  assert.equal(output.cliUpdateAvailable, true);
+  assert.equal(output.latestCliVersion, "99.0.0");
+  const versionCheck = output.checks.find((check) => check.label === "CLI up to date");
+  assert.equal(versionCheck.ok, false);
+  assert.match(versionCheck.detail, /ask the user/);
+});
+
+test("update notice prints on stderr when the cached latest version is newer", async () => {
+  const { cwd, configDir } = await makeWorkspace();
+  await writeFile(join(configDir, "update-check.json"), `${JSON.stringify({
+    checkedAt: new Date().toISOString(),
+    latest: "99.0.0"
+  })}\n`);
+
+  // A fresh cache is served without a registry call, so clearing the opt-out
+  // here still keeps the test offline.
+  const result = run(["--version"], {
+    cwd,
+    env: testEnv(configDir, { BLOCKS_NO_UPDATE_CHECK: "" })
+  });
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stdout.trim(), /^\d+\.\d+\.\d+/, "stdout stays a bare version for parsers");
+  assert.match(result.stderr, /Update available: @seliseblocks\/cli-os .* -> 99\.0\.0/);
+  assert.match(result.stderr, /ask for their confirmation before updating/i);
+
+  const silenced = run(["--version"], {
+    cwd,
+    env: testEnv(configDir, { BLOCKS_NO_UPDATE_CHECK: "1" })
+  });
+  assert.equal(silenced.status, 0, silenced.stderr);
+  assert.ok(!silenced.stderr.includes("Update available"), "BLOCKS_NO_UPDATE_CHECK must silence the notice");
 });
 
 test("projects create stops and restores an active project session", async () => {

@@ -208,6 +208,7 @@ import { storageConfigList } from "./commands/storage/config/list.js";
 import { storageConfigSave } from "./commands/storage/config/save.js";
 import type { CommandEntry } from "./lib/command-catalog.js";
 import { CliActionableError } from "./lib/errors.js";
+import { maybePrintUpdateNotice } from "./lib/update-check.js";
 import {
   findCommand,
   renderCommand,
@@ -512,6 +513,11 @@ try {
   process.exitCode = 1;
 }
 
+// After the command, success or failure alike: a failed command is the moment
+// an outdated install matters most (unknown command/flag), and stderr keeps it
+// out of any --json stdout being parsed.
+await maybePrintUpdateNotice();
+
 /**
  * Says something when a command was handed a flag it will never read.
  *
@@ -591,15 +597,23 @@ Global options:
   --dry-run                 Show planned mutation without calling the API.
   --yes                     Skip mutation confirmation after explicit approval.
 
+Update notice:
+  After a command finishes, the CLI checks the npm registry for a newer
+  @seliseblocks/cli-os at most once every 24 hours (cached in the config
+  directory) and prints a notice to stderr when one exists. It never updates
+  anything itself. Set BLOCKS_NO_UPDATE_CHECK=1 to disable the check.
+
 Setup and health:
   blocks init
     Create local Blocks workspace files: blocks.json, data schema/rules folders,
     and .env.example.
 
   blocks doctor [--json]
-    Inspect cached Node.js, OIDC config, token, optional project, and storage
-    health. Account-only mode is valid. Performs no token refresh, network
-    request, or state write.
+    Inspect cached CLI version, Node.js, OIDC config, token, optional project,
+    and storage health. Account-only mode is valid. Performs no token refresh,
+    network request, or state write; the "CLI up to date" check reads the
+    cached daily registry lookup (see 'Update notice' above) and never fails
+    the run.
 
 Auth:
   blocks login [--account <name>]

@@ -6,6 +6,26 @@ This project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 Versions before 0.3.0 were released without a changelog; their history is in the
 repository's git log.
 
+## 0.3.2
+
+### Added
+
+- After every command, the CLI checks the npm registry for a newer
+  `@seliseblocks/cli-os` (at most once every 24 hours, cached in the config
+  directory as `update-check.json`) and prints an `Update available` notice to
+  stderr — stdout stays clean for `--json` parsers. The notice tells agent
+  sessions to inform the user and ask for confirmation before updating; the CLI
+  never updates itself. Set `BLOCKS_NO_UPDATE_CHECK=1` to disable.
+- `blocks doctor` gained a "CLI up to date" check and, in `--json`, top-level
+  `cliVersion`, `latestCliVersion`, and `cliUpdateAvailable` fields. It reads
+  the cached registry lookup only — doctor still makes no network request —
+  and an outdated version never fails the run, so scripts gating on doctor's
+  exit code don't break the day a release ships.
+- `blocks-bootstrap` skill and `AGENT_GUIDE.md` now instruct agents to compare
+  `blocks --version` against `npm view @seliseblocks/cli-os version` at session
+  start and ask the user before upgrading — this works even when the installed
+  CLI predates the built-in notice.
+
 ## 0.3.1
 
 ### Changed
