@@ -5,6 +5,7 @@ import { platform } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { promisify } from "node:util";
 import { configDir } from "./config.js";
+import { CliActionableError } from "./errors.js";
 
 const execFileAsync = promisify(execFile);
 const SERVICE = "seliseblocks-cli";
@@ -66,8 +67,15 @@ export async function getClientSecret(account: string): Promise<string | undefin
 
   const backend = await resolveBackend();
   if (backend !== "file") {
-    await setSecretValue(key, fallback);
-    await removeFallbackSecret(account);
+    // Promotion into the native store is opportunistic: this is a read that
+    // already has the value, so a broken native backend must not turn it into
+    // a failure. The fallback entry stays until a promotion round-trips.
+    try {
+      await setSecretValue(key, fallback);
+      await removeFallbackSecret(account);
+    } catch {
+      // keep serving the fallback copy
+    }
   }
 
   return fallback;
@@ -92,7 +100,18 @@ export async function setSecretValue(key: string, value: string): Promise<void> 
   }
 
   if (backend === "windows-dpapi") {
-    const encrypted = await protectWindowsSecret(value);
+    // Encrypt-then-decrypt before anything is persisted: a PowerShell or DPAPI
+    // profile problem must fail the write loudly instead of storing a blob
+    // that can never be read back (which looks like "logged out" later).
+    let encrypted: string;
+    try {
+      encrypted = await protectWindowsSecret(value);
+    } catch (error) {
+      throw secretWriteFailed("Windows DPAPI", error);
+    }
+    if (await unprotectWindowsSecret(encrypted) !== value) {
+      throw secretWriteFailed("Windows DPAPI");
+    }
     const store = await readSecretStore();
     await writeSecretStore({
       accounts: {
@@ -171,7 +190,13 @@ function normalizeSecretStore(store?: Partial<BlocksSecretStore>): BlocksSecretS
 }
 
 async function resolveBackend(): Promise<SecretBackend> {
-  if (process.env.BLOCKS_SECRET_STORE === "file") return "file";
+  const forced = process.env.BLOCKS_SECRET_STORE;
+  if (forced === "file") return "file";
+  // An explicit native backend skips platform detection and probing. This is
+  // how the test suite exercises the native code paths deterministically on
+  // any OS; write verification below makes a wrong override fail loudly
+  // rather than silently losing credentials.
+  if (forced === "windows-dpapi" || forced === "macos-keychain" || forced === "linux-secret-service") return forced;
   if (platform() === "win32") return "windows-dpapi";
   // Probed rather than assumed, the same way secret-tool is on Linux: on a
   // machine where `security` is missing or blocked by policy, claiming the
@@ -222,23 +247,24 @@ async function unprotectWindowsSecret(secret: string): Promise<string | undefine
 }
 
 /**
- * Writes through stdin, not argv. `security add-generic-password -w <secret>`
- * puts the credential in the process's argument list, where any process running
- * as the same user can read it out of `ps` for as long as the call lasts -- and
- * argv is easier to read than the environment block. Passing `-w` with no value
- * makes `security` read the password from stdin instead, which is how the Linux
- * `secret-tool` path already works.
- *
- * Falls back to the argv form if the stdin form fails, so a `security` build
- * that insists on a terminal for the prompt still stores the secret rather than
- * failing the login outright.
+ * Writes through argv (`-w <secret>`) and then reads the item back before
+ * reporting success. An earlier revision piped the secret to `security` on
+ * stdin (`-w` with no value) to keep it out of the process argument list, but
+ * on a real Mac that form does not round-trip: `security` prompts the
+ * controlling terminal (`/dev/tty`), ignores the pipe, stores an EMPTY
+ * password, and still exits 0 -- so logins reported success while the tokens
+ * were already gone. The argv exposure lasts only for the life of the
+ * short-lived `security` call; a write that cannot be read back throws instead
+ * of pretending it worked.
  */
 async function setMacSecret(account: string, secret: string): Promise<void> {
-  const args = ["add-generic-password", "-a", nativeSecretAccount(account), "-s", SERVICE, "-U", "-w"];
   try {
-    await spawnWithInput("security", args, secret);
-  } catch {
-    await execFileAsync("security", [...args, secret]);
+    await execFileAsync("security", ["add-generic-password", "-a", nativeSecretAccount(account), "-s", SERVICE, "-U", "-w", secret]);
+  } catch (error) {
+    throw secretWriteFailed("macOS Keychain", error);
+  }
+  if (await getMacSecret(account) !== secret) {
+    throw secretWriteFailed("macOS Keychain");
   }
 }
 
@@ -258,7 +284,16 @@ async function removeMacSecret(account: string): Promise<void> {
 
 async function setLinuxSecret(account: string, secret: string): Promise<void> {
   const namespacedAccount = nativeSecretAccount(account);
-  await spawnWithInput("secret-tool", ["store", "--label", `Blocks CLI ${namespacedAccount}`, "service", SERVICE, "account", namespacedAccount], secret);
+  try {
+    await spawnWithInput("secret-tool", ["store", "--label", `Blocks CLI ${namespacedAccount}`, "service", SERVICE, "account", namespacedAccount], secret);
+  } catch (error) {
+    throw secretWriteFailed("Linux Secret Service", error);
+  }
+  // Exit 0 is not proof the secret landed (a locked or misbehaving keyring can
+  // still report success), so only a successful read-back counts.
+  if (await getLinuxSecret(account) !== secret) {
+    throw secretWriteFailed("Linux Secret Service");
+  }
 }
 
 async function getLinuxSecret(account: string): Promise<string | undefined> {
@@ -273,6 +308,20 @@ async function getLinuxSecret(account: string): Promise<string | undefined> {
 async function removeLinuxSecret(account: string): Promise<void> {
   if (platform() !== "linux") return;
   await execFileAsync("secret-tool", ["clear", "service", SERVICE, "account", nativeSecretAccount(account)]);
+}
+
+/**
+ * Every native write is verified by reading the value back; this is the error
+ * for a write that did not persist. The message carries the backend name and
+ * the underlying tool error only -- never the secret itself.
+ */
+function secretWriteFailed(backend: string, cause?: unknown): CliActionableError {
+  const detail = cause instanceof Error && cause.message ? `: ${cause.message}` : ".";
+  return new CliActionableError(
+    `Could not save credentials -- the ${backend} write did not persist${detail} Existing local auth state was left untouched.`,
+    "secret_store_write_failed",
+    "Set BLOCKS_SECRET_STORE=file to use the 0600-file store, then retry."
+  );
 }
 
 function nativeSecretAccount(account: string): string {

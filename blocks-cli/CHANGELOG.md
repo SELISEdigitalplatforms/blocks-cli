@@ -6,6 +6,40 @@ This project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 Versions before 0.3.0 were released without a changelog; their history is in the
 repository's git log.
 
+## 0.3.3
+
+### Fixed
+
+- Native credential writes (macOS Keychain, Linux Secret Service, Windows
+  DPAPI) are verified by reading the value back before the CLI reports
+  success. Previously `security add-generic-password` could exit 0 while
+  storing an empty password (its prompt reads the terminal, not the stdin
+  pipe), after which the CLI deleted `tokens.json` and `blocks login` printed
+  `Login done.` on a machine that had just lost its tokens. A write that does
+  not round-trip now fails with `secret_store_write_failed` and the next step
+  `Set BLOCKS_SECRET_STORE=file`, and `tokens.json` is only removed after the
+  native store has proven it holds the tokens.
+- Migrating an existing `tokens.json` into a native credential store (which
+  happens on the read path) is best-effort: when the native write fails, the
+  CLI warns on stderr and keeps serving the file instead of destroying the
+  only readable copy or failing the command.
+- A stale or manually created entry occupying the CLI's credential-store slot
+  surfaces as an actionable `token_store_unreadable` error instead of crashing
+  every command with a raw `SyntaxError`.
+- The macOS Keychain write uses the argv form of
+  `security add-generic-password -w` again -- the stdin form did not
+  round-trip on real Macs (see above). The token payload is escaped to plain
+  ASCII before storage so `security`'s hex-dumping of non-ASCII data cannot
+  fail verification for stores containing unicode account or project names.
+
+### Added
+
+- `BLOCKS_SECRET_STORE` also accepts `windows-dpapi`, `macos-keychain`, and
+  `linux-secret-service` to force a specific native backend. The test suite
+  uses this to exercise the native code paths deterministically; write
+  verification makes a wrong override fail loudly rather than lose
+  credentials.
+
 ## 0.3.2
 
 ### Added
