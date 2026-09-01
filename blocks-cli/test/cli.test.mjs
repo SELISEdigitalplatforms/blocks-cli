@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { mkdir, mkdtemp, readdir, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { delimiter, join, resolve } from "node:path";
 import { spawn, spawnSync } from "node:child_process";
 import { createServer } from "node:http";
 import test from "node:test";
@@ -3237,6 +3237,163 @@ test("secret-bearing dry-runs all route through the shared redaction helper", as
     assert.doesNotMatch(result.stdout, leak, `${args[0]} leaked a secret into dry-run output`);
     if (stillReadable) stillReadable(request);
   }
+});
+
+// --- Native secret-store write verification ---------------------------------
+// Regression tests for the macOS incident where `security add-generic-password`
+// exited 0 without persisting the tokens: the CLI deleted tokens.json, reported
+// "Login done.", and every later command saw a logged-out machine. The store
+// must fail closed: a native write only counts once it reads back, and the
+// file copy survives until then.
+
+const requiresPosixShell = process.platform === "win32" && "requires a POSIX fake `security` on PATH";
+
+function sampleTokenStore() {
+  return {
+    accounts: {
+      default: {
+        account: {
+          accessToken: "access-token",
+          accountTenant: "root-tenant",
+          expiresAt: "2030-01-01T00:00:00.000Z",
+          refreshToken: "refresh-token",
+          tokenType: "Bearer"
+        }
+      }
+    }
+  };
+}
+
+async function withSecretStoreSandbox(run) {
+  const { configDir } = await makeWorkspace();
+  const original = {
+    configDir: process.env.BLOCKS_CONFIG_DIR,
+    path: process.env.PATH,
+    secretStore: process.env.BLOCKS_SECRET_STORE
+  };
+  process.env.BLOCKS_CONFIG_DIR = configDir;
+
+  try {
+    await run(configDir);
+  } finally {
+    restoreEnv("BLOCKS_CONFIG_DIR", original.configDir);
+    restoreEnv("PATH", original.path);
+    restoreEnv("BLOCKS_SECRET_STORE", original.secretStore);
+  }
+}
+
+function restoreEnv(name, value) {
+  if (value === undefined) delete process.env[name];
+  else process.env[name] = value;
+}
+
+async function writeFakeSecurity(configDir, script) {
+  const fakeBin = join(configDir, "fake-bin");
+  await mkdir(fakeBin, { recursive: true });
+  await writeFile(join(fakeBin, "security"), script, { mode: 0o755 });
+  process.env.PATH = `${fakeBin}${delimiter}${process.env.PATH}`;
+}
+
+test("a native credential write that cannot persist fails loudly and leaves tokens.json untouched", async () => {
+  await withSecretStoreSandbox(async (configDir) => {
+    process.env.BLOCKS_SECRET_STORE = "file";
+    await writeTokenStore(sampleTokenStore());
+
+    // No `security` anywhere on this PATH, so the forced Keychain backend
+    // cannot persist anything -- the write must throw, not pretend.
+    const emptyDir = join(configDir, "empty-path");
+    await mkdir(emptyDir, { recursive: true });
+    process.env.BLOCKS_SECRET_STORE = "macos-keychain";
+    process.env.PATH = emptyDir;
+
+    await assert.rejects(() => writeTokenStore(sampleTokenStore()), (error) => {
+      assert.ok(error instanceof CliActionableError);
+      assert.equal(error.code, "secret_store_write_failed");
+      return true;
+    });
+
+    const kept = JSON.parse(await readFile(join(configDir, "tokens.json"), "utf8"));
+    assert.equal(kept.accounts.default.account.accessToken, "access-token");
+
+    // Reads survive too: migration into the broken store is best-effort and
+    // keeps serving the file copy.
+    const read = await readTokenStore();
+    assert.equal(read.accounts.default.account.refreshToken, "refresh-token");
+  });
+});
+
+test("a Keychain write that exits 0 but stores nothing fails instead of deleting tokens.json", { skip: requiresPosixShell }, async () => {
+  await withSecretStoreSandbox(async (configDir) => {
+    process.env.BLOCKS_SECRET_STORE = "file";
+    await writeTokenStore(sampleTokenStore());
+
+    // The incident's exact shape: every `security` call reports success, no
+    // data lands, so only the read-back can catch it.
+    await writeFakeSecurity(configDir, "#!/bin/sh\nexit 0\n");
+    process.env.BLOCKS_SECRET_STORE = "macos-keychain";
+
+    await assert.rejects(() => writeTokenStore(sampleTokenStore()), (error) => {
+      assert.ok(error instanceof CliActionableError);
+      assert.equal(error.code, "secret_store_write_failed");
+      return true;
+    });
+
+    const kept = JSON.parse(await readFile(join(configDir, "tokens.json"), "utf8"));
+    assert.equal(kept.accounts.default.account.refreshToken, "refresh-token");
+  });
+});
+
+test("a Keychain write that round-trips replaces tokens.json as before", { skip: requiresPosixShell }, async () => {
+  await withSecretStoreSandbox(async (configDir) => {
+    process.env.BLOCKS_SECRET_STORE = "file";
+    await writeTokenStore(sampleTokenStore());
+
+    // A working keychain, faked with a file: add stores the last argument,
+    // find prints it back. Verification must pass and behavior must match the
+    // pre-fix contract (tokens.json handed over to the native store).
+    process.env.FAKE_SECURITY_STORE = join(configDir, "fake-keychain-item");
+    await writeFakeSecurity(configDir, [
+      "#!/bin/sh",
+      "case \"$1\" in",
+      "  add-generic-password) for last; do :; done; printf '%s' \"$last\" > \"$FAKE_SECURITY_STORE\";;",
+      "  find-generic-password) cat \"$FAKE_SECURITY_STORE\" 2>/dev/null;;",
+      "esac",
+      "exit 0",
+      ""
+    ].join("\n"));
+    process.env.BLOCKS_SECRET_STORE = "macos-keychain";
+
+    try {
+      await writeTokenStore(sampleTokenStore());
+      await assert.rejects(() => readFile(join(configDir, "tokens.json"), "utf8"), { code: "ENOENT" });
+
+      const read = await readTokenStore();
+      assert.equal(read.accounts.default.account.accessToken, "access-token");
+    } finally {
+      delete process.env.FAKE_SECURITY_STORE;
+    }
+  });
+});
+
+test("garbage occupying the CLI's credential-store slot surfaces an actionable error, not a crash", { skip: requiresPosixShell }, async () => {
+  await withSecretStoreSandbox(async (configDir) => {
+    // A manually created keychain entry (the incident had a stray password in
+    // the CLI's slot) must not take every command down with a SyntaxError.
+    await writeFakeSecurity(configDir, [
+      "#!/bin/sh",
+      "if [ \"$1\" = \"find-generic-password\" ]; then echo \"Parsa2000\"; fi",
+      "exit 0",
+      ""
+    ].join("\n"));
+    process.env.BLOCKS_SECRET_STORE = "macos-keychain";
+
+    await assert.rejects(() => readTokenStore(), (error) => {
+      assert.ok(error instanceof CliActionableError);
+      assert.equal(error.code, "token_store_unreadable");
+      assert.match(error.nextStep, /BLOCKS_SECRET_STORE=file/);
+      return true;
+    });
+  });
 });
 
 async function makeWorkspace() {
