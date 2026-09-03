@@ -13,9 +13,9 @@ import {
   resolveRepoBySelector,
   waitForBuild
 } from "../../lib/release.js";
-import { commandContextArgs, requestContext } from "../../lib/request-context.js";
+import { requestContext } from "../../lib/request-context.js";
 import { parseCommand } from "../../lib/workspace.js";
-import { releaseSecretsSync } from "./secrets/sync.js";
+import { SecretsSyncResult, syncSecretsFromFile } from "../../lib/release-secrets.js";
 
 type RepoDetailsResponse = {
   data?: {
@@ -102,19 +102,19 @@ export async function releaseDeploy(argv: string[]): Promise<void> {
   ];
   await confirmMutation(flags, `${actions.join(", then ")}.`);
 
-  const contextArgs = commandContextArgs(flags);
+  // Already confirmed above as part of this deploy, so the step runs unprompted. Its
+  // summary (key names and counts only) rides along in the final document rather than
+  // being printed here, keeping --json stdout to exactly one document.
+  let secretsSync: SecretsSyncResult | undefined;
   if (secretsFile) {
     console.error("== release:secrets:sync ==");
-    await releaseSecretsSync([
-      "--repo-id",
-      repoId,
-      "--file",
-      secretsFile,
-      "--yes",
-      ...contextArgs,
-      ...(flags.json ? ["--json"] : [])
-    ]);
+    secretsSync = await syncSecretsFromFile({ file: secretsFile, flags, projectKey, repoId });
+    console.error(
+      `secrets: added ${secretsSync.added.length}, updated ${secretsSync.updated.length}, removed ${secretsSync.removed.length}${secretsSync.upToDate ? " (already up to date)" : ""}`
+    );
   }
+  const withSecrets = <T extends Record<string, unknown>>(document: T): T =>
+    secretsSync ? { ...document, secretsSync } : document;
 
   if (domain) {
     console.error("== release:domain:set ==");
@@ -137,14 +137,14 @@ export async function releaseDeploy(argv: string[]): Promise<void> {
   });
 
   if (!wait && !follow) {
-    writeOutput(result, flags);
+    writeOutput(withSecrets(result), flags);
     return;
   }
 
   const buildId = extractBuildId(result);
   if (!buildId) {
     console.error(`Warning: could not find a buildId in the deploy response to wait on. Response: ${JSON.stringify(result)}`);
-    writeOutput(result, flags);
+    writeOutput(withSecrets(result), flags);
     return;
   }
 
@@ -153,7 +153,7 @@ export async function releaseDeploy(argv: string[]): Promise<void> {
     pollIntervalSeconds,
     timeoutSeconds
   });
-  writeOutput({ build, buildId, status, verdict }, flags);
+  writeOutput(withSecrets({ build, buildId, status, verdict }), flags);
 }
 
 function extractBuildId(result: Record<string, unknown>): string | undefined {

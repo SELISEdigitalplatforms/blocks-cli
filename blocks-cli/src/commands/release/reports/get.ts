@@ -6,9 +6,14 @@ import { RELEASE_API } from "../../../lib/release.js";
 import { requestContext } from "../../../lib/request-context.js";
 import { parseCommand, selectedProject } from "../../../lib/workspace.js";
 
-const REPORT_TYPES = new Set(["sast", "sca"]);
+// TestReportService.GetReport's switch in blocks-release: anything else logs "unknown
+// type" server-side and returns a null report with isSuccess true, so validate here.
+const REPORT_TYPES = new Set(["sast", "sca-container", "sca-libraries", "dast"]);
 
-/** Security scan report for one build: SAST (SonarQube) or SCA (Dependency-Track). */
+/**
+ * Security scan report for one build: SAST (SonarQube), SCA (Dependency-Track, split
+ * into the container image and the library manifest scans), or DAST.
+ */
 export async function releaseReportsGet(argv: string[]): Promise<void> {
   const { args, flags } = parseCommand(argv);
   const buildId = args[0] || stringFlag(flags, "build-id", { required: true });
@@ -17,7 +22,7 @@ export async function releaseReportsGet(argv: string[]): Promise<void> {
     throw new CliActionableError(
       `--type must be one of: ${[...REPORT_TYPES].join(", ")}.`,
       "invalid_report_type",
-      "Re-run with --type sast or --type sca."
+      "Re-run with --type sast, --type sca-container, --type sca-libraries, or --type dast."
     );
   }
 

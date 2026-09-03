@@ -609,7 +609,7 @@ blocks release settings list --json       # hosting provider / region / machine 
 blocks release deploy --dry-run --json
 blocks release deploy --yes --json
 blocks release deploy --domain <customDomain> --yes --json   # also sets the custom deployment domain first
-blocks release deploy --with-secrets .env --yes --json       # sync env vars from a dotenv file, then deploy
+blocks release deploy --with-secrets .env --yes --json       # sync env vars from a dotenv file, then deploy (summary in secretsSync) (summary in secretsSync)
 blocks release deploy --yes --wait --json                    # poll to a terminal status; --follow also streams events to stderr
 ```
 
@@ -625,7 +625,7 @@ Read builds and logs:
 blocks release status <buildId> [--wait] [--follow] --json
 blocks release logs <buildId> [--follow] [--group Clone|Build|Deploy|Sast|Sca] --json
 blocks release builds list [<repo>] [--branch <b>] [--page <n>] [--page-size <n>] --json
-blocks release reports get <buildId> --type sast --json      # or --type sca
+blocks release reports get <buildId> --type sast --json      # or sca-container | sca-libraries | dast
 blocks release monitor list [--repo <name|id>] --json
 ```
 
@@ -675,7 +675,8 @@ blocks release secrets lock|unlock|delete|restore ...        # whole-set lifecyc
 - `build_wait_timeout` (from `--wait`/`--follow`): the build didn't reach a terminal status within `--timeout`. The deploy itself already succeeded (this only affects the wait) - check manually with `release status <buildId>` (add `--wait` to keep watching) rather than assuming failure.
 - `provider_not_supported` (from `release git ...`): only `github` is active in blocks-release; re-run with `--provider github` or omit the flag.
 - `secrets_file_unreadable` / `secrets_file_empty` (from `release secrets sync`): the dotenv file is missing, unreadable, or has no KEY=value lines; fix `--file` before retrying.
-- `invalid_report_type` (from `release reports get`): `--type` must be `sast` or `sca`.
+- `invalid_report_type` (from `release reports get`): `--type` must be one of `sast`, `sca-container`, `sca-libraries`, `dast` (the server's own report types).
+- `secrets_read_failed` (from `release secrets sync`): the current secret set could not be read for a reason other than "no set yet", so nothing was saved (saving replaces the whole set). If the set was soft-deleted, run `release secrets restore` first; otherwise fix the error in the message and retry.
 - `hosting_provider_not_found` / `region_not_found` / `machine_config_not_found` (from `release setup`): the name or id doesn't exist; pick one from `blocks release settings list --json`.
 - `translation_wait_timeout` (from `localization key translate-and-export --wait`): translation didn't settle within `--timeout`. Check manually with `localization key get-timeline-by-operation-id <operationId>` (the id is printed before the wait starts), then run `generate-uilm-file`/`uilm-export` yourself once ready rather than assuming translation failed.
 - `no_project_domain` (from `new web`): the project has no domains registered in Blocks. Add one from the portal, or pass `--app-domain` explicitly if the user already knows the intended value.

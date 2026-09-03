@@ -23,12 +23,18 @@ repository's git log.
   `release secrets sync|list|lock|unlock|delete|restore|audit` (the server
   stores one whole secret set per repo; `sync` bulk-upserts a dotenv file,
   merge by default, removals only behind `--prune`, key names only in output),
-  `release reports get <buildId> --type sast|sca`, `release monitor list`, and
+  `release reports get <buildId> --type sast|sca-container|sca-libraries|dast`
+  (the server's own report types), `release monitor list`, and
   `release teardown <repo>` (explicit repo required, confirmation states the
   namespace and URL being destroyed).
 - `release deploy` gained `--repo <name|id>` (explicit repo selection via
   `Build/repos-list`), `--with-secrets <dotenvFile>` (runs secrets sync
-  first), and `--follow` (streams build events to stderr while waiting).
+  first and reports it as `secretsSync` in the final document, so `--json`
+  stdout stays one document), and `--follow` (streams build events to
+  stderr while waiting).
+- `release secrets sync` starts from an empty set only on the server's
+  not-found answer; any other failure reading the current set aborts with
+  `secrets_read_failed` before saving, because save replaces the whole set.
 - `release status` gained `--wait`/`--follow` and both it and the deploy wait
   now emit a stable `verdict` field (`succeeded`/`failed`/`running`).
 

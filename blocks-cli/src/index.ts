@@ -1334,7 +1334,7 @@ Release:
     Lifecycle of the repo's whole secret set. Delete is soft (restore undoes it).
     Mutating.
 
-  blocks release reports get <buildId> --type sast|sca [--json]
+  blocks release reports get <buildId> --type sast|sca-container|sca-libraries|dast [--json]
     Security scan report for one build. Read-only.
 
   blocks release monitor list [--repo <name|id>] [--json]

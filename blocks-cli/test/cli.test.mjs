@@ -3898,7 +3898,14 @@ test("release secrets sync merges over the current set and prints key names only
       return { data: [{ branch: "dev", itemId: "repo-1", repoName: "web-app" }] };
     }
     if (path === "/release/v4/api/RepoSecret/value") {
-      return { data: { CHANGED_KEY: "old-value-77", KEPT_KEY: "kept-value-42", UNTOUCHED_KEY: "untouched-value-13" } };
+      // RepoSecretValueResponse: the set is the nested 'secrets' map, never the envelope.
+      return {
+        data: {
+          repoId: "repo-1",
+          secretId: "secret-9",
+          secrets: { CHANGED_KEY: "old-value-77", KEPT_KEY: "kept-value-42", UNTOUCHED_KEY: "untouched-value-13" }
+        }
+      };
     }
     if (path === "/release/v4/api/RepoSecret/save") {
       saves.push(body);
@@ -4002,4 +4009,141 @@ test("release git repos refuses providers blocks-release has not activated", asy
   const result = run(["release", "git", "repos", "--provider", "gitlab", "--json"], { cwd, env });
   assert.equal(result.status, 1);
   assert.match(result.stderr, /provider_not_supported/);
+});
+
+test("release reports get only accepts the server's report types", async () => {
+  const { cwd, configDir } = await makeWorkspace();
+  const requests = [];
+  const server = await startJsonServer((request) => {
+    const path = request.url.split("?")[0];
+    if (path === "/release/v4/api/Build/reports") {
+      requests.push(request.url);
+      return { data: { findings: 0 }, isSuccess: true };
+    }
+    return rawResponse(500, { error: `Unexpected ${request.method} ${path}` });
+  });
+
+  try {
+    await writeTwoAccountProjectAuth(configDir, server.url);
+    const env = testEnv(configDir, { BLOCKS_SECRET_STORE: "file" });
+    const context = ["--account", "alpha", "--project", "target-project", "--api-url", server.url];
+
+    // 'sca' is not a type TestReportService knows: the server would answer a null
+    // report with isSuccess true, so the CLI must refuse before any request.
+    const bare = await runAsync(["release", "reports", "get", "build-1", "--type", "sca", "--json", ...context], { cwd, env });
+    assert.equal(bare.status, 1);
+    assert.match(bare.stderr, /invalid_report_type/);
+    assert.match(bare.stderr, /sca-container/);
+    assert.equal(requests.length, 0, "an invalid type must not reach the server");
+
+    const libraries = await runAsync(["release", "reports", "get", "build-1", "--type", "sca-libraries", "--json", ...context], { cwd, env });
+    assert.equal(libraries.status, 0, libraries.stderr);
+    assert.equal(requests.length, 1);
+    assert.match(requests[0], /buildId=build-1/);
+    assert.match(requests[0], /type=sca-libraries/);
+  } finally {
+    await new Promise((resolveClose) => server.close(resolveClose));
+  }
+});
+
+test("release secrets sync starts empty only on not-found and never saves over an unreadable set", async () => {
+  const { cwd, configDir } = await makeWorkspace();
+  const saves = [];
+  let valueStatus = 403;
+  const server = await startJsonServer((request, body) => {
+    const path = request.url.split("?")[0];
+    if (path === "/release/v4/api/Build/repos-list") {
+      return { data: [{ branch: "dev", itemId: "repo-1", repoName: "web-app" }] };
+    }
+    if (path === "/release/v4/api/RepoSecret/value") {
+      // SecretExceptionFilter shape: {isSuccess:false, errors:{<key>: message, reason}}.
+      if (valueStatus === 404) {
+        return rawResponse(404, { errors: { not_found: "Secret 'repo-1' was not found.", reason: "NO_SECRET_FOR_REPO" }, isSuccess: false });
+      }
+      return rawResponse(valueStatus, { errors: { access_denied: "Forbidden." }, isSuccess: false });
+    }
+    if (path === "/release/v4/api/RepoSecret/save") {
+      saves.push(body);
+      return { data: null, isSuccess: true };
+    }
+    return rawResponse(500, { error: `Unexpected ${request.method} ${path}` });
+  });
+
+  try {
+    await writeTwoAccountProjectAuth(configDir, server.url);
+    const env = testEnv(configDir, { BLOCKS_SECRET_STORE: "file" });
+    await writeFile(join(cwd, "sync.env"), "ONLY_KEY=only-value-55\n");
+    const context = ["--account", "alpha", "--project", "target-project", "--api-url", server.url];
+
+    // 403 (or any non-404) while reading the current set: save REPLACES the whole set,
+    // so merging over an unknown set would silently wipe every key not in the file.
+    const denied = await runAsync(["release", "secrets", "sync", "--file", "sync.env", "--yes", "--json", ...context], { cwd, env });
+    assert.equal(denied.status, 1);
+    assert.match(denied.stderr, /secrets_read_failed/);
+    assert.equal(saves.length, 0, "must not save when the current set could not be read");
+    assert.ok(!denied.stderr.includes("only-value-55"), "secret value leaked to stderr");
+
+    // 404 is the one answer that means "no set yet": start from empty and save the file.
+    valueStatus = 404;
+    const created = await runAsync(["release", "secrets", "sync", "--file", "sync.env", "--yes", "--json", ...context], { cwd, env });
+    assert.equal(created.status, 0, created.stderr);
+    const output = JSON.parse(created.stdout);
+    assert.deepEqual(output.added, ["ONLY_KEY"]);
+    assert.equal(output.saved, true);
+    assert.equal(saves.length, 1);
+    assert.deepEqual(saves[0], { repoId: "repo-1", secrets: { ONLY_KEY: "only-value-55" } });
+  } finally {
+    await new Promise((resolveClose) => server.close(resolveClose));
+  }
+});
+
+test("release deploy --with-secrets --json emits one document carrying the sync summary", async () => {
+  const { cwd, configDir } = await makeWorkspace();
+  const saves = [];
+  const server = await startJsonServer((request, body) => {
+    const path = request.url.split("?")[0];
+    if (path === "/os/v4/Project/Gets") {
+      return [{ tenantGroupId: "group-1", projects: [{ environment: "dev", tenantId: "target-project" }] }];
+    }
+    if (path === "/os/v4/Project/GetAsset") {
+      return { assets: { resources: [{ name: "dev", resourceId: "repo-1" }] } };
+    }
+    if (path === "/release/v4/api/Build/repo-details") {
+      return { data: { repo: { branch: "dev", repoUrl: "https://example.test/repo.git" } } };
+    }
+    if (path === "/release/v4/api/RepoSecret/value") {
+      return { data: { repoId: "repo-1", secretId: "secret-9", secrets: { EXISTING_KEY: "existing-value-31" } } };
+    }
+    if (path === "/release/v4/api/RepoSecret/save") {
+      saves.push(body);
+      return { data: null, isSuccess: true };
+    }
+    if (path === "/release/v4/api/Build/manual") return { buildId: "build-7", isSuccess: true };
+    return rawResponse(500, { error: `Unexpected ${request.method} ${path}` });
+  });
+
+  try {
+    await writeTwoAccountProjectAuth(configDir, server.url);
+    const env = testEnv(configDir, { BLOCKS_SECRET_STORE: "file" });
+    await writeFile(join(cwd, "deploy.env"), "NEW_KEY=new-value-64\n");
+    const result = await runAsync([
+      "release", "deploy", "--with-secrets", "deploy.env", "--yes", "--json",
+      "--account", "alpha", "--project", "target-project", "--api-url", server.url
+    ], { cwd, env });
+    assert.equal(result.status, 0, result.stderr);
+
+    // Exactly one JSON document on stdout -- the sync step must not print its own.
+    const output = JSON.parse(result.stdout);
+    assert.equal(output.buildId, "build-7");
+    assert.deepEqual(output.secretsSync.added, ["NEW_KEY"]);
+    assert.equal(output.secretsSync.saved, true);
+    assert.equal(saves.length, 1);
+    assert.deepEqual(saves[0].secrets, { EXISTING_KEY: "existing-value-31", NEW_KEY: "new-value-64" });
+    for (const leaked of ["existing-value-31", "new-value-64"]) {
+      assert.ok(!result.stdout.includes(leaked) && !result.stderr.includes(leaked), `secret value '${leaked}' leaked to output`);
+    }
+    assert.match(result.stderr, /release:secrets:sync/);
+  } finally {
+    await new Promise((resolveClose) => server.close(resolveClose));
+  }
 });

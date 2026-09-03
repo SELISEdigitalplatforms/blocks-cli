@@ -22,7 +22,7 @@ write a frontend/app-code path for this; use the terminal command.
 - **`blocks release builds list [<repo>] [--branch <b>] [--page <n>] [--page-size <n>] [--json]`** — paged builds for one repository, addressed by name or id. When the selector is omitted and exactly one repo is registered, it's auto-picked; with multiple repos it fails with `repo_ambiguous` listing the candidates — it never prompts interactively, so it is safe in agent/CI runs.
 - **`blocks release settings list [--json]`** — the hosting choices `release setup` accepts (provider → region → machine spec, each with id and name).
 - **`blocks release git repos [--provider github] [--search <s>] [--json]`** / **`blocks release git branches <owner/repo> [--json]`** — browse the connected source-control account. Only `github` is active; other providers fail with `provider_not_supported`.
-- **`blocks release reports get <buildId> --type sast|sca [--json]`** — the build's SonarQube (SAST) or Dependency-Track (SCA) report.
+- **`blocks release reports get <buildId> --type sast|sca-container|sca-libraries|dast [--json]`** — the build's SonarQube (SAST), Dependency-Track (SCA, split into the container-image scan and the library-manifest scan), or DAST report. These are the server's exact type names; a plain `sca` is rejected with `invalid_report_type`.
 - **`blocks release monitor list [--repo <name|id>] [--json]`** — monitoring/alerting entries for a deployed repo.
 - **`blocks release secrets list [--repo <name|id>] [--json]`** / **`secrets audit`** — secret-set metadata and audit trail; neither ever returns key names or values.
 
@@ -79,7 +79,7 @@ blocks release secrets sync --file .env --dry-run --json   # plan: key NAMES onl
 blocks release secrets sync --file .env --yes --json
 ```
 
-The server stores **one whole secret set per repo**. Sync merges the dotenv file over the current set by default (an audited read backs the diff) and **never removes keys** unless `--prune` is passed, which makes the file the entire set and lists the removed key names in the plan. Values are never displayed by any output, dry-run included. A no-change run reports `upToDate` without writing. Related lifecycle commands: `secrets lock|unlock|delete|restore` act on the whole set; `delete` is soft and `restore` undoes it.
+The server stores **one whole secret set per repo**. Sync merges the dotenv file over the current set by default (an audited read backs the diff; if that read fails for any reason other than "no set yet", sync stops with `secrets_read_failed` and saves nothing) and **never removes keys** unless `--prune` is passed, which makes the file the entire set and lists the removed key names in the plan. Values are never displayed by any output, dry-run included. A no-change run reports `upToDate` without writing. Related lifecycle commands: `secrets lock|unlock|delete|restore` act on the whole set; `delete` is soft and `restore` undoes it.
 
 ## Destructive: teardown
 
@@ -107,6 +107,6 @@ The server stores **one whole secret set per repo**. Sync merges the dotenv file
 - "Upload/sync my .env to the deployment." → `release secrets sync --file .env` (dry-run first).
 - "Deploy and wait until it finishes." → add `--wait` (or `--follow` for live events; optionally `--poll-interval`/`--timeout`).
 - "Deploy this to a custom domain." → add `--domain <domain>` (or `release domain set <domain>`).
-- "What did the security scan find?" → `release reports get <buildId> --type sast` (and `--type sca`).
+- "What did the security scan find?" → `release reports get <buildId> --type sast` (and `--type sca-libraries` / `--type sca-container`).
 - "Delete the deployment of repo X." → `release teardown X`, dry-run + explicit approval first.
 - "Can you upload my compiled artifact and deploy it?" → not supported; explain there's no artifact-upload path, only triggering the repo's configured pipeline.

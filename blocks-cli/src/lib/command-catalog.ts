@@ -2707,17 +2707,14 @@ export const commandCatalog: readonly CommandEntry[] = [
     "name": "release deploy",
     "family": "release",
     "summary": "Deploy the selected project's environment (Build/manual), optionally syncing secrets and setting the domain first.",
-    "details": "Resolves the repo from --repo (name or id via Build/repos-list) or, when omitted, from the project's linked assets (Project/GetAsset) and that repo's connected branch (Build/repo-details). Aborts if the connected branch doesn't match this environment's name. --with-secrets <dotenvFile> first runs release secrets sync for that file; --domain also sets the custom deployment domain before deploying. --wait polls the build's status FIELD until a server terminal value (Succeeded/Failed/Cancelled/...; or --timeout elapses, default 900s); --follow implies --wait and streams build events to stderr. All progress goes to stderr, so --json stdout stays one parseable verdict document ({buildId, status, verdict, build}). Mutating; no artifact upload is performed by this CLI.",
+    "details": "Resolves the repo from --repo (name or id via Build/repos-list) or, when omitted, from the project's linked assets (Project/GetAsset) and that repo's connected branch (Build/repo-details). Aborts if the connected branch doesn't match this environment's name. --with-secrets <dotenvFile> first runs release secrets sync for that file and folds its summary into the final document as secretsSync; --domain also sets the custom deployment domain before deploying. --wait polls the build's status FIELD until a server terminal value (Succeeded/Failed/Cancelled/...; or --timeout elapses, default 900s); --follow implies --wait and streams build events to stderr. All progress goes to stderr, so --json stdout stays one parseable verdict document ({buildId, status, verdict, build}). Mutating; no artifact upload is performed by this CLI.",
     "scope": "project",
     "mutating": true,
     "flags": [
       "domain",
-      "file",
       "follow",
       "poll-interval",
-      "prune",
       "repo",
-      "repo-id",
       "timeout",
       "wait",
       "with-secrets"
@@ -2808,9 +2805,9 @@ export const commandCatalog: readonly CommandEntry[] = [
   {
     "name": "release reports get",
     "family": "release",
-    "summary": "Security scan report for one build: SAST (SonarQube) or SCA (Dependency-Track).",
+    "summary": "Security scan report for one build: SAST (SonarQube), SCA (Dependency-Track), or DAST.",
     "positional": "<buildId>",
-    "details": "--type is required: sast or sca. Read-only.",
+    "details": "--type is required and must be one of the server's report types: sast (SonarQube), sca-container (Dependency-Track, container image), sca-libraries (Dependency-Track, library manifests), or dast. Anything else fails with invalid_report_type before any request. Read-only.",
     "scope": "project",
     "mutating": false,
     "flags": [
@@ -2891,7 +2888,7 @@ export const commandCatalog: readonly CommandEntry[] = [
     "name": "release secrets sync",
     "family": "release",
     "summary": "Bulk env-var upsert into a repo's secret set from a dotenv file.",
-    "details": "The server stores ONE whole secret set per repo (RepoSecret/save replaces the set), so merge mode reads the current set first -- an audited read, same as the portal's reveal -- and merges the file over it; nothing is ever removed without --prune, which makes the file the entire set and lists the removed key names in the plan. --file defaults to .env; --repo/--repo-id picks the repo (auto when only one is registered). Output and --dry-run show key NAMES and counts only -- values are never displayed. A no-change run reports upToDate without calling save. Mutating.",
+    "details": "The server stores ONE whole secret set per repo (RepoSecret/save replaces the set), so merge mode reads the current set first -- an audited read, same as the portal's reveal -- and merges the file over it; nothing is ever removed without --prune, which makes the file the entire set and lists the removed key names in the plan. Only the server's not-found answer (no set yet) starts from empty; any other read failure aborts with secrets_read_failed before saving, so a transient error can never wipe the set. --file defaults to .env; --repo/--repo-id picks the repo (auto when only one is registered). Output and --dry-run show key NAMES and counts only -- values are never displayed. A no-change run reports upToDate without calling save. Mutating.",
     "scope": "project",
     "mutating": true,
     "flags": [
