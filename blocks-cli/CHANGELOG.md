@@ -6,9 +6,23 @@ This project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 Versions before 0.3.0 were released without a changelog; their history is in the
 repository's git log.
 
-## Unreleased
+## 0.4.0
 
 ### Added
+
+- New `captcha` family (blocks-os `/os/v4/captcha/*`): `list` (with
+  `activeForLogin`, the configuration blocks-iam enforces -- the first enabled
+  record in id order), `get`, `save` (create/update; `--captcha-secret` stores
+  or replaces the secret and is redacted in dry-run, never echoed back),
+  `enable`/`disable` (compound: re-save with only `isEnable` flipped and report
+  which record is live), and `delete`.
+- New `secrets` family (blocks-os `/os/v4/Secrets/*`): `list`, `get`, `set`
+  (value from `--value-file`, `--value-env` or `--value`; redacted in dry-run),
+  `set-many` (one secret per dotenv key), `update`, `rotate`,
+  `lock`/`unlock`/`delete`/`restore`, `access` (replace, `--merge`, or
+  `--clear`), and `audit`. The CLI never prints a secret value -- the server's
+  read-value endpoints are deliberately not exposed -- and always writes the
+  default secret type.
 
 - 18 new `release` commands covering the full blocks-release surface, all
   CLI-side against existing APIs: `release setup` (first-time deploy via

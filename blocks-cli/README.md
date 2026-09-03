@@ -161,9 +161,11 @@ After login selects `activeAccount`, `blocks use <tenantId>` updates that accoun
 
 ## Boundaries
 
-- `iam me` reads the CLI operator's own identity, preferring project auth when a project is resolved and using account auth only in account-only mode. Every other `iam *`, `mfa *`, `auth idp *`/`auth config *`/`auth client-credentials *`/`auth oidc-clients *`, `mail *`, `notification *`, `notifier *`, and `storage config *` command is project-scoped and requires a selected project (`blocks use <tenantId>`) plus an impersonated project token.
+- `iam me` reads the CLI operator's own identity, preferring project auth when a project is resolved and using account auth only in account-only mode. Every other `iam *`, `mfa *`, `auth idp *`/`auth config *`/`auth client-credentials *`/`auth oidc-clients *`, `mail *`, `notification *`, `notifier *`, `storage config *`, `captcha *`, and `secrets *` command is project-scoped and requires a selected project (`blocks use <tenantId>`) plus an impersonated project token.
 - Data covers tenant data-source configuration, schema/rules/reload/validate, field-level validation rules, and the storage object tree (`data files *`). Prefer the composed `data sync` and `data files upload` workflows.
 - Localization covers dictionary validate/pull/push plus the full raw `/localization/v4/*` API surface (assistant, config, glossary, key, language, module). Prefer `localization key translate-and-export` over running translate/generate/export by hand.
+- Secrets covers the project's secret store (`secrets *`: create, rotate, lock, delete/restore, access list, audit). The CLI never prints a secret value.
+- Captcha covers the login-captcha configuration (`captcha *`); the captcha secret is stored server-side and never shown.
 - Release covers the blocks-release API surface: first deploy (`setup`) and re-deploy (`deploy`), build status/logs/reports, registered-repo inventory, hosting settings, custom domain, source-control browsing (GitHub only), the per-repo secret set (`secrets sync|list|lock|unlock|delete|restore|audit`), monitoring entries, and `teardown`. Linking a repo still happens in the portal.
 - No direct artifact upload unless Blocks Release adds a confirmed artifact upload API.
 - `projects create` creates a `dev`-only, single-application project. It cannot add environments to an existing project or create a non-`dev` one - those still go through the Blocks portal.

@@ -593,6 +593,39 @@ blocks storage config delete <name> --dry-run --json
 
 `--secret-key`, `--access-key`, `--password`, and `--connection-string` are secrets; the CLI redacts them in `--dry-run` output only.
 
+## Captcha
+
+Project-scoped login-captcha configuration via `/os/v4/captcha/*` (blocks-os). blocks-iam enforces the FIRST enabled configuration in id order at login; the CLI reports it as `activeForLogin`.
+
+```bash
+blocks captcha list --json
+blocks captcha get <id> --json                                   # secretId only, never the value
+blocks captcha save --provider recaptcha --captcha-key <siteKey> --captcha-secret <secret> --enable --dry-run --json
+blocks captcha save <id> --provider recaptcha --captcha-secret <newSecret> --yes --json   # rotates the linked secret
+blocks captcha enable <id> --yes --json                          # or: captcha disable <id>
+blocks captcha delete <id> --dry-run --json                      # also retires the stored secret
+```
+
+`--captcha-secret` is redacted in `--dry-run` output and never echoed back; the stored secret cannot be read from the CLI, only replaced by re-saving with `--captcha-secret`. `enable`/`disable` re-save the record with only `isEnable` flipped and report which configuration is live afterwards -- read that field rather than assuming the one you enabled is enforced.
+
+## Secrets
+
+The project's secret store via `/os/v4/Secrets/*` (blocks-os). One record per secret with status (`active`|`locked`|`deleted`), an optional access list, rotation history and an audit trail. **The CLI never prints a secret value**: there is no read-value command, `get`/`list`/`audit` return metadata only, and dry-run output redacts values. If a user needs to read a value, that happens in the Blocks portal.
+
+```bash
+blocks secrets list --json
+blocks secrets get <secretId> --json                             # metadata only
+blocks secrets set <name> --value-file ./secret.txt --dry-run --json
+blocks secrets set <name> --value-env MY_SECRET --yes --json     # returns {secretId}
+blocks secrets set-many --env-file .env --dry-run --json         # one secret per KEY
+blocks secrets rotate <secretId> --value-file ./new.txt --yes --json
+blocks secrets access <secretId> --roles admin --merge --yes --json
+blocks secrets lock <secretId> --yes --json                      # also: unlock | delete | restore
+blocks secrets audit <secretId> --json
+```
+
+`set` always creates (names are not unique) -- change a value with `rotate` and metadata with `update`. The type is fixed by the CLI; there is no flag for it. Prefer `--value-file`/`--value-env` over `--value` so values stay out of shell history, and do not read the file or variable back yourself. Locked secrets refuse rotation (409 `invalid_state`) until `unlock`.
+
 ## Release
 
 Start with the inventory - most release commands take `--repo <name|id>` and every id you need comes from here:
@@ -678,6 +711,13 @@ blocks release secrets lock|unlock|delete|restore ...        # whole-set lifecyc
 - `invalid_report_type` (from `release reports get`): `--type` must be one of `sast`, `sca-container`, `sca-libraries`, `dast` (the server's own report types).
 - `secrets_read_failed` (from `release secrets sync`): the current secret set could not be read for a reason other than "no set yet", so nothing was saved (saving replaces the whole set). If the set was soft-deleted, run `release secrets restore` first; otherwise fix the error in the message and retry.
 - `hosting_provider_not_found` / `region_not_found` / `machine_config_not_found` (from `release setup`): the name or id doesn't exist; pick one from `blocks release settings list --json`.
+- `secret_not_found` (from `secrets *`): the id does not exist in this project. Run `blocks secrets list --include-deleted --json` and use a listed secretId.
+- `captcha_not_found` (from `captcha *`): the id does not exist in this project. Run `blocks captcha list --json` and use a listed id.
+- `secret_value_required` / `secret_value_ambiguous` / `secret_value_unreadable` / `secret_value_env_missing` (from `secrets set`/`rotate`): provide exactly one value source (`--value-file`, `--value-env`, or `--value`) that resolves to a non-empty value.
+- `invalid_secret_status` / `invalid_captcha_provider`: the message lists the accepted values; re-run with one of them.
+- `captcha_enable_required` (from `captcha save` when creating): pass `--enable` or `--enable=false` explicitly -- the server would otherwise store the configuration disabled.
+- `secret_access_empty` / `secret_access_conflict` (from `secrets access`): pass `--user-ids`/`--roles` (optionally with `--merge`) or `--clear` alone.
+- HTTP 409 `invalid_state` (from `secrets rotate`/`lock`/`restore`): the secret's status does not allow the transition (locked or deleted); `secrets unlock`/`restore` first.
 - `translation_wait_timeout` (from `localization key translate-and-export --wait`): translation didn't settle within `--timeout`. Check manually with `localization key get-timeline-by-operation-id <operationId>` (the id is printed before the wait starts), then run `generate-uilm-file`/`uilm-export` yourself once ready rather than assuming translation failed.
 - `no_project_domain` (from `new web`): the project has no domains registered in Blocks. Add one from the portal, or pass `--app-domain` explicitly if the user already knows the intended value.
 - HTML returned from an API command means the command endpoint path is wrong and must be fixed in the CLI.

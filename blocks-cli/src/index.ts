@@ -223,6 +223,20 @@ import { storageConfigDelete } from "./commands/storage/config/delete.js";
 import { storageConfigGet } from "./commands/storage/config/get.js";
 import { storageConfigList } from "./commands/storage/config/list.js";
 import { storageConfigSave } from "./commands/storage/config/save.js";
+import { captchaDelete } from "./commands/captcha/delete.js";
+import { captchaDisable, captchaEnable } from "./commands/captcha/enable.js";
+import { captchaGet } from "./commands/captcha/get.js";
+import { captchaList } from "./commands/captcha/list.js";
+import { captchaSave } from "./commands/captcha/save.js";
+import { secretsAccess } from "./commands/secrets/access.js";
+import { secretsAudit } from "./commands/secrets/audit.js";
+import { secretsGet } from "./commands/secrets/get.js";
+import { secretsDelete, secretsLock, secretsRestore, secretsUnlock } from "./commands/secrets/lifecycle.js";
+import { secretsList } from "./commands/secrets/list.js";
+import { secretsRotate } from "./commands/secrets/rotate.js";
+import { secretsSetMany } from "./commands/secrets/set-many.js";
+import { secretsSet } from "./commands/secrets/set.js";
+import { secretsUpdate } from "./commands/secrets/update.js";
 import type { CommandEntry } from "./lib/command-catalog.js";
 import { CliActionableError } from "./lib/errors.js";
 import { maybePrintUpdateNotice } from "./lib/update-check.js";
@@ -446,6 +460,24 @@ const commands: Partial<Record<string, CommandHandler>> = {
   "storage:config:get": storageConfigGet,
   "storage:config:save": storageConfigSave,
   "storage:config:delete": storageConfigDelete,
+  "captcha:list": captchaList,
+  "captcha:get": captchaGet,
+  "captcha:save": captchaSave,
+  "captcha:enable": captchaEnable,
+  "captcha:disable": captchaDisable,
+  "captcha:delete": captchaDelete,
+  "secrets:list": secretsList,
+  "secrets:get": secretsGet,
+  "secrets:set": secretsSet,
+  "secrets:set-many": secretsSetMany,
+  "secrets:update": secretsUpdate,
+  "secrets:rotate": secretsRotate,
+  "secrets:lock": secretsLock,
+  "secrets:unlock": secretsUnlock,
+  "secrets:delete": secretsDelete,
+  "secrets:restore": secretsRestore,
+  "secrets:access": secretsAccess,
+  "secrets:audit": secretsAudit,
   "auth:idp:list": authIdpList,
   "auth:idp:get": authIdpGet,
   "auth:idp:create": authIdpCreate,
@@ -915,6 +947,53 @@ Storage (/os/v4/Storage/* — project-scoped: requires a selected project, imper
                               [--body '<json>'|--file <path>] [--dry-run] [--yes] [--json]
     Upsert: omit --item-id to create; pass --update to update.
   blocks storage config delete <name> [--dry-run] [--yes] [--json]
+
+Captcha (/os/v4/captcha/* — project-scoped: requires a selected project, impersonated project token only):
+  blocks captcha list [--json]
+    Every login-captcha configuration plus activeForLogin: the one blocks-iam enforces
+    (the first ENABLED record in id order, or null). Read-only.
+  blocks captcha get <id> [--json]
+    Returns a secretId reference, never the secret value; no command reveals it.
+  blocks captcha save [<id>] --provider recaptcha|hcaptcha|bcaptcha [--captcha-key <siteKey>]
+                              [--captcha-secret <secret>] [--generator EasyCaptchaGenerator|HardCaptchaGenerator]
+                              --enable|--enable=false [--body '<json>'|--file <path>] [--dry-run] [--yes] [--json]
+    Omit <id> to create (then --enable or --enable=false is required); pass it to update.
+    --captcha-secret stores the secret on create and REPLACES it on update; omitted
+    leaves the stored secret untouched. Redacted in --dry-run output, never echoed back.
+  blocks captcha enable <id> [--dry-run] [--yes] [--json]
+  blocks captcha disable <id> [--dry-run] [--yes] [--json]
+    Flip isEnable only (re-saves the record without a secret). The output states which
+    configuration is live afterwards: several may be enabled, only the first in id order counts.
+  blocks captcha delete <id> [--dry-run] [--yes] [--json]
+    Also retires the stored captcha secret. Not undoable.
+
+Secrets (/os/v4/Secrets/* — project-scoped: requires a selected project, impersonated project token only.
+         The project's secret store: one named record per secret with status, access list, rotation
+         and audit. The CLI NEVER prints a secret value -- there is no read-value command):
+  blocks secrets list [--search <s>] [--status active|locked|deleted] [--include-deleted]
+                              [--organization-id <id>] [--page <n>] [--page-size <n>] [--json]
+  blocks secrets get <secretId> [--json]
+    Metadata only (name, status, access, rotation, canReadValue). Read-only.
+  blocks secrets set <name> --value-file <path>|--value-env <NAME>|--value <text>
+                              [--description <d>] [--user-ids a,b] [--roles a,b] [--organization-id <id>]
+                              [--body '<json>'|--file <path>] [--dry-run] [--yes] [--json]
+    Always creates (names are not unique); returns {secretId}. Prefer --value-file/--value-env
+    so the value stays out of shell history. The value is redacted in --dry-run output.
+  blocks secrets set-many --env-file <dotenv> [--description <d>] [--organization-id <id>]
+                              [--dry-run] [--yes] [--json]
+    One secret per KEY=value line, named after the key; returns {secretIds: {name: id}}.
+  blocks secrets update <secretId> [--name <n>] [--description <d>] [--dry-run] [--yes] [--json]
+  blocks secrets rotate <secretId> --value-file <path>|--value-env <NAME>|--value <text>
+                              [--dry-run] [--yes] [--json]
+  blocks secrets lock <secretId> | unlock <secretId> | delete <secretId> | restore <secretId>
+                              [--dry-run] [--yes] [--json]
+    Locked secrets refuse value reads and rotation; delete is soft (restore undoes it).
+  blocks secrets access <secretId> [--user-ids a,b] [--roles a,b] [--merge] [--clear]
+                              [--dry-run] [--yes] [--json]
+    Who may read the value. Replaces the list by default; --merge adds to the current
+    one, --clear removes the restriction.
+  blocks secrets audit [<secretId>] [--action <a>] [--actor-user-id <id>] [--from <iso>] [--to <iso>]
+                              [--page <n>] [--page-size <n>] [--json]
 
 Auth Admin (/iam/v4/auth/identity-providers*, /config, /client-credentials, /oidc-clients —
             project-scoped: requires a selected project, impersonated project token only):

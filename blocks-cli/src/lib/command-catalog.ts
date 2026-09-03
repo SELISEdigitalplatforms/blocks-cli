@@ -303,6 +303,82 @@ export const commandCatalog: readonly CommandEntry[] = [
     "flags": []
   },
   {
+    "name": "captcha delete",
+    "family": "captcha",
+    "summary": "Delete a captcha configuration and retire its stored secret.",
+    "positional": "<id>",
+    "details": "The server retires the stored secret first, then removes the record. The confirmation states whether the record is currently enabled, since deleting the enforced one stops requiring a captcha at login. Not undoable. Mutating.",
+    "scope": "project",
+    "mutating": true,
+    "flags": [
+      "id"
+    ]
+  },
+  {
+    "name": "captcha disable",
+    "family": "captcha",
+    "summary": "Disable one captcha configuration without changing anything else.",
+    "positional": "<id>",
+    "details": "Compound counterpart of captcha enable: re-saves with isEnable false and no secret, then reports which configuration (if any) is now enforced at login. Mutating.",
+    "scope": "project",
+    "mutating": true,
+    "flags": [
+      "id"
+    ]
+  },
+  {
+    "name": "captcha enable",
+    "family": "captcha",
+    "summary": "Enable one captcha configuration without changing anything else.",
+    "positional": "<id>",
+    "details": "Compound: reads the record, re-saves it with isEnable true and no secret (so the stored secret is untouched), then lists to report activeForLogin. Since blocks-iam enforces the first enabled record in id order, the output (and a stderr note) says when another enabled record still takes precedence. A record that is already enabled reports upToDate. Mutating.",
+    "scope": "project",
+    "mutating": true,
+    "flags": [
+      "id"
+    ]
+  },
+  {
+    "name": "captcha get",
+    "family": "captcha",
+    "summary": "One captcha configuration by id (provider, site key, generator, isEnable, secretId).",
+    "positional": "<id>",
+    "details": "Never returns the captcha secret, only a secretId reference; no command reveals it. Unknown ids fail with captcha_not_found. Read-only.",
+    "scope": "project",
+    "mutating": false,
+    "flags": [
+      "id"
+    ]
+  },
+  {
+    "name": "captcha list",
+    "family": "captcha",
+    "summary": "List the project's login-captcha configurations and which one blocks-iam enforces.",
+    "details": "Output is {activeForLogin, configs, totalCount}. activeForLogin mirrors blocks-iam's rule -- the FIRST enabled record in id order -- so several enabled records are legal but only that one gates login. Each config carries secretId, never the secret value. Read-only.",
+    "scope": "project",
+    "mutating": false,
+    "flags": []
+  },
+  {
+    "name": "captcha save",
+    "family": "captcha",
+    "summary": "Create or update a login-captcha configuration.",
+    "positional": "[id]",
+    "details": "Omit the id to create -- then --enable or --enable=false is required, because the server treats an omitted flag as disabled. Pass the id to update. --provider must be one blocks-iam can verify (recaptcha, hcaptcha, bcaptcha). --captcha-secret stores the secret on create and REPLACES it on update; omitted or empty leaves the stored secret untouched. --body/--file supply raw fields, convenience flags win. The secret is redacted in --dry-run output and never echoed back. Mutating.",
+    "scope": "project",
+    "mutating": true,
+    "flags": [
+      "body",
+      "captcha-key",
+      "captcha-secret",
+      "enable",
+      "file",
+      "generator",
+      "id",
+      "provider"
+    ]
+  },
+  {
     "name": "data config create",
     "family": "data",
     "summary": "Point the Data Gateway at an external database.",
@@ -2966,6 +3042,179 @@ export const commandCatalog: readonly CommandEntry[] = [
     "flags": [
       "repo",
       "repo-id"
+    ]
+  },
+  {
+    "name": "secrets access",
+    "family": "secrets",
+    "summary": "Set which users and roles may read a secret's value.",
+    "positional": "<secretId>",
+    "details": "The server replaces the access list, so the default mode does too. --merge reads the current list first and adds --user-ids/--roles to it; --clear sends empty lists (no per-secret restriction). Mutating.",
+    "scope": "project",
+    "mutating": true,
+    "flags": [
+      "clear",
+      "merge",
+      "roles",
+      "secret-id",
+      "user-ids"
+    ]
+  },
+  {
+    "name": "secrets audit",
+    "family": "secrets",
+    "summary": "Paged audit trail of the secret store: every set, value read, rotation, lock, delete, access change, denial.",
+    "positional": "[secretId]",
+    "details": "Filters: the secret (positional or --secret-id), --action (Set, GetValue, Rotate, Lock, Delete, UpdateAccess, AccessDenied, ...), --actor-user-id, --from/--to (ISO dates); --page is 1-based, --page-size defaults to 20. Read-only.",
+    "scope": "project",
+    "mutating": false,
+    "flags": [
+      "action",
+      "actor-user-id",
+      "from",
+      "page",
+      "page-size",
+      "secret-id",
+      "to"
+    ]
+  },
+  {
+    "name": "secrets delete",
+    "family": "secrets",
+    "summary": "Soft-delete a secret (recoverable with secrets restore).",
+    "positional": "<secretId>",
+    "details": "Metadata is marked deleted and the vault value retained, so 'secrets restore' undoes it; 'secrets list --include-deleted' still shows it. Mutating.",
+    "scope": "project",
+    "mutating": true,
+    "flags": [
+      "secret-id"
+    ]
+  },
+  {
+    "name": "secrets get",
+    "family": "secrets",
+    "summary": "One secret's metadata: name, status, access list, rotation history, canReadValue.",
+    "positional": "<secretId>",
+    "details": "Never returns the value; no command does. Unknown ids fail with secret_not_found. Read-only.",
+    "scope": "project",
+    "mutating": false,
+    "flags": [
+      "secret-id"
+    ]
+  },
+  {
+    "name": "secrets list",
+    "family": "secrets",
+    "summary": "Paged metadata of the project's secrets.",
+    "details": "Filters: --search, --status active|locked|deleted, --include-deleted, --organization-id; --page is 1-based and --page-size defaults to 20. Returns {data, totalCount}; never a value. Read-only.",
+    "scope": "project",
+    "mutating": false,
+    "flags": [
+      "include-deleted",
+      "organization-id",
+      "page",
+      "page-size",
+      "search",
+      "status"
+    ]
+  },
+  {
+    "name": "secrets lock",
+    "family": "secrets",
+    "summary": "Lock a secret: value reads and rotations are refused until it is unlocked.",
+    "positional": "<secretId>",
+    "details": "Mutating.",
+    "scope": "project",
+    "mutating": true,
+    "flags": [
+      "secret-id"
+    ]
+  },
+  {
+    "name": "secrets restore",
+    "family": "secrets",
+    "summary": "Restore a soft-deleted secret.",
+    "positional": "<secretId>",
+    "details": "Mutating.",
+    "scope": "project",
+    "mutating": true,
+    "flags": [
+      "secret-id"
+    ]
+  },
+  {
+    "name": "secrets rotate",
+    "family": "secrets",
+    "summary": "Replace a secret's value in place; id, access list and audit trail stay.",
+    "positional": "<secretId>",
+    "details": "The new value comes from exactly one of --value-file, --value-env or --value, redacted in --dry-run output. Refused on a locked or deleted secret (409 invalid_state). Mutating.",
+    "scope": "project",
+    "mutating": true,
+    "flags": [
+      "secret-id",
+      "value",
+      "value-env",
+      "value-file"
+    ]
+  },
+  {
+    "name": "secrets set",
+    "family": "secrets",
+    "summary": "Create one secret and return its secretId.",
+    "positional": "<name>",
+    "details": "Always creates: names are not unique server-side, so re-running makes a second secret -- change an existing value with 'secrets rotate' and metadata with 'secrets update'. The value comes from exactly one of --value-file (whole file content, one trailing newline stripped), --value-env (an environment variable name) or --value; the first two keep it out of shell history. The type is fixed (there is no flag); --user-ids/--roles set the initial access list. The value is redacted in --dry-run output and never printed. Mutating.",
+    "scope": "project",
+    "mutating": true,
+    "flags": [
+      "body",
+      "description",
+      "file",
+      "name",
+      "organization-id",
+      "roles",
+      "user-ids",
+      "value",
+      "value-env",
+      "value-file"
+    ]
+  },
+  {
+    "name": "secrets set-many",
+    "family": "secrets",
+    "summary": "Create one secret per KEY=value line of a dotenv file.",
+    "details": "Each key becomes a secret name; the response maps every name to its new secretId. Always creates (re-running duplicates). --description/--organization-id apply to all; the type is fixed. Dry-run lists the names and redacts the values. Mutating.",
+    "scope": "project",
+    "mutating": true,
+    "flags": [
+      "description",
+      "env-file",
+      "organization-id"
+    ]
+  },
+  {
+    "name": "secrets unlock",
+    "family": "secrets",
+    "summary": "Unlock a locked secret.",
+    "positional": "<secretId>",
+    "details": "Mutating.",
+    "scope": "project",
+    "mutating": true,
+    "flags": [
+      "secret-id"
+    ]
+  },
+  {
+    "name": "secrets update",
+    "family": "secrets",
+    "summary": "Rename or re-describe a secret; the value is untouched.",
+    "positional": "<secretId>",
+    "details": "At least one of --name/--description is required (secret_update_empty otherwise). Mutating.",
+    "scope": "project",
+    "mutating": true,
+    "flags": [
+      "description",
+      "name",
+      "secret-id"
     ]
   },
   {

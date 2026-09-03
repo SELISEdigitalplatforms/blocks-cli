@@ -4147,3 +4147,194 @@ test("release deploy --with-secrets --json emits one document carrying the sync 
     await new Promise((resolveClose) => server.close(resolveClose));
   }
 });
+
+test("secrets set reads the value from a file, redacts it in dry-run, and posts SetSecretRequest", async () => {
+  const { cwd, configDir } = await makeWorkspace();
+  const posts = [];
+  const server = await startJsonServer((request, body) => {
+    const path = request.url.split("?")[0];
+    if (path === "/os/v4/Secrets/set" && request.method === "POST") {
+      posts.push(body);
+      return { secretId: "sec-1" };
+    }
+    return rawResponse(500, { error: `Unexpected ${request.method} ${path}` });
+  });
+
+  try {
+    await writeTwoAccountProjectAuth(configDir, server.url);
+    const env = testEnv(configDir, { BLOCKS_SECRET_STORE: "file" });
+    const context = ["--account", "alpha", "--project", "target-project", "--api-url", server.url];
+    await writeFile(join(cwd, "key.txt"), "super-secret-value-91\n");
+
+    // No value source at all -> typed error before any request.
+    const missing = await runAsync(["secrets", "set", "stripe", "--json", ...context], { cwd, env });
+    assert.equal(missing.status, 1);
+    assert.match(missing.stderr, /secret_value_required/);
+
+    const plan = await runAsync(["secrets", "set", "stripe", "--value-file", "key.txt", "--roles", "admin,devops", "--body", "{\"type\":\"service\"}", "--dry-run", "--json", ...context], { cwd, env });
+    assert.equal(plan.status, 0, plan.stderr);
+    const planned = JSON.parse(plan.stdout);
+    assert.equal(planned.request.value, "***");
+    assert.equal(planned.request.type, "api", "the type is pinned to api even when a raw body says otherwise");
+    assert.deepEqual(planned.request.access, { roles: ["admin", "devops"], userIds: [] });
+    assert.ok(!plan.stdout.includes("super-secret-value-91"), "secret value leaked to dry-run output");
+    assert.equal(posts.length, 0);
+
+    const apply = await runAsync(["secrets", "set", "stripe", "--value-file", "key.txt", "--yes", "--json", ...context], { cwd, env });
+    assert.equal(apply.status, 0, apply.stderr);
+    assert.equal(JSON.parse(apply.stdout).secretId, "sec-1");
+    assert.equal(posts.length, 1);
+    // The trailing newline of the file is an editor artifact, not part of the value.
+    assert.deepEqual(posts[0], { name: "stripe", type: "api", value: "super-secret-value-91" });
+
+    // There is deliberately no read-value command: the CLI must never print a secret.
+    const value = await runAsync(["secrets", "value", "sec-1", "--json", ...context], { cwd, env });
+    assert.equal(value.status, 1);
+    assert.ok(!value.stdout.includes("super-secret-value-91") && !value.stderr.includes("super-secret-value-91"));
+  } finally {
+    await new Promise((resolveClose) => server.close(resolveClose));
+  }
+});
+
+test("secrets set-many creates one secret per dotenv key with values redacted in the plan", async () => {
+  const { cwd, configDir } = await makeWorkspace();
+  const posts = [];
+  const server = await startJsonServer((request, body) => {
+    const path = request.url.split("?")[0];
+    if (path === "/os/v4/Secrets/set-many" && request.method === "POST") {
+      posts.push(body);
+      return { secretIds: { DB_PASSWORD: "sec-a", API_TOKEN: "sec-b" } };
+    }
+    return rawResponse(500, { error: `Unexpected ${request.method} ${path}` });
+  });
+
+  try {
+    await writeTwoAccountProjectAuth(configDir, server.url);
+    const env = testEnv(configDir, { BLOCKS_SECRET_STORE: "file" });
+    const context = ["--account", "alpha", "--project", "target-project", "--api-url", server.url];
+    await writeFile(join(cwd, "svc.env"), "# db\nDB_PASSWORD=db-pass-23\nexport API_TOKEN='tok-45'\n");
+
+    const plan = await runAsync(["secrets", "set-many", "--env-file", "svc.env", "--dry-run", "--json", ...context], { cwd, env });
+    assert.equal(plan.status, 0, plan.stderr);
+    const planned = JSON.parse(plan.stdout);
+    assert.deepEqual(planned.names, ["DB_PASSWORD", "API_TOKEN"]);
+    assert.ok(planned.request.every((entry) => entry.value === "***"));
+    assert.ok(!plan.stdout.includes("db-pass-23") && !plan.stdout.includes("tok-45"), "secret values leaked to the plan");
+
+    const apply = await runAsync(["secrets", "set-many", "--env-file", "svc.env", "--yes", "--json", ...context], { cwd, env });
+    assert.equal(apply.status, 0, apply.stderr);
+    assert.deepEqual(posts[0], [
+      { name: "DB_PASSWORD", type: "api", value: "db-pass-23" },
+      { name: "API_TOKEN", type: "api", value: "tok-45" }
+    ]);
+    assert.deepEqual(JSON.parse(apply.stdout).secretIds, { DB_PASSWORD: "sec-a", API_TOKEN: "sec-b" });
+  } finally {
+    await new Promise((resolveClose) => server.close(resolveClose));
+  }
+});
+
+test("captcha enable re-saves without a secret and reports which configuration login enforces", async () => {
+  const { cwd, configDir } = await makeWorkspace();
+  const saves = [];
+  const configs = {
+    "cfg-1": { captchaGenerator: "EasyCaptchaGenerator", captchaKey: "key-1", id: "cfg-1", isEnable: true, provider: "recaptcha", secretId: "sec-1" },
+    "cfg-2": { captchaGenerator: "HardCaptchaGenerator", captchaKey: "key-2", id: "cfg-2", isEnable: false, provider: "hcaptcha", secretId: "sec-2" }
+  };
+  const server = await startJsonServer((request, body) => {
+    const path = request.url.split("?")[0];
+    if (path === "/os/v4/captcha/get/cfg-2") return configs["cfg-2"];
+    if (path === "/os/v4/captcha/get/missing") return rawResponse(404);
+    if (path === "/os/v4/captcha/list") return Object.values(configs);
+    if (path === "/os/v4/captcha/save" && request.method === "POST") {
+      saves.push(body);
+      configs[body.id] = { ...configs[body.id], ...body };
+      return configs[body.id];
+    }
+    return rawResponse(500, { error: `Unexpected ${request.method} ${path}` });
+  });
+
+  try {
+    await writeTwoAccountProjectAuth(configDir, server.url);
+    const env = testEnv(configDir, { BLOCKS_SECRET_STORE: "file" });
+    const context = ["--account", "alpha", "--project", "target-project", "--api-url", server.url];
+
+    const unknown = await runAsync(["captcha", "enable", "missing", "--yes", "--json", ...context], { cwd, env });
+    assert.equal(unknown.status, 1);
+    assert.match(unknown.stderr, /captcha_not_found/);
+
+    const plan = await runAsync(["captcha", "enable", "cfg-2", "--dry-run", "--json", ...context], { cwd, env });
+    assert.equal(plan.status, 0, plan.stderr);
+    const planned = JSON.parse(plan.stdout);
+    assert.equal(planned.activeForLoginAfter, "cfg-1", "cfg-1 is enabled and sorts first, so IAM keeps enforcing it");
+    assert.equal(saves.length, 0, "dry-run must not save");
+
+    const apply = await runAsync(["captcha", "enable", "cfg-2", "--yes", "--json", ...context], { cwd, env });
+    assert.equal(apply.status, 0, apply.stderr);
+    assert.equal(saves.length, 1);
+    // Exactly the record with isEnable flipped: no captchaSecret, so the stored secret is untouched.
+    assert.deepEqual(saves[0], { captchaGenerator: "HardCaptchaGenerator", captchaKey: "key-2", id: "cfg-2", isEnable: true, provider: "hcaptcha" });
+    const output = JSON.parse(apply.stdout);
+    assert.equal(output.changed, true);
+    assert.equal(output.activeForLogin, "cfg-1");
+    assert.match(output.note, /cfg-1/);
+    assert.match(apply.stderr, /cfg-1/);
+
+    const again = await runAsync(["captcha", "enable", "cfg-2", "--yes", "--json", ...context], { cwd, env });
+    assert.equal(again.status, 0, again.stderr);
+    assert.equal(JSON.parse(again.stdout).upToDate, true);
+    assert.equal(saves.length, 1, "an already-enabled record sends nothing");
+
+    const list = await runAsync(["captcha", "list", "--json", ...context], { cwd, env });
+    assert.equal(list.status, 0, list.stderr);
+    const listed = JSON.parse(list.stdout);
+    assert.equal(listed.activeForLogin, "cfg-1");
+    assert.equal(listed.totalCount, 2);
+  } finally {
+    await new Promise((resolveClose) => server.close(resolveClose));
+  }
+});
+
+test("captcha save requires an explicit enable choice on create and redacts the secret", async () => {
+  const { cwd, configDir } = await makeWorkspace();
+  const saves = [];
+  const server = await startJsonServer((request, body) => {
+    const path = request.url.split("?")[0];
+    if (path === "/os/v4/captcha/save" && request.method === "POST") {
+      saves.push(body);
+      return { ...body, captchaSecret: undefined, id: "cfg-9", secretId: "sec-9" };
+    }
+    return rawResponse(500, { error: `Unexpected ${request.method} ${path}` });
+  });
+
+  try {
+    await writeTwoAccountProjectAuth(configDir, server.url);
+    const env = testEnv(configDir, { BLOCKS_SECRET_STORE: "file" });
+    const context = ["--account", "alpha", "--project", "target-project", "--api-url", server.url];
+
+    const noEnable = await runAsync(["captcha", "save", "--provider", "recaptcha", "--captcha-key", "site-1", "--dry-run", "--json", ...context], { cwd, env });
+    assert.equal(noEnable.status, 1);
+    assert.match(noEnable.stderr, /captcha_enable_required/);
+
+    const badProvider = await runAsync(["captcha", "save", "--provider", "turnstile", "--enable", "--dry-run", "--json", ...context], { cwd, env });
+    assert.equal(badProvider.status, 1);
+    assert.match(badProvider.stderr, /invalid_captcha_provider/);
+
+    const plan = await runAsync(["captcha", "save", "--provider", "recaptcha", "--captcha-key", "site-1", "--captcha-secret", "captcha-secret-77", "--enable", "--dry-run", "--json", ...context], { cwd, env });
+    assert.equal(plan.status, 0, plan.stderr);
+    const planned = JSON.parse(plan.stdout);
+    assert.equal(planned.request.captchaSecret, "***");
+    assert.equal(planned.request.isEnable, true);
+    assert.equal(planned.secretHandling, "create a new secret");
+    assert.ok(!plan.stdout.includes("captcha-secret-77"), "captcha secret leaked to dry-run output");
+
+    const apply = await runAsync(["captcha", "save", "--provider", "recaptcha", "--captcha-key", "site-1", "--captcha-secret", "captcha-secret-77", "--enable", "--yes", "--json", ...context], { cwd, env });
+    assert.equal(apply.status, 0, apply.stderr);
+    assert.deepEqual(saves[0], { captchaKey: "site-1", captchaSecret: "captcha-secret-77", isEnable: true, provider: "recaptcha" });
+    const saved = JSON.parse(apply.stdout);
+    assert.equal(saved.id, "cfg-9");
+    assert.equal(saved.secretId, "sec-9");
+    assert.ok(!apply.stdout.includes("captcha-secret-77"), "captcha secret echoed back in the result");
+  } finally {
+    await new Promise((resolveClose) => server.close(resolveClose));
+  }
+});
