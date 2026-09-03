@@ -2688,39 +2688,256 @@ export const commandCatalog: readonly CommandEntry[] = [
     "flags": []
   },
   {
-    "name": "release builds get",
-    "family": "release",
-    "summary": "Alias for release status.",
-    "positional": "<buildId>",
-    "details": "Read-only.",
-    "scope": "project",
-    "mutating": false,
-    "flags": [
-      "build-id"
-    ]
-  },
-  {
     "name": "release builds list",
     "family": "release",
-    "summary": "List Release build details for a repository using an impersonated project token.",
-    "positional": "[repoId]",
-    "details": "When repoId is omitted, resolves it from the selected project's linked repo assets (Project/GetAsset, preferring project auth) -- auto-picked if there's exactly one, otherwise you're prompted to choose. Non-interactive callers must pass repoId/--repo-id or receive interactive_input_required. Read-only.",
+    "summary": "Paged builds of one repository, addressed by name or id.",
+    "positional": "[repo]",
+    "details": "Resolves the repo from Build/repos-list: explicit name or id wins, else the single registered repo; multiple repos with no selector fail with repo_ambiguous listing the candidates (never an interactive prompt). --branch filters, --page (1-based) and --page-size (default 30) page through Build/repo-details, and totalCount travels with each page. Read-only.",
     "scope": "project",
     "mutating": false,
     "flags": [
+      "branch",
+      "page",
+      "page-size",
+      "repo",
       "repo-id"
     ]
   },
   {
     "name": "release deploy",
     "family": "release",
-    "summary": "Deploy the selected project's environment.",
-    "details": "Resolves everything from state you already have: the repo linked to this project (Project/GetAsset) and that repo's connected branch (Build/repo-details) -- no --repo-id needed. Aborts if the connected branch doesn't match this environment's name. Pass --domain to also set the custom deployment domain before deploying. Pass --wait to poll release status on the resulting build until it reaches a terminal state (or --timeout elapses, default 900s) instead of returning immediately with just a build id. Mutating; no artifact upload is performed by this CLI.",
+    "summary": "Deploy the selected project's environment (Build/manual), optionally syncing secrets and setting the domain first.",
+    "details": "Resolves the repo from --repo (name or id via Build/repos-list) or, when omitted, from the project's linked assets (Project/GetAsset) and that repo's connected branch (Build/repo-details). Aborts if the connected branch doesn't match this environment's name. --with-secrets <dotenvFile> first runs release secrets sync for that file; --domain also sets the custom deployment domain before deploying. --wait polls the build's status FIELD until a server terminal value (Succeeded/Failed/Cancelled/...; or --timeout elapses, default 900s); --follow implies --wait and streams build events to stderr. All progress goes to stderr, so --json stdout stays one parseable verdict document ({buildId, status, verdict, build}). Mutating; no artifact upload is performed by this CLI.",
     "scope": "project",
     "mutating": true,
     "flags": [
       "domain",
+      "file",
+      "follow",
       "poll-interval",
+      "prune",
+      "repo",
+      "repo-id",
+      "timeout",
+      "wait",
+      "with-secrets"
+    ]
+  },
+  {
+    "name": "release domain set",
+    "family": "release",
+    "summary": "Set a repo's custom deployment domain (Build/repo-update).",
+    "positional": "<domain>",
+    "details": "Resolves the repo from --repo (name or id) or the single registered repo. Uses the project's environment as projectEnv. Mutating.",
+    "scope": "project",
+    "mutating": true,
+    "flags": [
+      "domain",
+      "repo",
+      "repo-id"
+    ]
+  },
+  {
+    "name": "release git branches",
+    "family": "release",
+    "summary": "List branches of one source repository of the connected account.",
+    "positional": "<owner/repo>",
+    "details": "--provider defaults to github, the only active provider. Read-only.",
+    "scope": "project",
+    "mutating": false,
+    "flags": [
+      "provider",
+      "source-repo"
+    ]
+  },
+  {
+    "name": "release git repos",
+    "family": "release",
+    "summary": "Browse repositories of the connected source-control account.",
+    "details": "--provider names the VCS and defaults to github -- the only provider active in blocks-release today; anything else fails with provider_not_supported (no rename needed when more providers go live). --search filters; --page (1-based) and --page-size (default 30) page. Requires the GitHub account to be connected from the Blocks portal. Read-only.",
+    "scope": "project",
+    "mutating": false,
+    "flags": [
+      "page",
+      "page-size",
+      "provider",
+      "search"
+    ]
+  },
+  {
+    "name": "release logs",
+    "family": "release",
+    "summary": "Print a build's stored pipeline events (Clone/Build/Deploy/Sast/Sca stages).",
+    "positional": "<buildId>",
+    "details": "Events come from GET Build (no extra endpoint). --group filters to one stage. --follow keeps polling and streaming new events until the build's status field is terminal; in --json mode streamed lines go to stderr and stdout ends with one {buildId, events, status, verdict} document. Read-only.",
+    "scope": "project",
+    "mutating": false,
+    "flags": [
+      "build-id",
+      "follow",
+      "group",
+      "poll-interval",
+      "timeout"
+    ]
+  },
+  {
+    "name": "release monitor list",
+    "family": "release",
+    "summary": "Monitoring/alerting entries for one deployed repo.",
+    "details": "Resolves the repo from --repo/--repo-id or the single registered repo. Read-only.",
+    "scope": "project",
+    "mutating": false,
+    "flags": [
+      "repo",
+      "repo-id"
+    ]
+  },
+  {
+    "name": "release repo get",
+    "family": "release",
+    "summary": "One registered repo's details plus its most recent builds, addressed by name or id.",
+    "positional": "<repo>",
+    "details": "Output is {repo, recentBuilds (up to 5), totalBuilds}. Read-only.",
+    "scope": "project",
+    "mutating": false,
+    "flags": [
+      "repo",
+      "repo-id"
+    ]
+  },
+  {
+    "name": "release reports get",
+    "family": "release",
+    "summary": "Security scan report for one build: SAST (SonarQube) or SCA (Dependency-Track).",
+    "positional": "<buildId>",
+    "details": "--type is required: sast or sca. Read-only.",
+    "scope": "project",
+    "mutating": false,
+    "flags": [
+      "build-id",
+      "type"
+    ]
+  },
+  {
+    "name": "release repos list",
+    "family": "release",
+    "summary": "List the repositories registered in blocks-release for the selected project.",
+    "details": "Compact mapped rows: repoId, name, branch, deploymentType, lastDeploymentStatus, lastDeploymentDate, url (custom over default), namespace, repoUrl. Read-only.",
+    "scope": "project",
+    "mutating": false,
+    "flags": []
+  },
+  {
+    "name": "release secrets audit",
+    "family": "release",
+    "summary": "Audit trail of a repo's secret set (saves, locks, audited value reads).",
+    "details": "Read-only.",
+    "scope": "project",
+    "mutating": false,
+    "flags": [
+      "repo",
+      "repo-id"
+    ]
+  },
+  {
+    "name": "release secrets delete",
+    "family": "release",
+    "summary": "Soft-delete a repo's WHOLE secret set (recoverable with release secrets restore).",
+    "details": "The vault value is retained server-side, so restore undoes this. Mutating.",
+    "scope": "project",
+    "mutating": true,
+    "flags": [
+      "repo",
+      "repo-id"
+    ]
+  },
+  {
+    "name": "release secrets list",
+    "family": "release",
+    "summary": "Secret-set metadata for one repo (RepoSecret/get).",
+    "details": "Metadata only -- the server never returns key names or values on this endpoint. Read-only.",
+    "scope": "project",
+    "mutating": false,
+    "flags": [
+      "repo",
+      "repo-id"
+    ]
+  },
+  {
+    "name": "release secrets lock",
+    "family": "release",
+    "summary": "Lock a repo's secret set against changes.",
+    "details": "Resolves the repo from --repo/--repo-id or the single registered repo. Mutating.",
+    "scope": "project",
+    "mutating": true,
+    "flags": [
+      "repo",
+      "repo-id"
+    ]
+  },
+  {
+    "name": "release secrets restore",
+    "family": "release",
+    "summary": "Restore a repo's soft-deleted secret set.",
+    "details": "Mutating.",
+    "scope": "project",
+    "mutating": true,
+    "flags": [
+      "repo",
+      "repo-id"
+    ]
+  },
+  {
+    "name": "release secrets sync",
+    "family": "release",
+    "summary": "Bulk env-var upsert into a repo's secret set from a dotenv file.",
+    "details": "The server stores ONE whole secret set per repo (RepoSecret/save replaces the set), so merge mode reads the current set first -- an audited read, same as the portal's reveal -- and merges the file over it; nothing is ever removed without --prune, which makes the file the entire set and lists the removed key names in the plan. --file defaults to .env; --repo/--repo-id picks the repo (auto when only one is registered). Output and --dry-run show key NAMES and counts only -- values are never displayed. A no-change run reports upToDate without calling save. Mutating.",
+    "scope": "project",
+    "mutating": true,
+    "flags": [
+      "file",
+      "prune",
+      "repo",
+      "repo-id"
+    ]
+  },
+  {
+    "name": "release secrets unlock",
+    "family": "release",
+    "summary": "Unlock a repo's secret set.",
+    "details": "Resolves the repo from --repo/--repo-id or the single registered repo. Mutating.",
+    "scope": "project",
+    "mutating": true,
+    "flags": [
+      "repo",
+      "repo-id"
+    ]
+  },
+  {
+    "name": "release settings list",
+    "family": "release",
+    "summary": "Hosting providers, regions, and machine configs valid for 'release setup'.",
+    "details": "Mapped from Build/settings: providers with nested regions and machineConfigs (ids plus names/specs), so setup flags can be chosen in one read. Read-only.",
+    "scope": "project",
+    "mutating": false,
+    "flags": []
+  },
+  {
+    "name": "release setup",
+    "family": "release",
+    "summary": "First-time deploy of a registered repo (Build/run-build): creates the deployment namespace and push webhook.",
+    "positional": "[repo]",
+    "details": "Replaces the portal's Configure Deployment modal. Resolves the repo by name or id (auto-picked when only one is registered) and --hosting-provider/--region/--machine-config by name or id against Build/settings; all three are optional (server defaults apply). Refuses when the repo's linked branch doesn't match this project's environment. --wait/--follow behave as in release deploy. Re-deploys of an already-configured repo belong to 'release deploy'. Mutating.",
+    "scope": "project",
+    "mutating": true,
+    "flags": [
+      "follow",
+      "hosting-provider",
+      "machine-config",
+      "poll-interval",
+      "region",
+      "repo",
+      "repo-id",
       "timeout",
       "wait"
     ]
@@ -2728,13 +2945,30 @@ export const commandCatalog: readonly CommandEntry[] = [
   {
     "name": "release status",
     "family": "release",
-    "summary": "Read Release build status by build id using an impersonated project token.",
+    "summary": "Read one build's status plus a stable verdict (succeeded/failed/running) derived from the status field.",
     "positional": "<buildId>",
-    "details": "Read-only.",
+    "details": "Output is {buildId, status, verdict, build}. --wait polls the status field until a server terminal value (progress on stderr); --follow implies --wait and also streams build events to stderr. Read-only.",
     "scope": "project",
     "mutating": false,
     "flags": [
-      "build-id"
+      "build-id",
+      "follow",
+      "poll-interval",
+      "timeout",
+      "wait"
+    ]
+  },
+  {
+    "name": "release teardown",
+    "family": "release",
+    "summary": "DELETE a repo's live deployment: cancels in-flight builds and deletes the Kubernetes namespace.",
+    "positional": "<repo>",
+    "details": "Destructive and not undoable, so the repo must be named EXPLICITLY (name or id) -- there is deliberately no fall-back to 'the only repo'. The confirmation states the namespace and served URL being destroyed; --dry-run prints the target first. Mutating.",
+    "scope": "project",
+    "mutating": true,
+    "flags": [
+      "repo",
+      "repo-id"
     ]
   },
   {

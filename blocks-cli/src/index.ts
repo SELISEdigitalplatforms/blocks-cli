@@ -113,10 +113,27 @@ import { newWeb } from "./commands/new/web.js";
 import { createProject } from "./commands/projects/create.js";
 import { getProject } from "./commands/projects/get.js";
 import { listProjects } from "./commands/projects/list.js";
-import { releaseBuildsGet } from "./commands/release/builds/get.js";
 import { releaseBuildsList } from "./commands/release/builds/list.js";
 import { releaseDeploy } from "./commands/release/deploy.js";
+import { releaseDomainSet } from "./commands/release/domain/set.js";
+import { releaseGitBranches } from "./commands/release/git/branches.js";
+import { releaseGitRepos } from "./commands/release/git/repos.js";
+import { releaseLogs } from "./commands/release/logs.js";
+import { releaseMonitorList } from "./commands/release/monitor/list.js";
+import { releaseRepoGet } from "./commands/release/repo/get.js";
+import { releaseReposList } from "./commands/release/repos/list.js";
+import { releaseReportsGet } from "./commands/release/reports/get.js";
+import { releaseSecretsAudit } from "./commands/release/secrets/audit.js";
+import { releaseSecretsDelete } from "./commands/release/secrets/delete.js";
+import { releaseSecretsList } from "./commands/release/secrets/list.js";
+import { releaseSecretsLock } from "./commands/release/secrets/lock.js";
+import { releaseSecretsRestore } from "./commands/release/secrets/restore.js";
+import { releaseSecretsSync } from "./commands/release/secrets/sync.js";
+import { releaseSecretsUnlock } from "./commands/release/secrets/unlock.js";
+import { releaseSettingsList } from "./commands/release/settings/list.js";
+import { releaseSetup } from "./commands/release/setup.js";
 import { releaseStatus } from "./commands/release/status.js";
+import { releaseTeardown } from "./commands/release/teardown.js";
 import { useProject } from "./commands/use.js";
 import { authClientCredentialsDelete } from "./commands/auth/client-credentials/delete.js";
 import { authClientCredentialsList } from "./commands/auth/client-credentials/list.js";
@@ -337,9 +354,26 @@ const commands: Partial<Record<string, CommandHandler>> = {
   "localization:module:list-for-tenant": localizationModuleListForTenant,
   "localization:module:tag-glossary": localizationModuleTagGlossary,
   "release:deploy": releaseDeploy,
+  "release:setup": releaseSetup,
   "release:status": releaseStatus,
   "release:builds:list": releaseBuildsList,
-  "release:builds:get": releaseBuildsGet,
+  "release:logs": releaseLogs,
+  "release:repos:list": releaseReposList,
+  "release:repo:get": releaseRepoGet,
+  "release:settings:list": releaseSettingsList,
+  "release:domain:set": releaseDomainSet,
+  "release:git:repos": releaseGitRepos,
+  "release:git:branches": releaseGitBranches,
+  "release:secrets:sync": releaseSecretsSync,
+  "release:secrets:list": releaseSecretsList,
+  "release:secrets:lock": releaseSecretsLock,
+  "release:secrets:unlock": releaseSecretsUnlock,
+  "release:secrets:delete": releaseSecretsDelete,
+  "release:secrets:restore": releaseSecretsRestore,
+  "release:secrets:audit": releaseSecretsAudit,
+  "release:reports:get": releaseReportsGet,
+  "release:monitor:list": releaseMonitorList,
+  "release:teardown": releaseTeardown,
   "iam:users:list": iamUsersList,
   "iam:users:get": iamUsersGet,
   "iam:users:create": iamUsersCreate,
@@ -1237,31 +1271,79 @@ Localization:
                               [--dry-run] [--yes] [--json]
 
 Release:
-  blocks release deploy [--domain <customDomain>] [--wait] [--poll-interval <seconds>]
-                    [--timeout <seconds>] [--dry-run] [--yes] [--json]
-    Deploy the selected project's environment. Resolves everything from state
-    you already have: the repo linked to this project (Project/GetAsset) and
-    that repo's connected branch (Build/repo-details) -- no --repo-id needed.
-    Aborts if the connected branch doesn't match this environment's name.
-    Pass --domain to also set the custom deployment domain before deploying.
-    Pass --wait to poll release status on the resulting build until it reaches
-    a terminal state (or --timeout elapses, default 900s) instead of returning
-    immediately with just a build id.
-    Mutating; no artifact upload is performed by this CLI.
+  blocks release deploy [--repo <name|id>] [--domain <customDomain>]
+                    [--with-secrets <dotenvFile>] [--wait] [--follow]
+                    [--poll-interval <seconds>] [--timeout <seconds>]
+                    [--dry-run] [--yes] [--json]
+    Deploy the selected project's environment (Build/manual). Resolves the repo
+    from --repo (name or id via Build/repos-list) or, when omitted, from the
+    project's linked assets. Aborts if the connected branch doesn't match this
+    environment's name. --with-secrets first syncs env vars from a dotenv file,
+    --domain also sets the custom deployment domain, --wait polls the status
+    field until a terminal value, --follow additionally streams build events
+    to stderr. Final stdout is one verdict document. Mutating.
 
-  blocks release status <buildId> [--json]
-    Read Release build status by build id using an impersonated project
-    token. Read-only.
+  blocks release setup [repo] [--hosting-provider <name|id>] [--region <name|id>]
+                    [--machine-config <name|id>] [--wait] [--follow]
+                    [--dry-run] [--yes] [--json]
+    First-time deploy (Build/run-build): creates the deployment namespace and
+    push webhook. Resolves hosting settings by name or id from Build/settings.
+    Re-deploys belong to 'release deploy'. Mutating.
 
-  blocks release builds list [repoId] [--repo-id <repoId>] [--json]
-    List Release build details for a repository using an impersonated project
-    token. When repoId is omitted, resolves it from the selected project's
-    linked repo assets (Project/GetAsset, preferring project auth) -- auto-picked if
-    there's exactly one, otherwise you're prompted to choose. Non-interactive callers
-    must pass repoId/--repo-id or receive interactive_input_required. Read-only.
+  blocks release status <buildId> [--wait] [--follow] [--json]
+    Build status plus a stable verdict (succeeded/failed/running) derived from
+    the status field. --wait polls to a terminal state; --follow also streams
+    build events to stderr. Read-only.
 
-  blocks release builds get <buildId> [--json]
-    Alias for release status. Read-only.
+  blocks release logs <buildId> [--follow] [--group Clone|Build|Deploy|Sast|Sca] [--json]
+    Stored pipeline events of one build; --follow keeps streaming new events
+    until the build is terminal. Read-only.
+
+  blocks release builds list [repo] [--branch <b>] [--page <n>] [--page-size <n>] [--json]
+    Paged builds of one repo (name or id; auto-picked when only one repo is
+    registered). Read-only.
+
+  blocks release repos list [--json]
+  blocks release repo get <repo> [--json]
+    Repositories registered in blocks-release for this project, and one repo's
+    details with recent builds. Read-only.
+
+  blocks release settings list [--json]
+    Hosting providers, regions, and machine configs valid for 'release setup'.
+    Read-only.
+
+  blocks release domain set <domain> [--repo <name|id>] [--dry-run] [--yes] [--json]
+    Set a repo's custom deployment domain (Build/repo-update). Mutating.
+
+  blocks release git repos [--provider github] [--search <s>] [--page <n>] [--json]
+  blocks release git branches <owner/repo> [--provider github] [--json]
+    Browse the connected source-control account. Only 'github' is active today;
+    other providers fail with provider_not_supported. Read-only.
+
+  blocks release secrets sync [--file <dotenv>] [--repo <name|id>] [--prune]
+                    [--dry-run] [--yes] [--json]
+    Bulk env-var upsert from a dotenv file into the repo's secret set. Merge by
+    default; --prune makes the file the whole set (listing removed key names
+    first). Values are never displayed. Mutating.
+
+  blocks release secrets list|audit [--repo <name|id>] [--json]
+    Secret-set metadata and its audit trail. No key names or values. Read-only.
+
+  blocks release secrets lock|unlock|delete|restore [--repo <name|id>]
+                    [--dry-run] [--yes] [--json]
+    Lifecycle of the repo's whole secret set. Delete is soft (restore undoes it).
+    Mutating.
+
+  blocks release reports get <buildId> --type sast|sca [--json]
+    Security scan report for one build. Read-only.
+
+  blocks release monitor list [--repo <name|id>] [--json]
+    Monitoring/alerting entries for a deployed repo. Read-only.
+
+  blocks release teardown <repo> [--dry-run] [--yes] [--json]
+    DELETE a repo's live deployment: cancels in-flight builds and deletes the
+    Kubernetes namespace. Requires the repo named explicitly; not undoable.
+    Mutating.
 
 Scaffold:
   blocks new web <name> [--app-domain <domain>] [--client-id <oidcClientId>] [--yes]

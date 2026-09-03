@@ -3843,3 +3843,163 @@ test("help falls back to a family and fails clearly on an unknown target", async
   assert.equal(unknown.status, 1);
   assert.match(unknown.stderr, /unknown_help_target/);
 });
+
+test("release deploy --wait reads the status field, not keywords in other strings", async () => {
+  const { cwd, configDir } = await makeWorkspace();
+  let buildPolls = 0;
+  const server = await startJsonServer((request) => {
+    const path = request.url.split("?")[0];
+    if (path === "/os/v4/Project/Gets") {
+      return [{ tenantGroupId: "group-1", projects: [{ environment: "dev", tenantId: "target-project" }] }];
+    }
+    if (path === "/os/v4/Project/GetAsset") {
+      return { assets: { resources: [{ name: "dev", resourceId: "repo-1" }] } };
+    }
+    if (path === "/release/v4/api/Build/repo-details") {
+      return { data: { repo: { branch: "dev", repoUrl: "https://example.test/repo.git" } } };
+    }
+    if (path === "/release/v4/api/Build/manual") return { buildId: "build-1" };
+    if (path === "/release/v4/api/Build") {
+      buildPolls += 1;
+      // First poll: still running, but full of strings the old keyword scan
+      // misread as terminal (commit message, branch name).
+      if (buildPolls === 1) {
+        return { data: { branch: "feature/error-page", commit: "fix error handling, done", status: "Running" }, status: "Running" };
+      }
+      return { data: { status: "Succeeded" }, status: "Succeeded" };
+    }
+    return rawResponse(500, { error: `Unexpected ${request.method} ${path}` });
+  });
+
+  try {
+    await writeTwoAccountProjectAuth(configDir, server.url);
+    const result = await runAsync([
+      "release", "deploy", "--account", "alpha", "--project", "target-project", "--api-url", server.url,
+      "--yes", "--wait", "--poll-interval", "0", "--json"
+    ], { cwd, env: testEnv(configDir, { BLOCKS_SECRET_STORE: "file" }) });
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(buildPolls, 2, "the running build with scary strings must be polled again, not declared terminal");
+    // --json stdout must be exactly one parseable document; poll progress goes to stderr.
+    const output = JSON.parse(result.stdout);
+    assert.equal(output.buildId, "build-1");
+    assert.equal(output.verdict, "succeeded");
+    assert.match(result.stderr, /status: Running/);
+  } finally {
+    await new Promise((resolveClose) => server.close(resolveClose));
+  }
+});
+
+test("release secrets sync merges over the current set and prints key names only", async () => {
+  const { cwd, configDir } = await makeWorkspace();
+  const saves = [];
+  const server = await startJsonServer((request, body) => {
+    const path = request.url.split("?")[0];
+    if (path === "/release/v4/api/Build/repos-list") {
+      return { data: [{ branch: "dev", itemId: "repo-1", repoName: "web-app" }] };
+    }
+    if (path === "/release/v4/api/RepoSecret/value") {
+      return { data: { CHANGED_KEY: "old-value-77", KEPT_KEY: "kept-value-42", UNTOUCHED_KEY: "untouched-value-13" } };
+    }
+    if (path === "/release/v4/api/RepoSecret/save") {
+      saves.push(body);
+      return { data: null, isSuccess: true };
+    }
+    return rawResponse(500, { error: `Unexpected ${request.method} ${path}` });
+  });
+
+  try {
+    await writeTwoAccountProjectAuth(configDir, server.url);
+    const env = testEnv(configDir, { BLOCKS_SECRET_STORE: "file" });
+    await writeFile(join(cwd, "sync.env"), [
+      "# comment",
+      "KEPT_KEY=kept-value-42",
+      "CHANGED_KEY=new-value-88",
+      "ADDED_KEY=added-value-99",
+      ""
+    ].join("\n"));
+    const context = ["--account", "alpha", "--project", "target-project", "--api-url", server.url];
+
+    const plan = await runAsync(["release", "secrets", "sync", "--file", "sync.env", "--dry-run", "--json", ...context], { cwd, env });
+    assert.equal(plan.status, 0, plan.stderr);
+    const planned = JSON.parse(plan.stdout);
+    assert.deepEqual(planned.added, ["ADDED_KEY"]);
+    assert.deepEqual(planned.updated, ["CHANGED_KEY"]);
+    assert.deepEqual(planned.removed, []);
+    assert.equal(planned.mode, "merge");
+    for (const leaked of ["old-value-77", "new-value-88", "added-value-99", "kept-value-42"]) {
+      assert.ok(!plan.stdout.includes(leaked) && !plan.stderr.includes(leaked), `secret value '${leaked}' leaked to output`);
+    }
+    assert.equal(saves.length, 0, "dry-run must not save");
+
+    const apply = await runAsync(["release", "secrets", "sync", "--file", "sync.env", "--yes", "--json", ...context], { cwd, env });
+    assert.equal(apply.status, 0, apply.stderr);
+    assert.equal(JSON.parse(apply.stdout).saved, true);
+    assert.equal(saves.length, 1);
+    assert.deepEqual(saves[0], {
+      repoId: "repo-1",
+      secrets: {
+        ADDED_KEY: "added-value-99",
+        CHANGED_KEY: "new-value-88",
+        KEPT_KEY: "kept-value-42",
+        UNTOUCHED_KEY: "untouched-value-13"
+      }
+    });
+  } finally {
+    await new Promise((resolveClose) => server.close(resolveClose));
+  }
+});
+
+test("release teardown demands an explicit repo and confirms with the blast radius", async () => {
+  const { cwd, configDir } = await makeWorkspace();
+  const deletes = [];
+  const server = await startJsonServer((request) => {
+    const path = request.url.split("?")[0];
+    if (path === "/release/v4/api/Build/repos-list") {
+      return {
+        data: [
+          { branch: "dev", customDeploymentUrl: "https://web.example.test", deployedNamespace: "ns-web-1", itemId: "repo-1", repoName: "web-app" },
+          { branch: "dev", itemId: "repo-2", repoName: "other-app" }
+        ]
+      };
+    }
+    if (path === "/release/v4/api/Build/deployment" && request.method === "DELETE") {
+      deletes.push(request.url);
+      return { data: null, isSuccess: true };
+    }
+    return rawResponse(500, { error: `Unexpected ${request.method} ${path}` });
+  });
+
+  try {
+    await writeTwoAccountProjectAuth(configDir, server.url);
+    const env = testEnv(configDir, { BLOCKS_SECRET_STORE: "file" });
+    const context = ["--account", "alpha", "--project", "target-project", "--api-url", server.url];
+
+    // No repo named -> refused before any request, even with --yes.
+    const missing = await runAsync(["release", "teardown", "--yes", "--json", ...context], { cwd, env });
+    assert.equal(missing.status, 1);
+    assert.match(missing.stderr, /repo_selector_required/);
+
+    const plan = await runAsync(["release", "teardown", "web-app", "--dry-run", "--json", ...context], { cwd, env });
+    assert.equal(plan.status, 0, plan.stderr);
+    const planned = JSON.parse(plan.stdout);
+    assert.equal(planned.target.repoId, "repo-1");
+    assert.equal(planned.target.namespace, "ns-web-1");
+    assert.equal(deletes.length, 0, "dry-run must not delete");
+
+    const apply = await runAsync(["release", "teardown", "web-app", "--yes", "--json", ...context], { cwd, env });
+    assert.equal(apply.status, 0, apply.stderr);
+    assert.equal(deletes.length, 1);
+    assert.match(deletes[0], /repoId=repo-1/);
+  } finally {
+    await new Promise((resolveClose) => server.close(resolveClose));
+  }
+});
+
+test("release git repos refuses providers blocks-release has not activated", async () => {
+  const { cwd, configDir } = await makeWorkspace();
+  const env = testEnv(configDir, { BLOCKS_SECRET_STORE: "file" });
+
+  const result = run(["release", "git", "repos", "--provider", "gitlab", "--json"], { cwd, env });
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /provider_not_supported/);
+});

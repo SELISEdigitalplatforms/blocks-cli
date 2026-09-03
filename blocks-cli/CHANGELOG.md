@@ -6,6 +6,55 @@ This project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 Versions before 0.3.0 were released without a changelog; their history is in the
 repository's git log.
 
+## Unreleased
+
+### Added
+
+- 18 new `release` commands covering the full blocks-release surface, all
+  CLI-side against existing APIs: `release setup` (first-time deploy via
+  `Build/run-build` with `--hosting-provider`/`--region`/`--machine-config`
+  resolved by name or id), `release logs <buildId>` (stored pipeline events,
+  `--follow` streams until terminal, `--group` filters by stage),
+  `release repos list` / `release repo get <repo>` (registered-repo inventory
+  with compact mapped rows), `release settings list` (hosting choices),
+  `release domain set <domain>`, `release git repos|branches`
+  (`--provider` defaults to `github`, the only active provider; others fail
+  with `provider_not_supported` so no rename is needed when more go live),
+  `release secrets sync|list|lock|unlock|delete|restore|audit` (the server
+  stores one whole secret set per repo; `sync` bulk-upserts a dotenv file,
+  merge by default, removals only behind `--prune`, key names only in output),
+  `release reports get <buildId> --type sast|sca`, `release monitor list`, and
+  `release teardown <repo>` (explicit repo required, confirmation states the
+  namespace and URL being destroyed).
+- `release deploy` gained `--repo <name|id>` (explicit repo selection via
+  `Build/repos-list`), `--with-secrets <dotenvFile>` (runs secrets sync
+  first), and `--follow` (streams build events to stderr while waiting).
+- `release status` gained `--wait`/`--follow` and both it and the deploy wait
+  now emit a stable `verdict` field (`succeeded`/`failed`/`running`).
+
+### Fixed
+
+- `--wait` terminal detection reads the build's status FIELD against the
+  server's own terminal vocabulary (Succeeded/Failed/Cancelled/Timeout/...)
+  instead of keyword-scanning every string in the response, where a commit
+  message like "fix error handling" made a running build read as finished
+  and an unlisted status word made a finished build wait out the full
+  timeout.
+- All wait/follow progress now goes to stderr; `--json` stdout is exactly one
+  parseable document instead of one JSON dump per poll.
+- `release deploy --domain` names the domain change in its confirmation
+  prompt instead of silently updating the domain before deploying.
+
+### Changed
+
+- `release builds list` resolves the repo by name or id from
+  `Build/repos-list` (auto-picked only when exactly one repo is registered;
+  otherwise a typed `repo_ambiguous` error listing candidates - it no longer
+  prompts interactively), supports `--branch`, `--page`, and `--page-size`,
+  and returns mapped rows with `totalCount` instead of the raw envelope.
+- `release builds get` (a pure alias of `release status`) is removed; use
+  `release status <buildId>`.
+
 ## 0.3.3
 
 ### Fixed
