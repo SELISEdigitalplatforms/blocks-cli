@@ -593,33 +593,89 @@ blocks storage config delete <name> --dry-run --json
 
 `--secret-key`, `--access-key`, `--password`, and `--connection-string` are secrets; the CLI redacts them in `--dry-run` output only.
 
+## Captcha
+
+Project-scoped login-captcha configuration via `/os/v4/captcha/*` (blocks-os). blocks-iam enforces the FIRST enabled configuration in id order at login; the CLI reports it as `activeForLogin`.
+
+```bash
+blocks captcha list --json
+blocks captcha get <id> --json                                   # secretId only, never the value
+blocks captcha save --provider recaptcha --captcha-key <siteKey> --captcha-secret <secret> --enable --dry-run --json
+blocks captcha save <id> --provider recaptcha --captcha-secret <newSecret> --yes --json   # rotates the linked secret
+blocks captcha enable <id> --yes --json                          # or: captcha disable <id>
+blocks captcha delete <id> --dry-run --json                      # also retires the stored secret
+```
+
+`--captcha-secret` is redacted in `--dry-run` output and never echoed back; the stored secret cannot be read from the CLI, only replaced by re-saving with `--captcha-secret`. `enable`/`disable` re-save the record with only `isEnable` flipped and report which configuration is live afterwards -- read that field rather than assuming the one you enabled is enforced.
+
+## Secrets
+
+The project's secret store via `/os/v4/Secrets/*` (blocks-os). One record per secret with status (`active`|`locked`|`deleted`), an optional access list, rotation history and an audit trail. **The CLI never prints a secret value**: there is no read-value command, `get`/`list`/`audit` return metadata only, and dry-run output redacts values. If a user needs to read a value, that happens in the Blocks portal.
+
+```bash
+blocks secrets list --json
+blocks secrets get <secretId> --json                             # metadata only
+blocks secrets set <name> --value-file ./secret.txt --dry-run --json
+blocks secrets set <name> --value-env MY_SECRET --yes --json     # returns {secretId}
+blocks secrets set-many --env-file .env --dry-run --json         # one secret per KEY
+blocks secrets rotate <secretId> --value-file ./new.txt --yes --json
+blocks secrets access <secretId> --roles admin --merge --yes --json
+blocks secrets lock <secretId> --yes --json                      # also: unlock | delete | restore
+blocks secrets audit <secretId> --json
+```
+
+`set` always creates (names are not unique) -- change a value with `rotate` and metadata with `update`. The type is fixed by the CLI; there is no flag for it. Prefer `--value-file`/`--value-env` over `--value` so values stay out of shell history, and do not read the file or variable back yourself. Locked secrets refuse rotation (409 `invalid_state`) until `unlock`.
+
 ## Release
 
-`release deploy` needs no `--repo-id` - it resolves the repo linked to the selected project (`Project/GetAsset`) and that repo's connected branch (`Build/repo-details`) on its own, and refuses to deploy if the connected branch doesn't match the project's environment name. Trigger a deploy only after dry-run and approval:
+Start with the inventory - most release commands take `--repo <name|id>` and every id you need comes from here:
+
+```bash
+blocks release repos list --json          # registered repos: repoId, name, branch, lastDeploymentStatus, url, namespace
+blocks release repo get <repo> --json     # one repo + its recent builds
+blocks release settings list --json       # hosting provider / region / machine config choices for 'release setup'
+```
+
+`release deploy` re-deploys an already-configured repo (`Build/manual`). It resolves the repo from `--repo <name|id>` (matched against `repos list`) or, when omitted, from the project's linked assets, and refuses to deploy if the connected branch doesn't match the project's environment name. Trigger a deploy only after dry-run and approval:
 
 ```bash
 blocks release deploy --dry-run --json
 blocks release deploy --yes --json
 blocks release deploy --domain <customDomain> --yes --json   # also sets the custom deployment domain first
-blocks release deploy --yes --wait --json                    # poll until the build finishes instead of returning the build id
+blocks release deploy --with-secrets .env --yes --json       # sync env vars from a dotenv file, then deploy (summary in secretsSync) (summary in secretsSync)
+blocks release deploy --yes --wait --json                    # poll to a terminal status; --follow also streams events to stderr
 ```
 
-If no repo is linked yet, the command fails with `repo_not_linked` - that requires GitHub OAuth, so it can only be done from the Blocks portal; do not attempt to link a repo from the CLI.
+For a repo that has never been deployed, use `release setup` instead - it calls `Build/run-build`, which creates the deployment namespace and push webhook, and takes optional `--hosting-provider`/`--region`/`--machine-config` (names or ids from `settings list`). Do not run `setup` on an already-deployed repo (duplicate-webhook risk); check `repos list` for a `namespace` first.
 
-`--wait` polls `/release/v4/api/Build` (same data `release status` reads) every `--poll-interval` seconds (default 10) until a terminal-looking state is detected or `--timeout` elapses (default 900s). There's no documented status field/enum for this endpoint, so "terminal" is a best-effort text match (success/fail/complete/cancel/etc. anywhere in the response) - the raw JSON is printed every poll, so verify against that rather than trusting the heuristic blindly. Without `--wait`, `release deploy` returns immediately with just a build id, same as before.
+If no repo is linked yet, the commands fail with `repo_not_linked` - that requires GitHub OAuth, so it can only be done from the Blocks portal; do not attempt to link a repo from the CLI.
 
-Read build status:
+`--wait` polls `/release/v4/api/Build` every `--poll-interval` seconds (default 10) and reads the build's status FIELD against the server's terminal vocabulary (Succeeded/Failed/Cancelled/Timeout/...), until terminal or `--timeout` elapses (default 900s). All progress goes to stderr; with `--json`, stdout is exactly one `{buildId, status, verdict, build}` document, where `verdict` is a stable `succeeded`/`failed`/`running`. `--follow` implies `--wait` and streams pipeline events to stderr as they appear. Without either, `release deploy` returns immediately with just a build id.
+
+Read builds and logs:
 
 ```bash
-blocks release status <buildId> --json
-blocks release builds get <buildId> --json
+blocks release status <buildId> [--wait] [--follow] --json
+blocks release logs <buildId> [--follow] [--group Clone|Build|Deploy|Sast|Sca] --json
+blocks release builds list [<repo>] [--branch <b>] [--page <n>] [--page-size <n>] --json
+blocks release reports get <buildId> --type sast --json      # or sca-container | sca-libraries | dast
+blocks release monitor list [--repo <name|id>] --json
 ```
 
-List builds for a repository (repoId is optional - omit it to resolve from the selected project's linked repo assets, auto-picked if there's exactly one, otherwise prompted interactively; a non-interactive agent receives `interactive_input_required`, so pass `--repo-id` explicitly if you don't already know there's exactly one):
+`builds list` auto-picks the repo only when exactly one is registered; with several and no selector it fails with `repo_ambiguous` listing the candidates - it never prompts, so it is safe non-interactively.
+
+Env vars live in one whole secret set per repo:
 
 ```bash
-blocks release builds list --repo-id <repoId> --json
+blocks release secrets sync --file .env --dry-run --json     # plan: key NAMES and counts only, values never shown
+blocks release secrets sync --file .env --yes --json         # merge the file over the current set (removals only with --prune)
+blocks release secrets list|audit [--repo <name|id>] --json  # metadata / audit trail, read-only
+blocks release secrets lock|unlock|delete|restore ...        # whole-set lifecycle; delete is soft, restore undoes it
 ```
+
+`release teardown <repo>` cancels in-flight builds and deletes the Kubernetes namespace. The repo must be named explicitly (never defaulted), it is not undoable, and the confirmation states the namespace and URL being destroyed - dry-run and explicit user approval are mandatory, never pass `--yes` on your own judgment.
+
+`release git repos` / `release git branches <owner/repo>` browse the connected source-control account; `--provider` defaults to `github`, the only provider blocks-release has activated (others fail with `provider_not_supported`).
 
 ## Agent Failure Handling
 
@@ -640,16 +696,28 @@ blocks release builds list --repo-id <repoId> --json
 - `missing_project_name`: pass a project name, for example `blocks projects create "<name>"`.
 - `invalid_project_name`: use a project name between 3 and 100 characters.
 - `project_create_failed`: creation was rejected; inspect `message`, then run `blocks projects list --json` before deciding whether to retry.
-- `interactive_input_required`: the command needs a value that was not supplied and cannot prompt without a TTY. Re-run with the explicit flag named by the command documentation; common cases are `new web --app-domain ... --client-id ...`, `mfa totp enable --code ...`, and `release builds list --repo-id ...`.
+- `interactive_input_required`: the command needs a value that was not supplied and cannot prompt without a TTY. Re-run with the explicit flag named by the command documentation; common cases are `new web --app-domain ... --client-id ...` and `mfa totp enable --code ...`.
 - `unknown_help_target` (from `blocks help <name>`): no command or family matches that name. List what exists with `blocks --help --json`, then retry with a name from it.
 - `impersonation_invalid_client`: give an admin the CLI client id printed in the error and have that client registered for project impersonation. Re-login and `auth config` cannot repair it.
 - `api_auth_failed`: run `blocks auth status --json`, then login again. If the failure is specifically a stale/expired impersonated project token rather than the account token, `blocks deselect` followed by `blocks use <tenantId>` re-impersonates without a full re-login.
-- `repo_not_linked` (from `release deploy`): no repo is linked to this project. This needs GitHub OAuth - tell the user to link it from the Blocks portal, do not retry from the CLI.
-- `no_tenant_group` (from `release builds list`): project metadata cannot resolve linked repositories; pass a known `--repo-id` explicitly.
-- `repo_ambiguous` (from `release deploy`): multiple repos are linked and none is named for the current environment. Tell the user to check the project's repo links in the portal.
-- `repo_not_found` (from `release deploy`): the linked asset's repo id doesn't exist in blocks-release. Tell the user to check the project's repo link in the portal.
-- `branch_environment_mismatch` (from `release deploy`): the connected repo's branch doesn't match this environment's name. The message states the branch found and the environment required - do not retry; the repo's connected branch must be fixed first.
-- `build_wait_timeout` (from `release deploy --wait`): the build didn't reach a detected terminal state within `--timeout`. The deploy itself already succeeded (this only affects the wait) - check manually with `release status <buildId>` rather than assuming failure.
+- `repo_not_linked` (release commands): no repo is linked/registered for this project. This needs GitHub OAuth - tell the user to link it from the Blocks portal, do not retry from the CLI.
+- `repo_ambiguous` (release commands): more than one repo matches, or several repos exist and no selector was given. The message lists the candidates - re-run with `--repo <name|id>` (the exact id if two share a name).
+- `repo_not_found` (release commands): the selector or linked asset id doesn't exist in blocks-release. Run `blocks release repos list --json` and use a listed name or id.
+- `repo_selector_required` (from `release teardown`): teardown never defaults the repo. Run `blocks release repos list`, confirm the target with the user, then re-run with the repo named explicitly.
+- `branch_environment_mismatch` (from `release deploy`/`setup`): the connected repo's branch doesn't match this environment's name. The message states the branch found and the environment required - do not retry; the repo's connected branch must be fixed first.
+- `build_wait_timeout` (from `--wait`/`--follow`): the build didn't reach a terminal status within `--timeout`. The deploy itself already succeeded (this only affects the wait) - check manually with `release status <buildId>` (add `--wait` to keep watching) rather than assuming failure.
+- `provider_not_supported` (from `release git ...`): only `github` is active in blocks-release; re-run with `--provider github` or omit the flag.
+- `secrets_file_unreadable` / `secrets_file_empty` (from `release secrets sync`): the dotenv file is missing, unreadable, or has no KEY=value lines; fix `--file` before retrying.
+- `invalid_report_type` (from `release reports get`): `--type` must be one of `sast`, `sca-container`, `sca-libraries`, `dast` (the server's own report types).
+- `secrets_read_failed` (from `release secrets sync`): the current secret set could not be read for a reason other than "no set yet", so nothing was saved (saving replaces the whole set). If the set was soft-deleted, run `release secrets restore` first; otherwise fix the error in the message and retry.
+- `hosting_provider_not_found` / `region_not_found` / `machine_config_not_found` (from `release setup`): the name or id doesn't exist; pick one from `blocks release settings list --json`.
+- `secret_not_found` (from `secrets *`): the id does not exist in this project. Run `blocks secrets list --include-deleted --json` and use a listed secretId.
+- `captcha_not_found` (from `captcha *`): the id does not exist in this project. Run `blocks captcha list --json` and use a listed id.
+- `secret_value_required` / `secret_value_ambiguous` / `secret_value_unreadable` / `secret_value_env_missing` (from `secrets set`/`rotate`): provide exactly one value source (`--value-file`, `--value-env`, or `--value`) that resolves to a non-empty value.
+- `invalid_secret_status` / `invalid_captcha_provider`: the message lists the accepted values; re-run with one of them.
+- `captcha_enable_required` (from `captcha save` when creating): pass `--enable` or `--enable=false` explicitly -- the server would otherwise store the configuration disabled.
+- `secret_access_empty` / `secret_access_conflict` (from `secrets access`): pass `--user-ids`/`--roles` (optionally with `--merge`) or `--clear` alone.
+- HTTP 409 `invalid_state` (from `secrets rotate`/`lock`/`restore`): the secret's status does not allow the transition (locked or deleted); `secrets unlock`/`restore` first.
 - `translation_wait_timeout` (from `localization key translate-and-export --wait`): translation didn't settle within `--timeout`. Check manually with `localization key get-timeline-by-operation-id <operationId>` (the id is printed before the wait starts), then run `generate-uilm-file`/`uilm-export` yourself once ready rather than assuming translation failed.
 - `no_project_domain` (from `new web`): the project has no domains registered in Blocks. Add one from the portal, or pass `--app-domain` explicitly if the user already knows the intended value.
 - HTML returned from an API command means the command endpoint path is wrong and must be fixed in the CLI.
