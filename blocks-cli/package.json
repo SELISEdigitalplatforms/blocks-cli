@@ -1,6 +1,6 @@
 {
   "name": "@seliseblocks/cli-os",
-  "version": "0.4.1",
+  "version": "0.4.2",
   "description": "CLI for SELISE Blocks project setup and configuration.",
   "keywords": [
     "selise",

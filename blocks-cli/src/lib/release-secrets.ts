@@ -107,7 +107,7 @@ export async function syncSecretsFromFile(options: {
  * whole set: merging over a set we could not read would silently wipe every key
  * that is not in the file.
  */
-async function readCurrentSecrets(repoId: string, projectKey: string, flags: Flags): Promise<Record<string, string>> {
+export async function readCurrentSecrets(repoId: string, projectKey: string, flags: Flags): Promise<Record<string, string>> {
   let result: ReleaseEnvelope<unknown> | undefined;
   try {
     result = await blocksRequest<ReleaseEnvelope<unknown>>(`${RELEASE_API}/RepoSecret/value`, {

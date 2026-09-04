@@ -2149,6 +2149,163 @@ test("release deploy wait polls with the explicitly deployed project session", a
   }
 });
 
+test("oidc-clients save merges the client nested in the GET envelope and never echoes its secret", async () => {
+  const { cwd, configDir } = await makeWorkspace();
+  await writeProjectAuth(configDir);
+  const server = await startJsonServer((request) => {
+    const path = request.url.split("?")[0];
+    if (path === "/iam/v4/oidc-clients/client-404" && request.method === "GET") {
+      return rawResponse(404, { error: "oidc_client_not_found", message: "OIDC client 'client-404' not found." });
+    }
+    if (path === "/iam/v4/oidc-clients/client-1" && request.method === "GET") {
+      // The server wraps the client: spreading this envelope used to carry NOTHING
+      // (resetting isAutoRedirect/requirePkce to DTO defaults) while echoing junk.
+      return {
+        isSuccess: true,
+        oIDCClientCredential: {
+          itemId: "client-1",
+          clientId: "client-1",
+          clientSecret: "blxoidc_live_secret",
+          clientDisplayName: "Web App",
+          clientType: "public",
+          redirectUris: ["https://dev.example.test:5173/login/callback"],
+          postLogoutRedirectUris: ["https://dev.example.test:5173/"],
+          allowedScopes: ["openid", "profile", "offline_access"],
+          allowedResponseTypes: ["code"],
+          requirePkce: true,
+          requireConsent: false,
+          isAutoRedirect: true,
+          isActive: true,
+          useTokensCookie: true,
+          requireMfa: false,
+          registerAsIdentityProvider: true,
+          isDeviceFlowClient: false,
+          externalDiscoveryEndpoint: "https://iam.example.test/project-tenant/.well-known/openid-configuration"
+        }
+      };
+    }
+    return rawResponse(500, { errorMessage: `Unexpected ${request.method} ${path}` });
+  });
+
+  try {
+    const env = testEnv(configDir, { BLOCKS_SECRET_STORE: "file" });
+    const result = await runAsync([
+      "auth", "oidc-clients", "save", "--item-id", "client-1",
+      "--redirect-uris", "https://dev.example.test:5173/login/callback,https://app-abcde.example.test/login/callback",
+      "--dry-run", "--api-url", server.url, "--json"
+    ], { cwd, env });
+    assert.equal(result.status, 0, result.stderr);
+    const request = JSON.parse(result.stdout).request;
+    // Unmentioned fields carry from the stored client; a uris-only save must not reset them.
+    assert.equal(request.isAutoRedirect, true);
+    assert.equal(request.requirePkce, true);
+    assert.equal(request.registerAsIdentityProvider, true);
+    assert.equal(request.clientType, "public");
+    assert.deepEqual(request.allowedScopes, ["openid", "profile", "offline_access"]);
+    assert.deepEqual(request.redirectUris, [
+      "https://dev.example.test:5173/login/callback",
+      "https://app-abcde.example.test/login/callback"
+    ]);
+    // Envelope keys and the stored secret must never reach the save body.
+    assert.equal(request.isSuccess, undefined);
+    assert.equal(request.oIDCClientCredential, undefined);
+    assert.ok(!result.stdout.includes("blxoidc_live_secret"), "stored client secret leaked into the save body");
+
+    const missing = await runAsync([
+      "auth", "oidc-clients", "save", "--item-id", "client-404", "--redirect-uris", "https://x.test/cb", "--dry-run", "--api-url", server.url, "--json"
+    ], { cwd, env });
+    assert.equal(missing.status, 1);
+    assert.match(missing.stderr, /oidc_client_not_found|client-404/);
+  } finally {
+    await new Promise((resolveClose) => server.close(resolveClose));
+  }
+});
+
+test("release deploy flags an unregistered deployed /login/callback and --register-callback fixes it", async () => {
+  const { cwd, configDir } = await makeWorkspace();
+  const oidcSaves = [];
+  let secretValueReads = 0;
+  let registered = false;
+  const clientRecord = () => ({
+    itemId: "client-1",
+    clientType: "public",
+    redirectUris: registered
+      ? ["https://tbumke.slsblx.test:5173/login/callback", "https://tbumke-ekeca.slsblx.test/login/callback"]
+      : ["https://tbumke.slsblx.test:5173/login/callback"],
+    allowedScopes: ["openid", "profile", "offline_access"],
+    isAutoRedirect: true,
+    requirePkce: true,
+    registerAsIdentityProvider: true
+  });
+  const server = await startJsonServer((request, body) => {
+    const path = request.url.split("?")[0];
+    if (path === "/os/v4/Project/Gets") {
+      return [{ tenantGroupId: "group-1", projects: [{ environment: "dev", tenantId: "target-project" }] }];
+    }
+    if (path === "/os/v4/Project/GetAsset") {
+      return { assets: { resources: [{ name: "dev", resourceId: "repo-1" }] } };
+    }
+    if (path === "/release/v4/Build/repo-details") {
+      return { data: { repo: { branch: "dev", repoUrl: "https://example.test/repo.git" } } };
+    }
+    if (path === "/release/v4/Build/repos-list") {
+      return { data: [{ itemId: "repo-1", repoName: "web", defaultDeploymentUrl: "https://tbumke-ekeca.slsblx.test" }] };
+    }
+    if (path === "/release/v4/RepoSecret/value") {
+      secretValueReads += 1;
+      return { data: { repoId: "repo-1", secrets: { VITE_BLOCKS_OIDC_CLIENT_ID: "client-1", VITE_OTHER: "x" } } };
+    }
+    if (path === "/iam/v4/oidc-clients" && request.method === "GET") {
+      return { isSuccess: true, oIDCClientCredentials: [clientRecord()] };
+    }
+    if (path === "/iam/v4/oidc-clients/client-1" && request.method === "GET") {
+      return { isSuccess: true, oIDCClientCredential: clientRecord() };
+    }
+    if (path === "/iam/v4/oidc-clients" && request.method === "POST") {
+      oidcSaves.push(body);
+      registered = true;
+      return { isSuccess: true };
+    }
+    if (path === "/release/v4/Build/manual") return { buildId: "build-1" };
+    return rawResponse(500, { errorMessage: `Unexpected ${request.method} ${path}` });
+  });
+
+  try {
+    await writeTwoAccountProjectAuth(configDir, server.url);
+    const runDeploy = (extra) => runAsync([
+      "release", "deploy", "--account", "alpha", "--project", "target-project", "--api-url", server.url, "--yes", "--json", ...extra
+    ], { cwd, env: testEnv(configDir, { BLOCKS_SECRET_STORE: "file" }) });
+
+    const warned = await runDeploy([]);
+    assert.equal(warned.status, 0, warned.stderr);
+    assert.match(warned.stderr, /tbumke-ekeca\.slsblx\.test\/login\/callback' is not among OIDC client 'client-1'/);
+    assert.match(warned.stderr, /--register-callback/);
+    assert.equal(oidcSaves.length, 0, "a plain deploy must not mutate the OIDC client");
+
+    const fixed = await runDeploy(["--register-callback"]);
+    assert.equal(fixed.status, 0, fixed.stderr);
+    assert.equal(oidcSaves.length, 1);
+    assert.deepEqual(oidcSaves[0].redirectUris, [
+      "https://tbumke.slsblx.test:5173/login/callback",
+      "https://tbumke-ekeca.slsblx.test/login/callback"
+    ]);
+    // The merged save carries the client's other settings and never its secret.
+    assert.equal(oidcSaves[0].isAutoRedirect, true);
+    assert.equal(oidcSaves[0].requirePkce, true);
+    assert.equal(oidcSaves[0].clientSecret, undefined);
+    assert.match(fixed.stderr, /Registered .*verified by re-reading/);
+
+    const quiet = await runDeploy([]);
+    assert.equal(quiet.status, 0, quiet.stderr);
+    assert.ok(!/not among OIDC client/.test(quiet.stderr), "registered callback must not warn again");
+    // The check reads the client LIST; the audited plaintext-secret endpoint is only
+    // for disambiguating several clients, which this single-client project never needs.
+    assert.equal(secretValueReads, 0, "deploy must not read RepoSecret/value for a single-client project");
+  } finally {
+    await new Promise((resolveClose) => server.close(resolveClose));
+  }
+});
+
 test("composed data file upload dry-run plans metadata creation and provider PUT", async () => {
   const { cwd, configDir } = await makeWorkspace();
   const env = testEnv(configDir, { BLOCKS_SECRET_STORE: "file" });

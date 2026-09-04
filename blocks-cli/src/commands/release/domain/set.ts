@@ -1,6 +1,7 @@
 import { booleanFlag, stringFlag } from "../../../lib/args.js";
 import { blocksRequest } from "../../../lib/api.js";
 import { confirmMutation } from "../../../lib/confirm.js";
+import { checkDeployedOidcCallback } from "../../../lib/oidc-callback.js";
 import { writeOutput } from "../../../lib/output.js";
 import { resolveSelectedProject } from "../../../lib/project-info.js";
 import { RELEASE_API, repoIdOf, resolveRepoSelection } from "../../../lib/release.js";
@@ -41,5 +42,8 @@ export async function releaseDomainSet(argv: string[]): Promise<void> {
     projectTenantId: projectKey,
     ...requestContext(flags)
   });
+
+  // A new domain means a new /login/callback origin the OIDC client has never seen.
+  await checkDeployedOidcCallback(repoId, projectKey, flags, { register: booleanFlag(flags, "register-callback") });
   writeOutput(result, flags);
 }

@@ -14,6 +14,7 @@ import {
   waitForBuild
 } from "../../lib/release.js";
 import { requestContext } from "../../lib/request-context.js";
+import { checkDeployedOidcCallback } from "../../lib/oidc-callback.js";
 import { parseCommand } from "../../lib/workspace.js";
 import { SecretsSyncResult, syncSecretsFromFile } from "../../lib/release-secrets.js";
 
@@ -29,6 +30,7 @@ export async function releaseDeploy(argv: string[]): Promise<void> {
   const repoSelector = stringFlag(flags, "repo");
   const secretsFile = stringFlag(flags, "with-secrets");
   const dryRun = booleanFlag(flags, "dry-run");
+  const registerCallback = booleanFlag(flags, "register-callback");
   const wait = booleanFlag(flags, "wait");
   const follow = booleanFlag(flags, "follow");
   const pollIntervalSeconds = integerFlag(flags, "poll-interval", DEFAULT_POLL_INTERVAL_SECONDS);
@@ -135,6 +137,10 @@ export async function releaseDeploy(argv: string[]): Promise<void> {
     projectTenantId: projectKey,
     ...requestContext(flags)
   });
+
+  // The deployed URL exists as soon as the repo record has one; a failed or still-running
+  // build does not un-register a callback, so the check runs on every non-dry deploy.
+  await checkDeployedOidcCallback(repoId, projectKey, flags, { register: registerCallback });
 
   if (!wait && !follow) {
     writeOutput(withSecrets(result), flags);

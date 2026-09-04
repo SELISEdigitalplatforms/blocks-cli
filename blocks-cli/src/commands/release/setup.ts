@@ -14,6 +14,7 @@ import {
   resolveRepoSelection,
   waitForBuild
 } from "../../lib/release.js";
+import { checkDeployedOidcCallback } from "../../lib/oidc-callback.js";
 import { requestContext } from "../../lib/request-context.js";
 import { parseCommand } from "../../lib/workspace.js";
 
@@ -43,6 +44,7 @@ export async function releaseSetup(argv: string[]): Promise<void> {
   const dryRun = booleanFlag(flags, "dry-run");
   const wait = booleanFlag(flags, "wait");
   const follow = booleanFlag(flags, "follow");
+  const registerCallback = booleanFlag(flags, "register-callback");
 
   const { project, tenantId: projectKey } = await resolveSelectedProject(flags);
   const environment = project.environment;
@@ -95,7 +97,13 @@ export async function releaseSetup(argv: string[]): Promise<void> {
     ...requestContext(flags)
   });
 
+  // run-build assigns the deployment's random-suffixed ingress URL; without --wait it
+  // may not be visible in repos-list yet, in which case the check quietly finds no URL
+  // (re-run 'release deploy' or the printed save command later).
+  const verifyCallback = () => checkDeployedOidcCallback(repoId, projectKey, flags, { register: registerCallback });
+
   if (!wait && !follow) {
+    await verifyCallback();
     writeOutput(result, flags);
     return;
   }
@@ -116,6 +124,7 @@ export async function releaseSetup(argv: string[]): Promise<void> {
     pollIntervalSeconds: integerFlag(flags, "poll-interval", DEFAULT_POLL_INTERVAL_SECONDS),
     timeoutSeconds: integerFlag(flags, "timeout", DEFAULT_WAIT_TIMEOUT_SECONDS)
   });
+  await verifyCallback();
   writeOutput({ build, buildId, status, verdict }, flags);
 }
 

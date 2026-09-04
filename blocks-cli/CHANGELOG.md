@@ -6,6 +6,36 @@ This project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 Versions before 0.3.0 were released without a changelog; their history is in the
 repository's git log.
 
+## 0.4.2
+
+### Fixed
+
+- `auth oidc-clients save --item-id` actually merges now. The GET wraps the
+  client in an envelope (`{ isSuccess, oIDCClientCredential: {...} }`); the
+  save spread the envelope, so none of the stored fields carried and a
+  uris-only re-save reset `isAutoRedirect`, `requirePkce` and the rest to the
+  DTO defaults -- while echoing the envelope (stored `clientSecret` included)
+  back at the API. The client is now unwrapped and only the save DTO's fields
+  are carried, so `--redirect-uris` alone is a safe edit and the secret never
+  travels. Confirmed against a live project where a re-save had flipped
+  `--auto-redirect` off.
+
+### Added
+
+- `release setup`, `release deploy` and `release domain set` now close the
+  fresh-deployment login gap: `setup` assigns a random-suffixed domain but
+  nothing registered `<deployed-url>/login/callback` on the project's OIDC
+  client, so the FIRST login on a new deployment failed with
+  `redirect_uri_not_registered`. After the URL resolves, each command checks
+  the project's OIDC clients for the deployed callback and warns on stderr
+  with the exact fix command when it is missing; pass `--register-callback`
+  to have it appended in the same run (merged save, then re-read to verify).
+  The check reads the client LIST, not the repo's secrets -- RepoSecret/value
+  is plaintext and audited on every call, so it is read only to pick the
+  app's client (its `*OIDC_CLIENT_ID` key) when several clients exist and
+  none has the callback. Advisory: it never fails the deploy and stdout
+  stays one `--json` document.
+
 ## 0.4.1
 
 ### Fixed
