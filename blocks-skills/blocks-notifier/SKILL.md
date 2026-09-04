@@ -53,7 +53,7 @@ OrderBy
 
 CLI flags map to them as `--user-id` -> `UserId`, `--context` -> `SubscriptionFilterData.Context`, `--action-name` -> `SubscriptionFilterData.ActionName`, `--value` -> `SubscriptionFilterData.Value`, `--order-by` -> `OrderBy` (`1` = CreatedTime, newest first; `2` = ReadStatus — unread grouped ahead of read).
 
-This flattening is a **client-side inference, not something verified against a live call** — both the CLI and SDK made the same choice independently, which is corroborating but not proof the real backend accepts it. If a live `notifier unread` call ever errors, re-check this against the actual API response rather than assuming the flattening above is still correct.
+This flattening is a **best-effort workaround, and the backend does not currently honor it**: the service declares this read as taking its filter in the request body, so query parameters do not reach the filter at all — expect a missing-body rejection (or an unfiltered result) until the service is changed to read the filter from the query string. Prefer `blocks notifier list --unread-only` for "what's unread"; keep `unread` for the day the server side is fixed, and if a live call errors, that is why.
 
 ## SDK — `blocksClient.notifier.*`
 

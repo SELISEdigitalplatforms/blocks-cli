@@ -69,7 +69,7 @@ For anything that isn't a feature inside a running Blocks app (one-off lookups, 
 | `blocks iam organizations config get` | `organizations.getConfig()` | Read-only. |
 | `blocks iam organizations config save [...]` | `organizations.saveConfig()` | `--multi-org-enabled`, `--consent-for-multi-org-enable`, `--allow-org-creation-from-signup`, `--allow-org-creation-from-portal`, `--allow-org-creation-from-cloud`, `--allow-org-creation-from-construct`, or `--body`/`--file`. Mutation. |
 | `blocks iam signup-settings get` | `signupSettings.get()` | Read-only. |
-| `blocks iam signup-settings save [...]` | `signupSettings.save()` | `--email-password-signup`, `--sso-signup`, `--default-permissions`, `--default-roles`, or `--body`/`--file`. Mutation. |
+| `blocks iam signup-settings save [...]` | `signupSettings.save()` | `--email-password-signup`, `--sso-signup`, `--default-permissions`, `--default-roles`, or `--body`/`--file`. Mutation. The CLI reads the current settings and merges, because the endpoint stores all four fields from the body (omitted booleans become false, omitted lists empty). SDK callers must send all four every time -- the GET spells the lists `defaultRolesForNewUser`/`defaultPermissionsForNewUser`, the POST needs `...OnSignUp`. |
 
 ```bash
 blocks use <tenantId>                              # select the project once per session

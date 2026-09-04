@@ -29,7 +29,7 @@ blocks data config update --item-id <id> --connection-string "<new connection st
 blocks data config update --item-id <id> --connection-string "<new connection string>" --yes --json
 ```
 
-`data config update` also takes `--database-name`, `--collection-name-pattern`, and `--collection-name-editable` (boolean) — use these to rename the target database or adjust how collection names are derived/whether they're editable, on an existing configuration (`--item-id` required either way).
+`data config update` also takes `--database-name`, `--collection-name-pattern`, and `--collection-name-editable` (boolean) — use these to rename the target database or adjust how collection names are derived/whether they're editable, on an existing configuration (`--item-id` required either way). The update reads the current configuration and merges, so a connection-string-only change keeps `isCollectionNameEditable` and `collectionNamePattern` (the PUT would otherwise reset them to false/empty).
 
 Treat `--connection-string` as a secret: never print it back unredacted, and don't log it outside the command's own `--dry-run` preview (which redacts it).
 
@@ -92,7 +92,7 @@ blocks data reload --dry-run --json           # then reload so it's live
 blocks data reload --yes --json
 ```
 
-**Shortcut:** `blocks data sync --dry-run --json` then `--yes --json` runs validate → schema push → rules deploy → reload together in one confirmed step (see the schema workflow above for the full explanation) — use it instead of the manual deploy+reload above unless you need to run/inspect these steps individually.
+**Shortcut:** `blocks data sync` covers this too (validate → schema push → rules deploy → reload, one confirmation) — see the schema workflow above.
 
 `data rules deploy` applies schema security and data-access policies together — there's no finer-grained CLI split between "field access level" and "policy rule"; both live in `rules.json`.
 
@@ -151,9 +151,7 @@ blocks data schema delete <id> --yes --json
 
 `data schema info list/save/update` and `data schema fields` are the two-step alternative to `data schema push` (metadata first, fields second) — prefer the file-based `push` workflow above for normal schema authoring; reach for these only if the user specifically wants to add fields to an existing schema without touching its full JSON file, or needs the raw `/schemas/info` metadata-only shape.
 
-## `--dry-run` before `--yes` — always
-
-Every mutating command here (`data config create/update`, `data schema push`, `data schema delete`, `data schema fields`, `data schema info save/update`, `data rules deploy`, `data rules policy delete`, `data validation save/delete`, `data reload`) supports `--dry-run`. Run it, show the user what it says it will do, and only add `--yes` after they approve. This is not optional caution — it's the standard pattern across every `blocks` mutation, not unique to this skill.
+Every mutating command here supports `--dry-run`; run it, show the user, then `--yes` — the standard pattern across every `blocks` mutation.
 
 ## What this skill does NOT cover (and why)
 
@@ -161,8 +159,6 @@ Two things the old, pre-CLI version of this skill used to handle no longer have 
 
 - **Mock/sample data cleanup.** There is no `blocks data mock*` command, and the SDK's `data.utilities.mockData()` (in `@seliseblocks/client`) is **read-only** — it inventories mock data, it does not delete it. If a user asks to "wipe the demo data" or "clean up sample records," tell them plainly: this isn't exposed in the current CLI or SDK. Check whether the OS portal (`https://os.seliseblocks.com`) has a Data-section control for it; if not, there's no way to do this today short of deleting real records through generated GraphQL mutations one at a time, which is not the same thing and should not be presented as equivalent.
 - **Schema export/import between projects** (e.g. cloning a dev project's data model into staging). No CLI command and no SDK method exist for this. If a user wants to copy a data model between projects, the honest answer is: not supported by current tooling. Check the OS portal for a manual option; otherwise the only fallback is manually recreating schemas in the target project's `blocks/data/schemas/` and pushing them — which is a manual reconstruction, not a real export/import, and should be described as such.
-
-Don't guess at a raw API call to work around either gap — there is no supported path today, full stop.
 
 ## The one thing that goes through the SDK, not the CLI
 
@@ -182,17 +178,14 @@ const suggestion = await blocks.data.utilities.generateRegex({
 });
 ```
 
-If a user wants a regex suggestion for a field, write a small one-off script using the SDK like the above rather than trying to shoehorn it into a `blocks` invocation — the CLI genuinely has no equivalent, this isn't an oversight to work around. Once you have the pattern, put it into the relevant field's validation in `blocks/data/schemas/<Schema>.json` and continue with the normal push/reload workflow above.
+Once you have the pattern, put it into the relevant field's validation in `blocks/data/schemas/<Schema>.json` and continue with the normal push/reload workflow above — the CLI genuinely has no equivalent command.
 
 ## Gotchas
 
 - **Reload or it didn't happen.** `data schema push` and `data rules deploy` stage changes; `data reload` is what makes them visible to the runtime gateway (and to any app querying it via `@seliseblocks/client`).
-- **Pull before you edit** if you're not sure local files are current — someone may have changed the schema in the portal since your last pull.
 - **`data validate` is local-only** — it does not confirm the push will succeed against the server, only that the JSON is well-formed. Still run `--dry-run` on the actual push/deploy/reload commands.
-- **Don't invent mock-data-delete or schema-export commands.** They don't exist in the CLI or the SDK today — say so, check the portal, don't fake it with unrelated calls.
 - **Never define platform-managed system fields** (`ItemId`, `CreatedDate`, `CreatedBy`, `LastUpdatedDate`, `LastUpdatedBy`, `Language`, `OrganizationId`, `Tags`) in your schema JSON — Blocks adds these to every entity schema automatically.
 - **Check `data config get` before assuming Blocks-managed storage.** Most projects use it, but don't state it as fact without checking — and never create/update a data source configuration without explicit user intent, it repoints the project at a different database.
-- **`data validation save` requires a `validations` array via `--body`/`--file`.** There's no flag for it — the command errors out with a clear message if it's missing, don't try to work around that by guessing a flag name.
 
 ## Example trigger prompts
 

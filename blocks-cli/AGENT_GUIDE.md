@@ -86,7 +86,7 @@ Every field it reports is derived from the command's own source, not from prose,
 
 - Use `blocks ...` for all supported Blocks OS, IAM, Data, Release, and scaffold operations.
 - Prefer `--json` for automation and parsing.
-- Use `--dry-run` before any mutating command.
+- Use `--dry-run` before any mutating command. On `save`/`update` commands the dry-run body is the merged record (current server state with your flags applied), because those endpoints replace the whole document -- read it as "this is exactly what will be stored", and re-read state after `--yes`.
 - Do not run real mutating cloud commands unless the user explicitly approved the exact action.
 - Never print, commit, scaffold, or document access tokens, refresh tokens, cookies, JWTs, or other secrets.
 - Treat any secret pasted into chat or logs as exposed and rotate it before production use.
@@ -331,6 +331,9 @@ Rules:
 
 - Use `--dry-run` before guarded configuration/admin mutations, then `--yes` only after explicit approval. MFA challenge/setup/verify/resend and backup-code consumption are live authentication protocol steps without dry-run; run them only inside the user's explicit authentication flow.
 - Rich payloads (identity provider config, OIDC client config, user/role/permission create-update bodies, etc.) accept `--body '<json>'` or `--file <path.json>` on top of the documented convenience flags - use whichever is easier for the exact fields you need to set.
+- `iam roles update`, `iam signup-settings save`, `iam permissions update`, `auth config save`, `auth oidc-clients save` and `auth client-credentials save --item-id` read the current record first and merge your flags over it, because their endpoints replace the whole document. Omitting a flag keeps the stored value. To clear a boolean, pass it explicitly (`--is-default=false`); to clear a text field, use `--body '{"description": ""}'` -- an empty convenience flag reads as "not passed" and keeps the stored value.
+- `iam users update` is a sparse patch (the server keeps omitted/null fields itself, `""` via `--body` clears one), so it sends only the fields you pass and needs no read. Roles, permissions and MFA state are not part of this endpoint any more -- the CLI rejects them with a pointer to `iam users access grant` and the MFA commands.
+- `iam users access grant`: a non-empty `--roles` or `--permissions` REPLACES that organization's list (an omitted one is kept). The dry-run prints `current` so you can see what a grant would drop; pass the complete set.
 - `auth idp create`/`update`, `auth client-credentials save`, and `auth oidc-clients save`/`rotate-secret` can return a `client_secret` shown only once. Never print, log, commit, or otherwise persist it outside what the user explicitly asked to store; treat that response the same as any other CLI-managed secret.
 - Do not add IAM/MFA/Auth admin behavior outside these supported CLI commands unless the CLI package is explicitly extended and tested.
 
@@ -650,7 +653,7 @@ For a repo that has never been deployed, use `release setup` instead - it calls 
 
 If no repo is linked yet, the commands fail with `repo_not_linked` - that requires GitHub OAuth, so it can only be done from the Blocks portal; do not attempt to link a repo from the CLI.
 
-`--wait` polls `/release/v4/api/Build` every `--poll-interval` seconds (default 10) and reads the build's status FIELD against the server's terminal vocabulary (Succeeded/Failed/Cancelled/Timeout/...), until terminal or `--timeout` elapses (default 900s). All progress goes to stderr; with `--json`, stdout is exactly one `{buildId, status, verdict, build}` document, where `verdict` is a stable `succeeded`/`failed`/`running`. `--follow` implies `--wait` and streams pipeline events to stderr as they appear. Without either, `release deploy` returns immediately with just a build id.
+`--wait` polls `/release/v4/Build` every `--poll-interval` seconds (default 10) and reads the build's status FIELD against the server's terminal vocabulary (Succeeded/Failed/Cancelled/Timeout/...), until terminal or `--timeout` elapses (default 900s). All progress goes to stderr; with `--json`, stdout is exactly one `{buildId, status, verdict, build}` document, where `verdict` is a stable `succeeded`/`failed`/`running`. `--follow` implies `--wait` and streams pipeline events to stderr as they appear. Without either, `release deploy` returns immediately with just a build id.
 
 Read builds and logs:
 

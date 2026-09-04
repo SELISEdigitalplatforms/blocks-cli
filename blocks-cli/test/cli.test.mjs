@@ -803,6 +803,432 @@ test("auth config explicit false survives fetch-and-merge", async () => {
   }
 });
 
+test("iam signup-settings save merges the current settings and renames the GET list fields", async () => {
+  const { cwd, configDir } = await makeWorkspace();
+  await writeProjectAuth(configDir);
+  const server = await startJsonServer((request) => {
+    const path = request.url.split("?")[0];
+    if (path === "/iam/v4/iam/signup-settings" && request.method === "GET") {
+      return {
+        isSignUpEnable: true,
+        isEmailPasswordSignUpEnabled: true,
+        isSSoSignUpEnabled: false,
+        defaultRolesForNewUser: ["member"],
+        defaultPermissionsForNewUser: ["profile::read"]
+      };
+    }
+    return rawResponse(500, { errorMessage: `Unexpected ${request.method} ${path}` });
+  });
+
+  try {
+    const env = testEnv(configDir, { BLOCKS_SECRET_STORE: "file" });
+    const rolesOnly = await runAsync(["iam", "signup-settings", "save", "--default-roles", "participant", "--dry-run", "--api-url", server.url, "--json"], { cwd, env });
+    assert.equal(rolesOnly.status, 0, rolesOnly.stderr);
+    // The POST binds `...OnSignUp`; the GET's spelling and its derived `isSignUpEnable` must not leak through.
+    assert.deepEqual(JSON.parse(rolesOnly.stdout).request, {
+      isEmailPasswordSignUpEnabled: true,
+      isSSoSignUpEnabled: false,
+      defaultRolesForNewUserOnSignUp: ["participant"],
+      defaultPermissionsForNewUserOnSignUp: ["profile::read"]
+    });
+
+    const explicitFalse = await runAsync(["iam", "signup-settings", "save", "--email-password-signup=false", "--dry-run", "--api-url", server.url, "--json"], { cwd, env });
+    assert.equal(explicitFalse.status, 0, explicitFalse.stderr);
+    const request = JSON.parse(explicitFalse.stdout).request;
+    assert.equal(request.isEmailPasswordSignUpEnabled, false);
+    assert.deepEqual(request.defaultRolesForNewUserOnSignUp, ["member"]);
+  } finally {
+    await new Promise((resolveClose) => server.close(resolveClose));
+  }
+});
+
+test("iam users update is a sparse patch: sends only the passed fields and refuses retired ones", async () => {
+  const { cwd, configDir } = await makeWorkspace();
+  await writeProjectAuth(configDir);
+  const urls = [];
+  // POST /users/{id} keeps omitted fields server-side, so the dry-run must not read the
+  // user first -- any request against this server is a failure.
+  const server = await startJsonServer((request) => {
+    urls.push(`${request.method} ${request.url}`);
+    return rawResponse(500, { errorMessage: `Unexpected ${request.method} ${request.url}` });
+  });
+
+  try {
+    const env = testEnv(configDir, { BLOCKS_SECRET_STORE: "file" });
+    const result = await runAsync([
+      "iam", "users", "update", "user-1", "--first-name", "Grace", "--organization-id", "org-7", "--dry-run", "--api-url", server.url, "--json"
+    ], { cwd, env });
+    assert.equal(result.status, 0, result.stderr);
+    assert.deepEqual(urls, [], "sparse update must not call the API on --dry-run");
+    assert.deepEqual(JSON.parse(result.stdout).request, {
+      itemId: "user-1",
+      firstName: "Grace",
+      organizationId: "org-7"
+    });
+
+    // Roles/permissions/MFA were retired from this endpoint: the server ignores them
+    // with only a log line, so the CLI turns that silence into a typed error.
+    const roles = await runAsync(["iam", "users", "update", "user-1", "--roles", "editor", "--dry-run", "--api-url", server.url, "--json"], { cwd, env });
+    assert.equal(roles.status, 1);
+    assert.match(roles.stderr, /access grant/);
+
+    const body = await runAsync([
+      "iam", "users", "update", "user-1", "--body", JSON.stringify({ firstName: "Grace", mfaEnabled: false }), "--dry-run", "--api-url", server.url, "--json"
+    ], { cwd, env });
+    assert.equal(body.status, 1);
+    assert.match(body.stderr, /mfaEnabled/);
+  } finally {
+    await new Promise((resolveClose) => server.close(resolveClose));
+  }
+});
+
+test("iam roles update keeps description, parent and canCreateOwn on a rename", async () => {
+  const { cwd, configDir } = await makeWorkspace();
+  await writeProjectAuth(configDir);
+  const server = await startJsonServer((request) => {
+    const path = request.url.split("?")[0];
+    if (path === "/iam/v4/iam/roles/role-1" && request.method === "GET") {
+      return {
+        data: {
+          itemId: "role-1",
+          name: "Content Editor",
+          slug: "content-editor",
+          description: "Edits published content",
+          parentRoleSlug: "editor",
+          canCreateOwn: false,
+          count: 12,
+          ancestorRoleSlugs: ["editor", "admin"]
+        }
+      };
+    }
+    return rawResponse(500, { errorMessage: `Unexpected ${request.method} ${path}` });
+  });
+
+  try {
+    const result = await runAsync(["iam", "roles", "update", "role-1", "--name", "Content Lead", "--dry-run", "--api-url", server.url, "--json"], {
+      cwd,
+      env: testEnv(configDir, { BLOCKS_SECRET_STORE: "file" })
+    });
+    assert.equal(result.status, 0, result.stderr);
+    assert.deepEqual(JSON.parse(result.stdout).request, {
+      itemId: "role-1",
+      name: "Content Lead",
+      description: "Edits published content",
+      parentRoleSlug: "editor",
+      canCreateOwn: false
+    });
+  } finally {
+    await new Promise((resolveClose) => server.close(resolveClose));
+  }
+});
+
+test("auth client-credentials save merges the stored credential and never carries its secret", async () => {
+  const { cwd, configDir } = await makeWorkspace();
+  await writeProjectAuth(configDir);
+  const server = await startJsonServer((request) => {
+    const path = request.url.split("?")[0];
+    if (path === "/iam/v4/auth/client-credentials" && request.method === "GET") {
+      return [
+        {
+          itemId: "cc-1",
+          name: "ci-deployer",
+          clientSecret: "blxsk_live_secret_value",
+          isActive: false,
+          accessTokenValidForNumberMinutes: 30,
+          roles: ["deployer"],
+          permissions: ["release::deploy"]
+        }
+      ];
+    }
+    return rawResponse(500, { errorMessage: `Unexpected ${request.method} ${path}` });
+  });
+
+  try {
+    const env = testEnv(configDir, { BLOCKS_SECRET_STORE: "file" });
+    const result = await runAsync([
+      "auth", "client-credentials", "save", "--item-id", "cc-1", "--roles", "deployer,reader", "--dry-run", "--api-url", server.url, "--json"
+    ], { cwd, env });
+    assert.equal(result.status, 0, result.stderr);
+    assert.deepEqual(JSON.parse(result.stdout).request, {
+      itemId: "cc-1",
+      name: "ci-deployer",
+      isActive: false,
+      accessTokenValidForNumberMinutes: 30,
+      roles: ["deployer", "reader"],
+      permissions: ["release::deploy"]
+    });
+    assert.ok(!result.stdout.includes("blxsk_live_secret_value"), "client secret leaked into the save body");
+
+    const missing = await runAsync(["auth", "client-credentials", "save", "--item-id", "cc-404", "--roles", "reader", "--dry-run", "--api-url", server.url, "--json"], { cwd, env });
+    assert.equal(missing.status, 1);
+    assert.match(missing.stderr, /cc-404.*was not found/);
+  } finally {
+    await new Promise((resolveClose) => server.close(resolveClose));
+  }
+});
+
+test("localization key save upserts one culture and keeps the other translations", async () => {
+  const { cwd, configDir } = await makeWorkspace();
+  await writeProjectAuth(configDir);
+  const lookups = [];
+  const server = await startJsonServer((request, body) => {
+    const path = request.url.split("?")[0];
+    if (path === "/localization/v4/Key/GetsByKeyNames" && request.method === "POST") {
+      lookups.push(body);
+      return {
+        keys: [
+          {
+            itemId: "key-1",
+            keyName: "greeting",
+            moduleId: "mod-1",
+            resources: [
+              { culture: "en-US", value: "Hello", characterLength: 5 },
+              { culture: "de-DE", value: "Hallo", characterLength: 5 }
+            ],
+            routes: ["/home"],
+            glossaryIds: ["g-1"],
+            context: "Landing page header",
+            isPartiallyTranslated: true
+          }
+        ]
+      };
+    }
+    return rawResponse(500, { errorMessage: `Unexpected ${request.method} ${path}` });
+  });
+
+  try {
+    const env = testEnv(configDir, { BLOCKS_SECRET_STORE: "file" });
+    const added = await runAsync([
+      "localization", "key", "save", "--key-name", "greeting", "--module-id", "mod-1", "--value", "Bonjour", "--culture", "fr-FR", "--dry-run", "--api-url", server.url, "--json"
+    ], { cwd, env });
+    assert.equal(added.status, 0, added.stderr);
+    assert.deepEqual(lookups[0], { keyNames: ["greeting"], moduleId: "mod-1" });
+    assert.deepEqual(JSON.parse(added.stdout).request, {
+      itemId: "key-1",
+      keyName: "greeting",
+      moduleId: "mod-1",
+      resources: [
+        { culture: "en-US", value: "Hello", characterLength: 5 },
+        { culture: "de-DE", value: "Hallo", characterLength: 5 },
+        { characterLength: 7, culture: "fr-FR", value: "Bonjour" }
+      ],
+      routes: ["/home"],
+      glossaryIds: ["g-1"],
+      context: "Landing page header",
+      isPartiallyTranslated: true
+    });
+
+    const replaced = await runAsync([
+      "localization", "key", "save", "--key-name", "greeting", "--module-id", "mod-1", "--value", "Servus", "--culture", "de-de", "--dry-run", "--api-url", server.url, "--json"
+    ], { cwd, env });
+    assert.equal(replaced.status, 0, replaced.stderr);
+    assert.deepEqual(JSON.parse(replaced.stdout).request.resources, [
+      { culture: "en-US", value: "Hello", characterLength: 5 },
+      { culture: "de-DE", value: "Servus", characterLength: 6 }
+    ]);
+
+    const noCulture = await runAsync(["localization", "key", "save", "--key-name", "greeting", "--module-id", "mod-1", "--value", "Hola", "--dry-run", "--api-url", server.url, "--json"], { cwd, env });
+    assert.equal(noCulture.status, 1);
+    assert.match(noCulture.stderr, /--culture/);
+  } finally {
+    await new Promise((resolveClose) => server.close(resolveClose));
+  }
+});
+
+test("captcha save <id> merges the stored configuration so a secret rotation does not disable it", async () => {
+  const { cwd, configDir } = await makeWorkspace();
+  await writeProjectAuth(configDir);
+  const server = await startJsonServer((request) => {
+    const path = request.url.split("?")[0];
+    if (path === "/os/v4/captcha/get/cfg-1" && request.method === "GET") {
+      return { id: "cfg-1", isEnable: true, provider: "recaptcha", captchaKey: "site-1", captchaGenerator: "v3", secretId: "sec-1" };
+    }
+    return rawResponse(500, { errorMessage: `Unexpected ${request.method} ${path}` });
+  });
+
+  try {
+    const result = await runAsync(["captcha", "save", "cfg-1", "--captcha-secret", "rotated-secret-99", "--dry-run", "--api-url", server.url, "--json"], {
+      cwd,
+      env: testEnv(configDir, { BLOCKS_SECRET_STORE: "file" })
+    });
+    assert.equal(result.status, 0, result.stderr);
+    const planned = JSON.parse(result.stdout);
+    assert.deepEqual(planned.request, {
+      id: "cfg-1",
+      isEnable: true,
+      provider: "recaptcha",
+      captchaKey: "site-1",
+      captchaGenerator: "v3",
+      captchaSecret: "***"
+    });
+    assert.equal(planned.secretHandling, "rotate the linked secret");
+    assert.ok(!result.stdout.includes("rotated-secret-99"), "captcha secret leaked to dry-run output");
+  } finally {
+    await new Promise((resolveClose) => server.close(resolveClose));
+  }
+});
+
+test("iam users access grant shows the lists a non-empty grant will replace", async () => {
+  const { cwd, configDir } = await makeWorkspace();
+  await writeProjectAuth(configDir);
+  const server = await startJsonServer((request) => {
+    const path = request.url.split("?")[0];
+    if (path === "/iam/v4/iam/users/user-1" && request.method === "GET") {
+      return { data: { itemId: "user-1", roles: ["admin", "editor"], permissions: ["orders::export"] } };
+    }
+    return rawResponse(500, { errorMessage: `Unexpected ${request.method} ${path}` });
+  });
+
+  try {
+    const result = await runAsync(["iam", "users", "access", "grant", "user-1", "--roles", "editor", "--dry-run", "--api-url", server.url, "--json"], {
+      cwd,
+      env: testEnv(configDir, { BLOCKS_SECRET_STORE: "file" })
+    });
+    assert.equal(result.status, 0, result.stderr);
+    const planned = JSON.parse(result.stdout);
+    assert.deepEqual(planned.current, { permissions: ["orders::export"], roles: ["admin", "editor"] });
+    assert.deepEqual(planned.request, { roles: ["editor"], userId: "user-1" });
+  } finally {
+    await new Promise((resolveClose) => server.close(resolveClose));
+  }
+});
+
+test("mail config save --configuration-id merges the stored entity (itemId/name) and never carries the masked password", async () => {
+  const { cwd, configDir } = await makeWorkspace();
+  await writeProjectAuth(configDir);
+  const server = await startJsonServer((request) => {
+    const path = request.url.split("?")[0];
+    if (path === "/os/v4/Mail/Gets" && request.method === "GET") {
+      // Mail/Gets returns MailServerConfiguration entities, not the save DTO: `itemId` and
+      // `name` here are `configurationId` and `configurationName` on the request.
+      return [
+        {
+          itemId: "mail-1",
+          name: "primary",
+          host: "smtp.example.test",
+          port: 465,
+          enableSSL: true,
+          senderName: "Blocks",
+          senderAddress: "noreply@example.test",
+          senderUserName: "smtp-user",
+          accountPassword: "********",
+          isInbound: true,
+          provider: 2,
+          isEnableSnsConfiguration: true,
+          useDefaultCredentials: false,
+          isDefault: true
+        }
+      ];
+    }
+    return rawResponse(500, { errorMessage: `Unexpected ${request.method} ${path}` });
+  });
+
+  try {
+    const result = await runAsync([
+      "mail", "config", "save", "--configuration-id", "mail-1", "--host", "smtp2.example.test", "--account-password", "new-pass-1", "--dry-run", "--api-url", server.url, "--json"
+    ], { cwd, env: testEnv(configDir, { BLOCKS_SECRET_STORE: "file" }) });
+    assert.equal(result.status, 0, result.stderr);
+    assert.deepEqual(JSON.parse(result.stdout).request, {
+      configurationId: "mail-1",
+      configurationName: "primary",
+      host: "smtp2.example.test",
+      port: 465,
+      enableSSL: true,
+      senderName: "Blocks",
+      senderAddress: "noreply@example.test",
+      senderUserName: "smtp-user",
+      isInbound: true,
+      provider: 2,
+      isEnableSnsConfiguration: true,
+      accountPassword: "***"
+    });
+    assert.ok(!result.stdout.includes("new-pass-1"), "account password leaked to dry-run output");
+  } finally {
+    await new Promise((resolveClose) => server.close(resolveClose));
+  }
+});
+
+test("notification save merges by exact name and marks the save as an update", async () => {
+  const { cwd, configDir } = await makeWorkspace();
+  await writeProjectAuth(configDir);
+  const server = await startJsonServer((request) => {
+    const path = request.url.split("?")[0];
+    if (path === "/os/v4/Notification/Gets" && request.method === "GET") {
+      return {
+        configurations: [
+          { itemId: "n-1", name: "order-events", channelToNotify: 2, notificationType: 1, enablePersistence: true, notifyMethod: "signalr" }
+        ],
+        totalCount: 1,
+        isSuccess: true
+      };
+    }
+    return rawResponse(500, { errorMessage: `Unexpected ${request.method} ${path}` });
+  });
+
+  try {
+    const env = testEnv(configDir, { BLOCKS_SECRET_STORE: "file" });
+    const updated = await runAsync(["notification", "save", "--name", "order-events", "--channel", "1", "--dry-run", "--api-url", server.url, "--json"], { cwd, env });
+    assert.equal(updated.status, 0, updated.stderr);
+    // The save validator rejects an existing name unless IsUpdateRequest is set, so
+    // finding the record must set it -- and the other enums/bool must carry over.
+    assert.deepEqual(JSON.parse(updated.stdout).request, {
+      isUpdateRequest: true,
+      channelToNotify: 1,
+      notificationType: 1,
+      enablePersistence: true,
+      notifyMethod: "signalr",
+      name: "order-events"
+    });
+
+    // The server's name lookup is a case-sensitive Eq: a differently-cased name is a
+    // CREATE there, so nothing may be carried and isUpdateRequest must stay unset.
+    const cased = await runAsync(["notification", "save", "--name", "Order-Events", "--channel", "1", "--notify-method", "signalr", "--dry-run", "--api-url", server.url, "--json"], { cwd, env });
+    assert.equal(cased.status, 0, cased.stderr);
+    assert.deepEqual(JSON.parse(cased.stdout).request, {
+      channelToNotify: 1,
+      name: "Order-Events",
+      notifyMethod: "signalr"
+    });
+  } finally {
+    await new Promise((resolveClose) => server.close(resolveClose));
+  }
+});
+
+test("localization language save merges by exact name so a cased variant cannot inherit isDefault", async () => {
+  const { cwd, configDir } = await makeWorkspace();
+  await writeProjectAuth(configDir);
+  const server = await startJsonServer((request) => {
+    const path = request.url.split("?")[0];
+    if (path === "/localization/v4/Language/Gets" && request.method === "GET") {
+      return [{ itemId: "lang-1", languageName: "english", languageCode: "en-US", isDefault: true }];
+    }
+    return rawResponse(500, { errorMessage: `Unexpected ${request.method} ${path}` });
+  });
+
+  try {
+    const env = testEnv(configDir, { BLOCKS_SECRET_STORE: "file" });
+    const resaved = await runAsync(["localization", "language", "save", "--language-name", "english", "--language-code", "en-GB", "--dry-run", "--api-url", server.url, "--json"], { cwd, env });
+    assert.equal(resaved.status, 0, resaved.stderr);
+    assert.deepEqual(JSON.parse(resaved.stdout).request, {
+      itemId: "lang-1",
+      languageCode: "en-GB",
+      isDefault: true,
+      languageName: "english"
+    });
+
+    // Language/Save's lookup is a case-sensitive Eq: "English" would CREATE a second
+    // language, which must not be born holding this record's isDefault.
+    const cased = await runAsync(["localization", "language", "save", "--language-name", "English", "--language-code", "en-GB", "--dry-run", "--api-url", server.url, "--json"], { cwd, env });
+    assert.equal(cased.status, 0, cased.stderr);
+    assert.deepEqual(JSON.parse(cased.stdout).request, {
+      languageCode: "en-GB",
+      languageName: "English"
+    });
+  } finally {
+    await new Promise((resolveClose) => server.close(resolveClose));
+  }
+});
+
 test("iam me prefers project auth only when a project is resolved", async () => {
   const { cwd, configDir } = await makeWorkspace();
   const authorizations = [];
@@ -1624,7 +2050,6 @@ test("configuration boolean flags preserve explicit false values", async () => {
   const env = testEnv(configDir, { BLOCKS_SECRET_STORE: "file" });
   const cases = [
     [["iam", "organizations", "config", "save", "--multi-org-enabled=false", "--dry-run", "--json"], "isMultiOrgEnabled"],
-    [["iam", "signup-settings", "save", "--email-password-signup=false", "--dry-run", "--json"], "isEmailPasswordSignUpEnabled"],
     [["mfa", "config", "save", "--enable=false", "--dry-run", "--json"], "enableMfa"],
     [["mail", "config", "save", "--enable-ssl=false", "--dry-run", "--json"], "enableSSL"]
   ];
@@ -1701,11 +2126,11 @@ test("release deploy wait polls with the explicitly deployed project session", a
     if (path === "/os/v4/Project/GetAsset") {
       return { assets: { resources: [{ name: "dev", resourceId: "repo-1" }] } };
     }
-    if (path === "/release/v4/api/Build/repo-details") {
+    if (path === "/release/v4/Build/repo-details") {
       return { data: { repo: { branch: "dev", repoUrl: "https://example.test/repo.git" } } };
     }
-    if (path === "/release/v4/api/Build/manual") return { buildId: "build-1" };
-    if (path === "/release/v4/api/Build") return { status: "completed" };
+    if (path === "/release/v4/Build/manual") return { buildId: "build-1" };
+    if (path === "/release/v4/Build") return { status: "completed" };
     return rawResponse(500, { error: `Unexpected ${request.method} ${path}` });
   });
 
@@ -1716,7 +2141,7 @@ test("release deploy wait polls with the explicitly deployed project session", a
       "--yes", "--wait", "--poll-interval", "0", "--json"
     ], { cwd, env: testEnv(configDir, { BLOCKS_SECRET_STORE: "file" }) });
     assert.equal(result.status, 0, result.stderr);
-    const poll = requests.find((item) => item.url.startsWith("/release/v4/api/Build?buildId="));
+    const poll = requests.find((item) => item.url.startsWith("/release/v4/Build?buildId="));
     assert.ok(poll, JSON.stringify(requests));
     assert.equal(poll.authorization, "Bearer alpha-target-token");
   } finally {
@@ -3855,11 +4280,11 @@ test("release deploy --wait reads the status field, not keywords in other string
     if (path === "/os/v4/Project/GetAsset") {
       return { assets: { resources: [{ name: "dev", resourceId: "repo-1" }] } };
     }
-    if (path === "/release/v4/api/Build/repo-details") {
+    if (path === "/release/v4/Build/repo-details") {
       return { data: { repo: { branch: "dev", repoUrl: "https://example.test/repo.git" } } };
     }
-    if (path === "/release/v4/api/Build/manual") return { buildId: "build-1" };
-    if (path === "/release/v4/api/Build") {
+    if (path === "/release/v4/Build/manual") return { buildId: "build-1" };
+    if (path === "/release/v4/Build") {
       buildPolls += 1;
       // First poll: still running, but full of strings the old keyword scan
       // misread as terminal (commit message, branch name).
@@ -3894,10 +4319,10 @@ test("release secrets sync merges over the current set and prints key names only
   const saves = [];
   const server = await startJsonServer((request, body) => {
     const path = request.url.split("?")[0];
-    if (path === "/release/v4/api/Build/repos-list") {
+    if (path === "/release/v4/Build/repos-list") {
       return { data: [{ branch: "dev", itemId: "repo-1", repoName: "web-app" }] };
     }
-    if (path === "/release/v4/api/RepoSecret/value") {
+    if (path === "/release/v4/RepoSecret/value") {
       // RepoSecretValueResponse: the set is the nested 'secrets' map, never the envelope.
       return {
         data: {
@@ -3907,7 +4332,7 @@ test("release secrets sync merges over the current set and prints key names only
         }
       };
     }
-    if (path === "/release/v4/api/RepoSecret/save") {
+    if (path === "/release/v4/RepoSecret/save") {
       saves.push(body);
       return { data: null, isSuccess: true };
     }
@@ -3961,7 +4386,7 @@ test("release teardown demands an explicit repo and confirms with the blast radi
   const deletes = [];
   const server = await startJsonServer((request) => {
     const path = request.url.split("?")[0];
-    if (path === "/release/v4/api/Build/repos-list") {
+    if (path === "/release/v4/Build/repos-list") {
       return {
         data: [
           { branch: "dev", customDeploymentUrl: "https://web.example.test", deployedNamespace: "ns-web-1", itemId: "repo-1", repoName: "web-app" },
@@ -3969,7 +4394,7 @@ test("release teardown demands an explicit repo and confirms with the blast radi
         ]
       };
     }
-    if (path === "/release/v4/api/Build/deployment" && request.method === "DELETE") {
+    if (path === "/release/v4/Build/deployment" && request.method === "DELETE") {
       deletes.push(request.url);
       return { data: null, isSuccess: true };
     }
@@ -4016,7 +4441,7 @@ test("release reports get only accepts the server's report types", async () => {
   const requests = [];
   const server = await startJsonServer((request) => {
     const path = request.url.split("?")[0];
-    if (path === "/release/v4/api/Build/reports") {
+    if (path === "/release/v4/Build/reports") {
       requests.push(request.url);
       return { data: { findings: 0 }, isSuccess: true };
     }
@@ -4052,17 +4477,17 @@ test("release secrets sync starts empty only on not-found and never saves over a
   let valueStatus = 403;
   const server = await startJsonServer((request, body) => {
     const path = request.url.split("?")[0];
-    if (path === "/release/v4/api/Build/repos-list") {
+    if (path === "/release/v4/Build/repos-list") {
       return { data: [{ branch: "dev", itemId: "repo-1", repoName: "web-app" }] };
     }
-    if (path === "/release/v4/api/RepoSecret/value") {
+    if (path === "/release/v4/RepoSecret/value") {
       // SecretExceptionFilter shape: {isSuccess:false, errors:{<key>: message, reason}}.
       if (valueStatus === 404) {
         return rawResponse(404, { errors: { not_found: "Secret 'repo-1' was not found.", reason: "NO_SECRET_FOR_REPO" }, isSuccess: false });
       }
       return rawResponse(valueStatus, { errors: { access_denied: "Forbidden." }, isSuccess: false });
     }
-    if (path === "/release/v4/api/RepoSecret/save") {
+    if (path === "/release/v4/RepoSecret/save") {
       saves.push(body);
       return { data: null, isSuccess: true };
     }
@@ -4108,17 +4533,17 @@ test("release deploy --with-secrets --json emits one document carrying the sync 
     if (path === "/os/v4/Project/GetAsset") {
       return { assets: { resources: [{ name: "dev", resourceId: "repo-1" }] } };
     }
-    if (path === "/release/v4/api/Build/repo-details") {
+    if (path === "/release/v4/Build/repo-details") {
       return { data: { repo: { branch: "dev", repoUrl: "https://example.test/repo.git" } } };
     }
-    if (path === "/release/v4/api/RepoSecret/value") {
+    if (path === "/release/v4/RepoSecret/value") {
       return { data: { repoId: "repo-1", secretId: "secret-9", secrets: { EXISTING_KEY: "existing-value-31" } } };
     }
-    if (path === "/release/v4/api/RepoSecret/save") {
+    if (path === "/release/v4/RepoSecret/save") {
       saves.push(body);
       return { data: null, isSuccess: true };
     }
-    if (path === "/release/v4/api/Build/manual") return { buildId: "build-7", isSuccess: true };
+    if (path === "/release/v4/Build/manual") return { buildId: "build-7", isSuccess: true };
     return rawResponse(500, { error: `Unexpected ${request.method} ${path}` });
   });
 

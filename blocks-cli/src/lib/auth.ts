@@ -450,7 +450,7 @@ async function postStopImpersonation(apiUrl: string, accessToken: string, accoun
 }
 
 async function postLogout(apiUrl: string, accessToken: string, accountTenant: string, refreshToken: string): Promise<void> {
-  const response = await fetch(new URL("/iam/v4/api/auth/logout", apiUrl), {
+  const response = await fetch(new URL("/iam/v4/auth/logout", apiUrl), {
     body: JSON.stringify({ refresh_token: refreshToken }),
     headers: {
       Accept: "application/json",

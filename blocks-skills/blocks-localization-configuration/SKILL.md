@@ -93,13 +93,13 @@ Pushing translations into an existing language and *configuring the tenant's set
 
 | Command | What it does |
 |---|---|
-| `blocks localization language save --language-name <n> --language-code <c> [--is-default] [--item-id <id>] [--dry-run] [--yes] [--json]` | Creates or updates a language. Omit `--item-id` to create a new one. Mutating, full dry-run/confirm gate. |
+| `blocks localization language save --language-name <n> --language-code <c> [--is-default] [--item-id <id>] [--dry-run] [--yes] [--json]` | Creates or updates a language (upsert by name). Omit `--item-id` to create a new one. Re-saving an existing language keeps its `isDefault` unless `--is-default`/`--is-default=false` is passed -- the endpoint would otherwise demote the default. Mutating, full dry-run/confirm gate. |
 | `blocks localization language delete <languageName> [--dry-run] [--yes] [--json]` | Deletes a language. Mutating. |
 | `blocks localization language set-default <languageName> [--dry-run] [--yes] [--json]` | Marks a language as the tenant default. Mutating. |
 | `blocks localization language list [--json]` | Lists all languages. Read-only. |
 | `blocks localization language list-for-tenant [--json]` | Lists languages configured for the current tenant. Read-only. |
 
-So "add German as a supported language for the tenant" is a real, supported request: `blocks localization language save --language-name German --language-code de-DE --dry-run`, get approval, then re-run with `--yes`. This is distinct from `localization push --language de-DE`, which stamps translations onto keys and doesn't touch the tenant's language configuration at all.
+This is distinct from `localization push --language de-DE`, which stamps translations onto keys and doesn't touch the tenant's language configuration at all.
 
 ## Managing modules directly
 
@@ -111,7 +111,7 @@ A module is still created implicitly by the first `localization push` into it, b
 | `blocks localization module list [--json]` | Lists all modules. Read-only. |
 | `blocks localization module list-for-tenant [--json]` | Lists modules configured for the current tenant. Read-only. |
 
-So "create a `billing` module with no keys yet" is directly supported: `blocks localization module save --module-name billing --dry-run` → approve → `--yes`. `localization push`'s implicit module creation is just a convenience on top of the same underlying call, not the only path to it.
+`localization push`'s implicit module creation is a convenience on top of the same underlying call, not the only path to it.
 
 ## Other localization commands
 
@@ -122,7 +122,7 @@ A few more commands round out the surface beyond push/pull/validate/language/mod
 | `blocks localization key translate-and-export --module-id <id> [--wait] [--output-type <0-5>] [--dry-run] [--yes] [--json]` | Composed flow: `translate-all` (machine-translates every untranslated key in the module) → if `--wait`, polls until the operation settles → `generate-uilm-file` → `uilm-export`. Without `--wait` the three steps just fire back-to-back. Mutating. |
 
 `--output-type` (here and on `key uilm-export`) is the export file format, zero-based: `0` Json (the default), `1` Xml, `2` Text, `3` Xlsx, `4` Csv, `5` Xlf. Leaving it off gives Json, so an agent that wants a spreadsheet has to pass `3` explicitly.
-| `blocks localization glossary save --name <n> [--item-id <id>] [--language <c>] [--type <t>] [--context <text>] [--additional-note <text>] [--is-global] [--module-ids a,b] [--dry-run] [--yes] [--json]` | Creates or updates a glossary term. Mutating. |
+| `blocks localization glossary save --name <n> [--item-id <id>] [--language <c>] [--type <t>] [--context <text>] [--additional-note <text>] [--is-global] [--module-ids a,b] [--dry-run] [--yes] [--json]` | Creates or updates a glossary term. With `--item-id` the current term is read and merged -- the endpoint rebuilds it from the body, so language/type/context/note/module tags would otherwise be dropped. Mutating. |
 | `blocks localization glossary list [--search <text>] [--module-id <id>] [--is-global] [--page-number <n>] [--page-size <n>] [--json]` | Lists glossary terms. Read-only. |
 | `blocks localization glossary get <itemId> [--json]` | Fetches one glossary term. Read-only. |
 | `blocks localization glossary suggested <itemId> [--max-results <n>] [--json]` | Suggests glossary terms relevant to an item. Read-only. |
@@ -133,7 +133,6 @@ A few more commands round out the surface beyond push/pull/validate/language/mod
 
 ## Gotchas
 
-- **`--dry-run` before `--yes`** on `localization push` — always. Same pattern as every other mutating `blocks` command.
 - **`--language` on `push` is not validated against configured cultures.** `localization push` stamps whatever string you pass as `--language` directly into each key's `culture` field — it does not check that culture against the tenant's actual configured languages, and doesn't call `language list`/`list-for-tenant` to look. Get the culture code wrong (`de` instead of `de-DE`, or a culture the tenant never configured via `language save`) and the key saves without error but may never surface at runtime, because runtime lookups match by the tenant's real configured `languageCode`. Confirm the exact culture code with the user (or run `localization language list-for-tenant`) before pushing, especially for less common languages like Bengali (`bn-BD` vs `bn`).
 - **Module auto-create is silent and permanent.** The first push against a new `--module` name creates it with no separate confirmation prompt beyond the push's own `--dry-run`/`--yes` gate — `--dry-run` output will tell you a module lookup happened, but won't distinguish "will create" from "already exists" as clearly as it could, so read the dry-run JSON's module info carefully, or ask the user to confirm the module name is intentional (typos become new, mostly-empty modules). Prefer `localization module save` first if the user wants the module created deliberately, without an accompanying key push.
 - **`localization validate` is local-only** — it confirms the JSON is well-formed and keys/values pass the naming rules; it does not confirm the push will succeed against the server (module resolution, auth, project selection). Still run `--dry-run` on the actual push.
@@ -146,10 +145,5 @@ A few more commands round out the surface beyond push/pull/validate/language/mod
 - "Add German translations for my login screen." → push `login.de-DE.json` after validate + dry-run + approval.
 - "Add German and Bengali translations for my login screen." → two dictionary files, two validate/push pairs (`de-DE`, `bn-BD`), same module.
 - "Set up a `common` module for shared strings like Save/Cancel/Delete." → write `common.<language>.json` with those keys, validate, push (this is what creates the `common` module) — or use `localization module save --module-name common` directly if no keys exist yet.
-- "Pull the latest translations for the dashboard module before I edit them." → `localization pull --module dashboard --language en`.
-- "Validate my localization file before pushing." → `localization validate` only, no network call.
-- "Can we add Bengali as a new supported language for the tenant?" → `localization language save --language-name Bengali --language-code bn-BD --dry-run`, confirm, then `--yes`.
-- "Create a new translation module called `billing` with no keys yet." → `localization module save --module-name billing --dry-run` → confirm → `--yes`.
+- "Can we add Bengali as a new supported language for the tenant?" → `localization language save --language-name Bengali --language-code bn-BD --dry-run`, confirm, then `--yes` — a language-config change, not a `push`.
 - "Machine-translate the whole `login` module and give me the export." → `localization key translate-and-export --module-id <id> --wait --dry-run` → confirm → `--yes`.
-- "Suggest a translation for this button label." → `localization assistant translation-suggestion --source-text "Save changes" --destination-language-code de-DE`.
-- "What's our webhook config for localization events?" → `localization config get-webhook`.

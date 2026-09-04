@@ -1,6 +1,6 @@
 {
   "name": "@seliseblocks/cli-os",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "description": "CLI for SELISE Blocks project setup and configuration.",
   "keywords": [
     "selise",
@@ -51,6 +51,7 @@
     "build": "npm run clean && tsc -p tsconfig.json",
     "dev": "tsx src/index.ts",
     "lint": "tsc -p tsconfig.json --noEmit",
+    "verify:endpoints": "node scripts/verify-endpoints.mjs",
     "test": "npm run build && node --test test/*.test.mjs",
     "prepack": "npm run build",
     "prepublishOnly": "npm test"

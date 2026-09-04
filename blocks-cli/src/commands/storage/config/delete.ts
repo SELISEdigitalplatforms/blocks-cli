@@ -16,9 +16,12 @@ export async function storageConfigDelete(argv: string[]): Promise<void> {
 
   await confirmMutation(flags, `Delete storage configuration '${name}'.`);
   const projectKey = await selectedProject(flags);
+  // Storage/Delete is [HttpPost] with [FromQuery] ConfigurationName in blocks-os --
+  // unlike Mail/Delete and Notification/Delete, which are [HttpDelete]. A DELETE here
+  // gets 405.
   const result = await blocksRequest<unknown>("/os/v4/Storage/Delete", {
     impersonatedProjectAuth: true,
-    method: "DELETE",
+    method: "POST",
     ...requestContext(flags),
     projectTenantId: projectKey,
     query: { ConfigurationName: name }

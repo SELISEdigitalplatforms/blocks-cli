@@ -152,7 +152,7 @@ There is no admin recovery. Backup codes (`backupCodes.use`, anonymous, needs `u
 
 `totp setup` → prints the QR/secret → **verification code** (from `--code`, or an interactive prompt if omitted) → `totp verify-setup <code>` → `method set --mfa-type <n>` → `backup-codes generate --yes`.
 
-Two things worth calling out precisely, both confirmed against source:
+Worth calling out precisely, confirmed against source:
 
 - **`--mfa-type` is required, never defaulted.** For this command it is `1` (TOTP) — the value the final `method set` step activates. The command throws rather than assuming it, so pass `--mfa-type 1` explicitly.
 - **The last step fails on a tenant that hasn't allowed backup codes.** `backup-codes generate` returns `backup_codes_disabled` unless `allowBackupCodes` is set in the tenant policy — enrollment itself already succeeded at that point, so treat it as "enrolled, no recovery codes" and fix the policy, not as a failed enrollment.
@@ -164,10 +164,6 @@ Deliberately excluded from this composed command: `mfa config save`. That's the 
 ## Gotchas
 
 - **`config`/`saveConfig` (SDK) and `mfa config get`/`config save` (CLI) are tenant policy, not a user's enrollment state.** Don't call these expecting to see or change one user's MFA status — that's every other method/command in this file. Reading policy needs `blocks-iam::iam::mfa-configs` and writing it `blocks-iam::iam::mutate-mfa-configs`, so an ordinary end user cannot fetch it from an app.
-- **`1` is TOTP and `2` is Email; `0` is None, and `3`/`4` have no provider.** Same enum for `mfaType`, `authType`, `userMfaType`, and a client's `allowedMfaMethods` — see the table above. `mfa method set` with anything but `1`/`2` disables the user's MFA.
-- **`mfa totp enable` needs both `--yes` and `--code` in non-interactive use** — see above. Missing approval or input fails clearly instead of waiting on stdin.
-- **Backup codes are shown once**, and only exist if the tenant set `allowBackupCodes` and the user is already enrolled — otherwise generate fails with `backup_codes_disabled` / `mfa_not_enrolled`. `list()` returns a remaining count, never the codes.
-- **No admin can enroll, reset, or disable another user's MFA.** Every self-service route resolves the user from the caller's own token; the one admin-reset code path IAM has is not wired to any route. The nearest lever is role-based policy (`mfaRequiredRoles`/`mfaExemptRoles`), which targets a role, not a user id — don't fabricate an endpoint to satisfy the request.
 - **Every `mfa` CLI command is project-scoped and impersonation-only**, same rule as the rest of the project-scoped CLI surface — `blocks use <tenantId>` first, or commands fail with `project_not_selected`.
 - **The CLI's self-service commands act on the CLI operator's own identity** inside the selected tenant, resolved from the impersonated token. `blocks mfa totp enable` enrolls *you*, not a customer. There is no CLI path to enroll someone else — that has to happen in the app, as that user.
 - **`mfa generate` on a tenant with MFA off** returns `{"errors":{"mfa_not_enable":"Please enable mfa for your application first"}}` — check `mfa config get` before assuming the method value was wrong.
@@ -180,7 +176,4 @@ Deliberately excluded from this composed command: `mfa config save`. That's the 
 - "Check whether this tenant requires MFA before showing the enrollment prompt."
 - "Turn on MFA for the whole tenant and require it for the admin role."
 - "Send an OTP code to the user and verify what they typed."
-- "Let a user regenerate their MFA backup codes."
-- "From the terminal, enroll the current project's impersonated user in TOTP MFA end to end."
-- "Run TOTP enrollment non-interactively from a script" → pass both `--yes` and `--code <c>` to `blocks mfa totp enable`, never run it unattended without them.
-- "Read the tenant's current MFA policy from the CLI."
+- "From the terminal, enroll the current project's impersonated user in TOTP MFA end to end" → `blocks mfa totp enable --mfa-type 1`; non-interactively, pass both `--yes` and `--code <c>`.
