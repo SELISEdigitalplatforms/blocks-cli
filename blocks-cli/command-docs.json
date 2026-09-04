@@ -65,7 +65,7 @@
     "details": "Requires --email or --user-name; omit --password to let the user set their own via activation mail."
   },
   "iam users update": {
-    "summary": "Update an existing IAM user's profile fields, roles, or permissions.",
+    "summary": "Update an existing IAM user's profile fields (sparse patch: omitted fields are kept). Roles/permissions/MFA belong to 'iam users access grant' and the MFA commands.",
     "positional": "<id>"
   },
   "iam users activate": {

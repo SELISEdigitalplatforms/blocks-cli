@@ -47,6 +47,7 @@ Everything under `mail config`, `mail template`, and `mail mailbox` is project-s
 - **`blocks mail config list [--json]`** — read-only.
 - **`blocks mail config get <name> [--json]`** — read-only (positional arg, or `--name`).
 - **`blocks mail config save [--configuration-id <id>] [--name <n>] [--host <h>] [--port <p>] [--enable-ssl] [--inbound] [--provider <n>] [--sender-name <n>] [--sender-address <addr>] [--sender-username <u>] [--account-password <p>] [--body '<json>'|--file <path>] [--dry-run] [--yes] [--json]`** — the create-or-update call for a mail server, so omitting `--configuration-id` is what makes it a new one. `--provider` and `--port` are raw integers (the CLI doesn't document the provider enum's meaning — don't guess a value). `--account-password` is redacted (`***`) in `--dry-run` output only; the live response and stored value are still sensitive.
+- Updating (`--configuration-id`) reads the stored configuration and merges, so `--enable-ssl`/`--inbound`/`--provider` survive a host-only change. `--account-password` must still be passed on every update: the server requires it and returns it masked, so it cannot be carried.
 - **`blocks mail config delete <configurationId> [--dry-run] [--yes] [--json]`**
 - **`blocks mail config duplicate <configurationId> [--dry-run] [--yes] [--json]`**
 

@@ -29,7 +29,7 @@ blocks captcha get <id> --json
 |---|---|
 | `blocks captcha list` | All configurations plus `activeForLogin`. Read-only. |
 | `blocks captcha get <id>` | One configuration; `secretId` reference, never the secret. Read-only. |
-| `blocks captcha save [<id>] --provider p [--captcha-key k] [--captcha-secret s] [--generator g] --enable\|--enable=false` | Omit `<id>` to create, pass it to update. Mutating. |
+| `blocks captcha save [<id>] --provider p [--captcha-key k] [--captcha-secret s] [--generator g] --enable\|--enable=false` | Omit `<id>` to create, pass it to update. An update reads the stored record and merges, so `--captcha-secret` alone rotates the secret without disabling the configuration or blanking its site key; `--provider` is only required on create. Mutating. |
 | `blocks captcha enable <id>` / `blocks captcha disable <id>` | Flip only `isEnable`; nothing else changes. Mutating. |
 | `blocks captcha delete <id>` | Removes the record and retires its stored secret. Mutating. |
 

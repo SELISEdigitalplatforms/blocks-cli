@@ -33,7 +33,54 @@ blocks iam permissions by-severity [--json]
 
 So `--severity 1` filters for the *most* dangerous permissions, not the least. Severity drives approval workflows (high-severity grants need an extra approver), UI emphasis, and audit-alert priority — it is not decorative.
 
+`roles update` reads the role first and merges your flags over it -- the endpoint replaces the role, so an unmerged rename would clear the description, detach the parent and turn `canCreateOwn` off. Omitting a flag keeps the stored value; pass it explicitly to clear it.
+
 Mutating commands (`create`, `update`, `assign-permissions`) follow the same discipline as every other mutating command in this CLI: pass `--dry-run` first to see the exact request body and endpoint with no network call, then re-run with `--yes` (or you'll be prompted to confirm) to actually send it.
+
+## Built-in permissions are assignable — every one of them
+
+**Rule: any permission held by the seeded `clouduser` system user can be assigned to any role. There is no restricted subset.** `clouduser` is seeded at project creation holding every service permission in the project, so it is the *catalog* of what exists — not a fence around it.
+
+Two fields get misread as "system-only". Neither is a restriction:
+
+- **`isBuiltIn: true`** means the permission was shipped/seeded by the platform rather than authored by this tenant. It says nothing about who may hold it. Granting built-in permissions to custom roles is the normal, intended way a role gets access to service APIs — not a workaround.
+- **`roles[]` containing `clouduser`** (or any other role) is a *membership list* — "these roles currently hold this permission". It is not an ACL on the permission, and it is not exclusive. Nearly every built-in permission lists `clouduser`, precisely because of the seed.
+
+**Refusing to assign is not the safe default.** A role whose users call an API they don't hold the `Endpoint` permission for gets a hard **403 from the gateway** — you ship a role that looks configured and is broken. Declining a built-in grant on "it's a system permission" grounds is a bug, not caution.
+
+The confirmation discipline is unchanged and still applies to every grant (reviewed `--dry-run`, then `--yes`, on the human's explicit instruction). What changes is that "built-in" and "clouduser has it" are never the reason to say no.
+
+## Choosing *which* permissions a role gets
+
+Unrestricted-to-assign is not assign-everything. Never clone `clouduser`'s set onto an application role, and never grant by keyword-matching a role's name. Work from what that role's users actually do:
+
+1. **Enumerate what the role must do** — the concrete API calls its users make and the screens/actions they see. If that isn't known yet, ask; don't guess a set.
+2. **Find the candidate permissions** — `blocks iam permissions list --resource-group <group>`, `--resources a,b`, `--search <text>`, or `--type <n>` to scope by kind. `blocks iam resources groups`/`blocks iam resources features` give you the resource/module grouping to walk. `blocks iam permissions by-severity` shows the same catalog bucketed by blast radius.
+3. **Match by permission type** — the type decides *what breaks* when a grant is missing, so it decides what you must include:
+
+   | `type` | Enforced by | Missing grant looks like | Grant it when |
+   |---|---|---|---|
+   | `1` Endpoint | API gateway | **403** on the call | the role's users hit that API at all — non-negotiable |
+   | `2` FrontendAction | the SPA's permission gate | no error; button/section silently hidden or disabled | the role should see and use that UI affordance |
+   | `3` DataProtection | field/record masking & encryption | data comes back masked/redacted | the role legitimately needs the unmasked field |
+
+   A role usually needs **both** the `Endpoint` permission and the matching `FrontendAction` — granting only the endpoint leaves an invisible button; granting only the frontend action leaves a button that 403s. Check for both when a feature spans API and UI.
+4. **Pull in `dependentPermissions`** — a permission whose dependencies aren't also granted still 403s. Read them off `blocks iam permissions get <id>` and include them in the same `--add-permissions` call.
+5. **Respect `severity`** — `1` is Critical (tenant-compromising), `4` is Low. High-severity grants are the ones worth naming explicitly in the confirmation you show the human; least privilege means preferring a narrow resource-scoped permission over a broad one when both would work.
+6. **Grant the delta, confirm, apply** — `assign-permissions` is additive/subtractive, so send only what's changing.
+
+### Triage: a role's users are getting 403
+
+1. Read the failing request's endpoint from the error, and find its permission: `blocks iam permissions list --type 1 --search <resource-or-endpoint-fragment> --json`.
+2. Confirm the role doesn't hold it: `blocks iam permissions list --roles <role-slug> --json`, or check `roles[]` on the permission.
+3. Grant it (plus its `dependentPermissions`) after showing the human the exact diff:
+
+```
+blocks iam roles assign-permissions <role-slug> --add-permissions <resource>,<dependency> --dry-run
+blocks iam roles assign-permissions <role-slug> --add-permissions <resource>,<dependency> --yes
+```
+
+If the API succeeds but the control never renders, it's the mirror-image case — a missing `--type 2` FrontendAction, not a 403.
 
 ## Two equally real surfaces
 
@@ -61,7 +108,7 @@ All from `blocksClient.iam`, per `iam-client.ts`:
 - `roles.assignable()` — same read method as feature-gating; also useful here to limit which roles this admin's screen lets them touch at all.
 - `resources.groups()` — metadata for grouping permissions by resource in the UI (e.g. a permissions picker organized by resource/module).
 
-The SDK deliberately leaves these request bodies as open `Record<string, unknown>` rather than locking you to a fixed shape — confirm exact field names against the portal or a `list()`/`get()` response before hardcoding new ones. Two fields the SDK's own types do pin down: a role's `slug` (`BlocksRole.slug`) is its stable key — use it, not `itemId`, anywhere the API expects a role reference (e.g. `assignPermissions`); a permission's `resource` and `roles[]` (`BlocksPermission`) tell you what it's scoped to and which roles already hold it.
+The SDK deliberately leaves these request bodies as open `Record<string, unknown>` rather than locking you to a fixed shape — confirm exact field names against the portal or a `list()`/`get()` response before hardcoding new ones. Two fields the SDK's own types do pin down: a role's `slug` (`BlocksRole.slug`) is its stable key — use it, not `itemId`, anywhere the API expects a role reference (e.g. `assignPermissions`); a permission's `resource` and `roles[]` (`BlocksPermission`) tell you what it's scoped to and which roles already hold it — `roles[]` is membership, never a restriction on who else may be granted it.
 
 ## Confirm before mutating
 
@@ -113,6 +160,8 @@ blocks iam roles assign-permissions editor --add-permissions content::publish --
 
 ## Gotchas
 
+- **Built-in grants:** the two rules above — assignable without a restricted subset, chosen by what the role actually does — are the sections "Built-in permissions are assignable" and "Choosing *which* permissions a role gets"; don't re-derive them here.
+- **A feature that spans API and UI needs both its `--type 1` and `--type 2` permissions** — endpoint-only leaves an invisible button, frontend-action-only leaves a button that 403s.
 - **CLI mutations are project-scoped, not account-scoped** — `blocks iam roles create/update/assign-permissions` and `blocks iam permissions create/update` all require a selected project (`blocks use <tenantId>` or `--project <tenantId>`) and run against the impersonated-project token. `blocks iam me` prefers the same mode when a project resolves and falls back to account auth only when none does.
 - **Role hierarchy and permission assignment key off `slug`**, not `itemId` — grab it from `roles.list()`/`roles.get()` (or `blocks iam roles list/get`) before calling `assignPermissions`.
 - **Permission assignment ultimately uses permission `itemId`s** — the CLI resolves `resource` strings like `content::publish` before mutation; SDK/backend callers should pass permission ids directly in `addPermissions` / `removePermissions`.

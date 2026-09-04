@@ -2,13 +2,14 @@ import { booleanFlag, optionalBooleanFlag, stringFlag } from "../../../lib/args.
 import { blocksRequest } from "../../../lib/api.js";
 import { confirmMutation } from "../../../lib/confirm.js";
 import { compact, jsonBodyFlag, listFlag } from "../../../lib/json-flag.js";
+import { carryCurrent } from "../../../lib/merge-current.js";
 import { writeOutput } from "../../../lib/output.js";
 import { requestContext } from "../../../lib/request-context.js";
 import { parseCommand, selectedProject } from "../../../lib/workspace.js";
 
 export async function localizationGlossarySave(argv: string[]): Promise<void> {
   const { flags } = parseCommand(argv);
-  const body = {
+  const overrides = {
     ...(await jsonBodyFlag(flags)),
     ...compact({
       additionalNote: stringFlag(flags, "additional-note") || undefined,
@@ -22,6 +23,27 @@ export async function localizationGlossarySave(argv: string[]): Promise<void> {
     })
   };
 
+  const projectTenantId = await selectedProject(flags);
+  const itemId = typeof overrides.itemId === "string" ? overrides.itemId : undefined;
+
+  // Glossary/Save with an itemId rebuilds the stored term from the request: only
+  // ItemId and CreateDate are kept from the existing document, and Language, Type,
+  // Context, AdditionalNote, IsGlobal and ModuleIds are assigned exactly as sent (null
+  // or false when omitted). Read the term first when updating and merge; a new term
+  // has nothing to carry.
+  const current = itemId
+    ? carryCurrent(
+        await blocksRequest<unknown>("/localization/v4/Glossary/Get", {
+          impersonatedProjectAuth: true,
+          ...requestContext(flags),
+          projectTenantId,
+          query: { itemId }
+        }),
+        ["name", "language", "type", "context", "additionalNote", "isGlobal", "moduleIds"]
+      )
+    : {};
+
+  const body = { ...current, ...overrides };
   if (!body.name) throw new Error("Provide --name (or set it in --body/--file).");
 
   if (booleanFlag(flags, "dry-run")) {
@@ -30,7 +52,6 @@ export async function localizationGlossarySave(argv: string[]): Promise<void> {
   }
 
   await confirmMutation(flags, `Save glossary term '${body.name}'.`);
-  const projectTenantId = await selectedProject(flags);
   const result = await blocksRequest<unknown>("/localization/v4/Glossary/Save", {
     body,
     impersonatedProjectAuth: true,

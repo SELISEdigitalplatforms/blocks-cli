@@ -53,7 +53,7 @@ Every method below mutates a real account. Before calling any of them, restate t
 | Method | What it does |
 |---|---|
 | `iam.users.create(request)` | Invites/provisions a user in the active tenant/organization. |
-| `iam.users.update(id, request)` | Edits an IAM profile's fields. |
+| `iam.users.update(id, request)` | Edits an IAM profile's fields. Sparse patch: an omitted or `null` field keeps the stored value, `""`/`[]` clears it. Roles, permissions and MFA state are ignored by this endpoint (the server only logs a warning) -- change access with `updateAccess` and MFA through the MFA methods. |
 | `iam.users.deactivate(request)` | Removes access without deleting the record. |
 | `iam.users.activate(request)` | Restores access for a previously deactivated account. |
 | `iam.users.updateAccess(request)` | Grants or changes roles/permissions/org access for a user. |
@@ -98,10 +98,10 @@ Mutations — every one supports `--dry-run` (print the request body and exit, n
 | Command | What it does |
 |---|---|
 | `blocks iam users create --email <e>\|--user-name <n> [--first-name] [--last-name] [--password] [--phone-number] [--organization-id] [--roles a,b] [--permissions a,b] [--body '<json>'\|--file <path>] [--dry-run] [--yes] [--json]` | Invites/provisions a user. |
-| `blocks iam users update <id> [--first-name] [--last-name] [--phone-number] [--organization-id] [--roles a,b] [--permissions a,b] [--body '<json>'\|--file <path>] [--dry-run] [--yes] [--json]` | Edits an IAM profile's fields. |
+| `blocks iam users update <id> [--first-name] [--last-name] [--phone-number] [--organization-id] [--body '<json>'\|--file <path>] [--dry-run] [--yes] [--json]` | Edits an IAM profile's fields. The endpoint is a sparse patch: omitted fields are kept, `""` via `--body` clears one. `--roles`/`--permissions`/MFA fields are rejected here (the endpoint ignores them) -- use `access grant` and the MFA commands. |
 | `blocks iam users activate <userId> [--reason <text>] [--dry-run] [--yes] [--json]` | Restores access for a previously deactivated account. |
 | `blocks iam users deactivate <userId> [--dry-run] [--yes] [--json]` | Removes access without deleting the record. |
-| `blocks iam users access grant <userId> [--roles a,b] [--permissions a,b] [--organization-id] [--dry-run] [--yes] [--json]` | Grants roles/permissions/org access (requires at least one of `--roles`/`--permissions`). |
+| `blocks iam users access grant <userId> [--roles a,b] [--permissions a,b] [--organization-id] [--dry-run] [--yes] [--json]` | Grants roles/permissions/org access (requires at least one of `--roles`/`--permissions`). A non-empty list **replaces** that organization's current list; an omitted one is kept. The dry-run prints `current` -- pass the complete set the user should end up with. |
 | `blocks iam users access revoke <userId> [--organization-id] [--dry-run] [--yes] [--json]` | Revokes org access for a user. |
 
 Command segments joined by a space also accept a colon
@@ -123,6 +123,7 @@ Apply the same confirm-before-mutating discipline here as with the SDK: state wh
 
 - **`list` is a POST**, not a GET — don't assume query-string filtering.
 - **Roles are referenced by slug**, as defined in blocks-iam-access-control — not by their internal item ids.
+- **A user holding the right role can still get 403** — that means the *role* is missing the endpoint permission, not that the user assignment failed. Granting it is blocks-iam-access-control's job (built-in/`clouduser`-held permissions are fully assignable to any role), not a reason to hand the user a broader role.
 - **`organizationId`** matters in multi-org projects — pass it to `get` when you need a user's record in a specific org context.
 - **Every request/response type in the SDK is a loosely-typed `Record<string, unknown>`** (`BlocksUser`, `BlocksBaseResponse`, etc. only guarantee a few common fields) — treat fields defensively and confirm shape against a live response for the project rather than assuming a fixed schema.
 - **The CLI user-admin surface is project-scoped** — `blocks iam users *`/`blocks iam email available` need a selected project and an impersonated project token. `iam me` is different only because it can fall back to account auth when no project resolves.

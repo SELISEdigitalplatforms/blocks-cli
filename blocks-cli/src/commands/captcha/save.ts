@@ -1,27 +1,22 @@
 import { booleanFlag, optionalBooleanFlag, stringFlag } from "../../lib/args.js";
 import { blocksRequest } from "../../lib/api.js";
-import { CAPTCHA_PROVIDERS, CaptchaConfig, OS_CAPTCHA_API, captchaSummary } from "../../lib/captcha.js";
+import { CAPTCHA_PROVIDERS, CaptchaConfig, OS_CAPTCHA_API, captchaSummary, getCaptchaConfig } from "../../lib/captcha.js";
 import { confirmMutation } from "../../lib/confirm.js";
 import { CliActionableError } from "../../lib/errors.js";
 import { compact, jsonBodyFlag } from "../../lib/json-flag.js";
+import { carryCurrent } from "../../lib/merge-current.js";
 import { writeOutput } from "../../lib/output.js";
 import { redactSecrets } from "../../lib/redact.js";
 import { requestContext } from "../../lib/request-context.js";
 import { requireOneOf } from "../../lib/secrets.js";
 import { parseCommand, selectedProject } from "../../lib/workspace.js";
 
-/**
- * Create or update a captcha configuration (captcha/save). Omit --id to create; pass it
- * to update. The server stores the captcha secret in the Secrets store: on create a
- * non-empty --captcha-secret creates that secret, on update it ROTATES the linked one,
- * and an omitted/empty --captcha-secret leaves the stored value untouched.
- */
 export async function captchaSave(argv: string[]): Promise<void> {
   const { args, flags } = parseCommand(argv);
   const provider = stringFlag(flags, "provider");
   if (provider) requireOneOf(provider, CAPTCHA_PROVIDERS, "provider", "invalid_captcha_provider");
 
-  const body: Record<string, unknown> = {
+  const overrides: Record<string, unknown> = {
     ...(await jsonBodyFlag(flags)),
     ...compact({
       captchaGenerator: stringFlag(flags, "generator") || undefined,
@@ -33,7 +28,22 @@ export async function captchaSave(argv: string[]): Promise<void> {
     })
   };
 
-  const isUpdate = typeof body.id === "string" && body.id.length > 0;
+  const isUpdate = typeof overrides.id === "string" && overrides.id.length > 0;
+
+  // The save endpoint rebuilds the stored record from the request -- IsEnable, Provider,
+  // CaptchaKey and CaptchaGenerator -- and only the linked secret is preserved when
+  // captchaSecret is left empty. An update that merely rotated the secret therefore
+  // switched the configuration off and blanked its site key. Read the record first and
+  // merge, the same way `captcha enable`/`disable` already re-save it; a new
+  // configuration has nothing to carry, so its dry-run stays offline.
+  const current = isUpdate
+    ? carryCurrent(
+        await getCaptchaConfig(overrides.id as string, await selectedProject(flags), flags),
+        ["isEnable", "provider", "captchaKey", "captchaGenerator"]
+      )
+    : {};
+  const body: Record<string, unknown> = { ...current, ...overrides };
+
   if (!body.provider) {
     throw new CliActionableError(
       "--provider is required (the server rejects an empty provider).",

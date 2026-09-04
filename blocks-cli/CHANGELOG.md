@@ -6,6 +6,94 @@ This project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 Versions before 0.3.0 were released without a changelog; their history is in the
 repository's git log.
 
+## 0.4.1
+
+### Fixed
+
+- Ten save/update commands no longer wipe the fields they were not asked
+  to change. Their endpoints replace the whole stored document from the
+  request DTO, so an omitted field arrived as the C# default (false, 0, "",
+  empty list) and overwrote what was there. Each command now reads the
+  current record and merges the flags over it, the way `iam permissions
+  update`, `auth config save` and `auth oidc-clients save` already did
+  (shared helper: `src/lib/merge-current.ts`). Omitting a flag keeps the
+  stored value; pass it explicitly to clear it.
+  - `iam signup-settings save`: `--default-roles participant` alone turned
+    `isEmailPasswordSignUpEnabled` off and emptied the default permissions.
+    The GET spells the lists `defaultRolesForNewUser`/`...Permissions...`
+    while the POST binds `...OnSignUp`, so the merge renames them.
+  - `iam roles update`: a rename cleared the description, detached the
+    parent role and turned `canCreateOwn` off.
+  - `auth client-credentials save --item-id`: a roles-only save re-activated
+    a disabled credential, reset the token lifetime to 5 minutes and dropped
+    every permission. The secret is never carried.
+  - `data config update`: a connection-string-only update reset
+    `isCollectionNameEditable` and `collectionNamePattern`.
+  - `localization key save`: `--value` replaced every translation with the
+    one culture passed, and a save without `--value` dropped them all. It now
+    upserts that culture's entry and keeps the rest; `--culture` is required
+    with `--value`.
+  - `localization glossary save --item-id`: dropped language, type, context,
+    note, `isGlobal` and module tags.
+  - `localization language save`: re-saving the default language without
+    `--is-default` demoted it. The name is matched exactly (case included),
+    like the server's own lookup -- a differently-cased name is a create, and
+    must not inherit this record's `isDefault`.
+  - `mail config save --configuration-id`: a host-only update turned SSL off,
+    flipped inbound to outbound, reset the provider and dropped
+    `isEnableSnsConfiguration`. `--account-password` is still required on
+    update (the server insists, and returns it masked).
+  - `notification save`: changing one of channel/type/persistence reset the
+    other two. When the name already exists the CLI also sets
+    `isUpdateRequest: true` automatically -- without it the server rejects
+    every update as a duplicate name. Name matching is exact (case included),
+    like the server's own lookup.
+  - `captcha save <id>`: rotating the secret disabled the configuration and
+    blanked its site key. `--provider` is now only required on create.
+- Every `release` command hit `/release/v4/api/...` and got the gateway's HTML
+  error page back ("Blocks API returned HTML for /release/v4/api/Build/repos-list").
+  blocks-release routes are `[Route("[controller]")]` with no `api` segment, like
+  every other service behind the gateway; the base is now `/release/v4`. The
+  portal's `/api` prefix is its own dev-proxy base, not a gateway path.
+- `blocks logout` posted to `/iam/v4/api/auth/logout` for the same reason; it
+  now uses `/iam/v4/auth/logout`, matching the impersonate/stop calls beside it.
+- `storage config delete` sent `DELETE`, but blocks-os declares Storage/Delete
+  as a POST (unlike Mail/Delete and Notification/Delete, which are DELETEs), so
+  every delete got 405. Found in a sweep of all 180+ CLI endpoints against the
+  service controllers; this was the only remaining route/verb mismatch. Known
+  server-side quirk from the same sweep, not fixable client-side: `notifier
+  unread`'s filter is declared body-bound on a GET, so the CLI's query-string
+  flattening is not honored until blocks-logic reads it from the query.
+- `iam users access grant` dry-run and confirmation now show the
+  organization's current roles and permissions. The endpoint keeps a list
+  you omit (for an existing member; a first grant into a new organization
+  starts the omitted list empty) but REPLACES one you pass, so `--roles
+  editor` on an admin left them with editor only -- that is now visible
+  before `--yes`.
+- `iam users update` matches what blocks-iam ships today: `POST /users/{id}`
+  is a sparse patch (omitted/null keeps the stored value, `""` via `--body`
+  clears it), so the CLI sends only the fields you pass and no longer needs a
+  read. Roles, permissions, `mfaEnabled` and `userMfaType` were retired from
+  this endpoint -- the server ignores them with only a log line -- so the CLI
+  now rejects them with a typed error pointing at `iam users access grant`
+  and the MFA commands instead of letting the change silently not happen.
+
+### Added
+
+- `npm run verify:endpoints` (`scripts/verify-endpoints.mjs`): checks every
+  route+verb the CLI sends against the ASP.NET controllers in the checked-out
+  sibling service repos, so a moved route or changed verb fails mechanically
+  instead of surfacing as a live 404/405. Route+verb only -- DTO shapes and
+  replace-vs-patch semantics still need the server source read.
+
+### Changed
+
+- The dry-run of a merging save/update command performs the read it merges
+  from, so it needs a selected project and network access; create-path
+  dry-runs (no id) stay offline as before, and so does `iam users update`
+  (a sparse patch needs no read).
+- `iam users update` no longer accepts `--roles`/`--permissions` (see Fixed).
+
 ## 0.4.0
 
 ### Added

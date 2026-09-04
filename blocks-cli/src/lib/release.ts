@@ -2,7 +2,7 @@ import { blocksRequest } from "./api.js";
 import { CliActionableError } from "./errors.js";
 import { requestContext } from "./request-context.js";
 
-export const RELEASE_API = "/release/v4/api";
+export const RELEASE_API = "/release/v4";
 
 type Flags = Record<string, string | boolean>;
 
