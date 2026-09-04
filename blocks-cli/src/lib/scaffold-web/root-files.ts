@@ -181,7 +181,7 @@ export async function writeRootFiles(root: string, options: WebOptions): Promise
     "",
     "This app signs users in directly against this project's tenant (no CLI-style account impersonation) through Blocks IAM's hosted IdP controller. Before login will work, register a **public** OIDC client for this app in Blocks IAM with:",
     "",
-    "- `redirect_uris`: both your dev origin and production origin, each with `/login/callback`, e.g. `http://localhost:5173/login/callback` and `https://<your-app-domain>/login/callback`.",
+    "- `redirect_uris`: EVERY origin the app is served from, each with `/login/callback` -- your dev origin, and each deployed URL. `blocks release setup` assigns a random-suffixed domain (find it via `blocks release repos list --json`, the `url` field), and until that origin's callback is registered the first login there fails with `redirect_uri_not_registered`; `blocks release deploy --register-callback` registers it for you.",
     "- `client_type`: `public` (no client secret — this is a browser app and cannot keep one; this scaffold never asks for or ships a client secret).",
     "- `tenant_id` used for login: this project's tenant (`VITE_BLOCKS_X_BLOCKS_KEY`).",
     "",

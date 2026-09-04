@@ -65,6 +65,7 @@ Before building, `deploy` (and `setup`) compares the resolved repo's linked bran
 - **`--repo <name|id>`** — pick the repo explicitly instead of auto-resolving.
 - **`--with-secrets <dotenvFile>`** — before deploying, runs `release secrets sync` for that file (see below).
 - **`--domain <domain>`** — before triggering the build, sets a custom deployment domain for this repo/environment (also available standalone as `release domain set <domain>`).
+- **`--register-callback`** — see the OIDC-callback gotcha below: registers `<deployed-url>/login/callback` on the app's OIDC client when the check finds it missing (also on `release setup` and `release domain set`).
 - **`--wait`** — after triggering, polls the build's status **field** until it reaches one of the server's terminal values (Succeeded/Failed/Cancelled/Timeout/…), then prints one final `{buildId, status, verdict, build}` document.
 - **`--follow`** — implies `--wait` and additionally streams pipeline events to stderr while polling.
 - **`--poll-interval <seconds>`** — polling interval, default `10`.
@@ -92,6 +93,7 @@ The server stores **one whole secret set per repo**. Sync merges the dotenv file
 - **Release commands are project-scoped, not account-level.** They run on an impersonated project token and resolve repos from whichever project is currently selected via `blocks use`. Behavior changes if the selected project changes; there is no account-level/project-independent mode here.
 - **Repo selectors accept names or ids** everywhere (`--repo`, positionals). Prefer the id when two repos could share a name.
 - **`release setup` vs `release deploy`:** `setup` is the first-time deploy (creates namespace + webhook, takes hosting settings); `deploy` re-deploys with the stored settings. Running `setup` twice risks duplicate webhooks — if unsure whether a repo was deployed before, check `release repos list` for a `namespace`/`lastDeploymentStatus` first.
+- **A fresh deployment's first login fails with `redirect_uri_not_registered` unless the deployed callback is registered.** `release setup` assigns a random-suffixed domain (`<project>-<random>.slsblx.com`), and the scaffold only registers the local dev origin's `/login/callback` on the OIDC client. `setup`/`deploy`/`domain set` check the project's OIDC clients after the URL resolves and warn on stderr with the exact `auth oidc-clients save` fix; pass `--register-callback` to append it in the same run. Advisory only — a missing callback never fails the deploy, a project with no OIDC clients is skipped silently, and the repo's secret set is only read (audited) to pick the app's client when several exist.
 - **`buildId` for `status`/`logs`/`reports get` is always required**, never guessed — ask the user rather than assuming a value.
 - **`--dry-run` before `--yes`, always** — same discipline as every other mutating `blocks` command in this pack.
 
