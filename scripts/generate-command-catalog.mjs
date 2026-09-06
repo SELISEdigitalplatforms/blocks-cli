@@ -26,6 +26,14 @@ const FLAG_READERS =
 // about flags the catalog doesn't know, missing one here would warn on valid
 // usage.
 const FLAG_INDEX_READERS = /\bflags\s*\[\s*"([a-z0-9-]+)"\s*\]/g;
+// Analysis deliberately stops at lib/ (see below), so a flag a lib helper reads on the
+// command's behalf would look like it doesn't exist -- and `blocks` warns about flags the
+// catalog doesn't know, so a valid `--page` would warn. These are the lib helpers that read
+// a flag by a name their call site never spells out.
+const LIB_FLAG_HELPERS = [
+  [/zeroBasedPageNumber\s*\(/, "page-number"],
+  [/zeroBasedPage\(/, "page"]
+];
 
 const indexSource = readFileSync(join(cliSrc, "index.ts"), "utf8");
 
@@ -99,6 +107,9 @@ function analyze(file, handler, seen = new Set()) {
   const text = node.getText();
   for (const match of text.matchAll(FLAG_READERS)) flags.add(match[1]);
   for (const match of text.matchAll(FLAG_INDEX_READERS)) flags.add(match[1]);
+  for (const [pattern, flag] of LIB_FLAG_HELPERS) {
+    if (pattern.test(text)) flags.add(flag);
+  }
   if (/jsonBodyFlag/.test(text)) {
     flags.add("body");
     flags.add("file");

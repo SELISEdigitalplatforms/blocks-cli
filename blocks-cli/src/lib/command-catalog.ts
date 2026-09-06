@@ -637,6 +637,7 @@ export const commandCatalog: readonly CommandEntry[] = [
     "mutating": false,
     "flags": [
       "name",
+      "page",
       "page-size",
       "sort-by",
       "sort-desc",
@@ -1359,6 +1360,7 @@ export const commandCatalog: readonly CommandEntry[] = [
       "is-archived",
       "is-built-in",
       "organization-id",
+      "page",
       "page-size",
       "resource-group",
       "resources",
@@ -1476,6 +1478,7 @@ export const commandCatalog: readonly CommandEntry[] = [
       "body",
       "file",
       "organization-id",
+      "page",
       "page-size",
       "search",
       "slugs",
@@ -1633,6 +1636,7 @@ export const commandCatalog: readonly CommandEntry[] = [
       "file",
       "name",
       "organization-id",
+      "page",
       "page-size",
       "sort-by",
       "sort-desc"
@@ -1641,7 +1645,7 @@ export const commandCatalog: readonly CommandEntry[] = [
   {
     "name": "iam users update",
     "family": "iam",
-    "summary": "Update an existing IAM user's profile fields, roles, or permissions.",
+    "summary": "Update an existing IAM user's profile fields (sparse patch: omitted fields are kept). Roles/permissions/MFA belong to 'iam users access grant' and the MFA commands.",
     "positional": "<id>",
     "scope": "project",
     "mutating": true,
@@ -1652,9 +1656,7 @@ export const commandCatalog: readonly CommandEntry[] = [
       "id",
       "last-name",
       "organization-id",
-      "permissions",
-      "phone-number",
-      "roles"
+      "phone-number"
     ]
   },
   {
@@ -2790,6 +2792,7 @@ export const commandCatalog: readonly CommandEntry[] = [
       "domain",
       "follow",
       "poll-interval",
+      "register-callback",
       "repo",
       "timeout",
       "wait",
@@ -2806,6 +2809,7 @@ export const commandCatalog: readonly CommandEntry[] = [
     "mutating": true,
     "flags": [
       "domain",
+      "register-callback",
       "repo",
       "repo-id"
     ]
@@ -3009,6 +3013,7 @@ export const commandCatalog: readonly CommandEntry[] = [
       "machine-config",
       "poll-interval",
       "region",
+      "register-callback",
       "repo",
       "repo-id",
       "timeout",

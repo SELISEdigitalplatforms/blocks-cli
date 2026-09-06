@@ -1,9 +1,9 @@
 import { booleanFlag, optionalBooleanFlag, stringFlag } from "../../../lib/args.js";
 import { blocksRequest } from "../../../lib/api.js";
 import { confirmMutation } from "../../../lib/confirm.js";
-import { isRecord } from "../../../lib/data-response.js";
 import { compact, jsonBodyFlag, listFlag } from "../../../lib/json-flag.js";
-import { carryCurrent, findInList, sameName } from "../../../lib/merge-current.js";
+import { upsertResource } from "../../../lib/localization-api.js";
+import { carryCurrent, findInList, sameName, unwrapData } from "../../../lib/merge-current.js";
 import { writeOutput } from "../../../lib/output.js";
 import { requestContext } from "../../../lib/request-context.js";
 import { parseCommand, selectedProject } from "../../../lib/workspace.js";
@@ -29,10 +29,25 @@ export async function localizationKeySave(argv: string[]): Promise<void> {
     })
   };
 
+  const projectTenantId = await selectedProject(flags);
+
+  // Key/Save upserts by keyName + moduleId, not by itemId, so both are required. When only
+  // --item-id is known, read the key to fill them in rather than making the caller repeat
+  // what the id already identifies.
+  if (overrides.itemId && (!overrides.keyName || !overrides.moduleId)) {
+    const stored = unwrapData(await blocksRequest<unknown>("/localization/v4/Key/Get", {
+      impersonatedProjectAuth: true,
+      ...requestContext(flags),
+      projectTenantId,
+      query: { ItemId: String(overrides.itemId) }
+    }));
+    if (!stored.keyName) throw new Error(`Localization key '${String(overrides.itemId)}' was not found.`);
+    overrides.keyName = overrides.keyName ?? (stored.keyName as string);
+    overrides.moduleId = overrides.moduleId ?? (stored.moduleId as string);
+  }
+
   if (!overrides.keyName) throw new Error("Provide --key-name (or set it in --body/--file).");
   if (!overrides.moduleId) throw new Error("Provide --module-id (or set it in --body/--file).");
-
-  const projectTenantId = await selectedProject(flags);
 
   // Key/Save upserts by keyName + moduleId and then assigns Resources, Routes,
   // GlossaryIds, Context and IsPartiallyTranslated from the request as-is. Resources is
@@ -55,6 +70,12 @@ export async function localizationKeySave(argv: string[]): Promise<void> {
   const merged: Record<string, unknown> = { ...current, ...overrides };
   const body = value && culture ? { ...merged, resources: upsertResource(merged.resources, culture, value) } : merged;
 
+  // The runtime reads a generated UILM file, not the keys: Key/Save only queues the
+  // regeneration when ShouldPublish is true, so a save without it stored the translation and
+  // left every reader on the previous file (`[ KEY MISSING ]` for keys added since). push
+  // already sends shouldPublish on every key; match it, and let --should-publish=false opt out.
+  if (body.shouldPublish === undefined) body.shouldPublish = true;
+
   if (booleanFlag(flags, "dry-run")) {
     writeOutput({ dryRun: true, endpoint: "/localization/v4/Key/Save", request: body }, flags);
     return;
@@ -68,15 +89,4 @@ export async function localizationKeySave(argv: string[]): Promise<void> {
     projectTenantId
   });
   writeOutput(result, flags);
-}
-
-/**
- * Replaces the translation for `culture` (matched case-insensitively, keeping the stored
- * spelling) or appends one; every other culture's translation is kept as-is.
- */
-function upsertResource(resources: unknown, culture: string, value: string): Record<string, unknown>[] {
-  const list = Array.isArray(resources) ? resources.filter(isRecord) : [];
-  const index = list.findIndex((item) => sameName(item.culture, culture));
-  if (index === -1) return [...list, { characterLength: value.length, culture, value }];
-  return list.map((item, position) => (position === index ? { ...item, characterLength: value.length, value } : item));
 }

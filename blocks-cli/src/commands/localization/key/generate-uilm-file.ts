@@ -8,12 +8,18 @@ import { parseCommand, selectedProject } from "../../../lib/workspace.js";
 
 export async function localizationKeyGenerateUilmFile(argv: string[]): Promise<void> {
   const { flags } = parseCommand(argv);
-  const body = compact({
-    guid: stringFlag(flags, "guid") || undefined,
-    moduleId: stringFlag(flags, "module-id") || undefined
-  });
+  const moduleId = stringFlag(flags, "module-id") || undefined;
+  if (!moduleId) throw new Error("Provide --module-id.");
 
-  if (!body.moduleId) throw new Error("Provide --module-id.");
+  // GenerateUilmRequest.Guid is non-nullable, so omitting it fails model binding with
+  // "Guid: The Guid field is required." even though the generator never reads it -- it is
+  // only carried onto the queued GenerateUilmFilesEvent (SaveKeys passes the key's itemId
+  // there). Default it to the module id so --module-id alone works, here and in the
+  // translate-and-export flow that calls this command without a --guid.
+  const body = compact({
+    guid: stringFlag(flags, "guid") || moduleId,
+    moduleId
+  });
 
   if (booleanFlag(flags, "dry-run")) {
     writeOutput({ dryRun: true, endpoint: "/localization/v4/Key/GenerateUilmFile", request: body }, flags);

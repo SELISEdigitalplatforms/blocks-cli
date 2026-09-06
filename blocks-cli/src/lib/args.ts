@@ -89,3 +89,20 @@ export function zeroBasedPage(flags: Record<string, string | boolean>): number {
   if (page < 1) throw new Error("--page must be greater than or equal to 1");
   return page - 1;
 }
+
+/**
+ * The `--page-number` twin of `zeroBasedPage`, for localization's list endpoints.
+ *
+ * Blocks list endpoints disagree with each other: localization's `Key/Gets`,
+ * `Glossary/Gets`, `Key/GetUilmExportedFiles` and `Key/GetLanguageFileGenerationHistory`
+ * all skip `PageNumber * PageSize`, so their first page is 0, while the key/localization
+ * timeline queries skip `(PageNumber - 1) * PageSize` and start at 1. Sending the CLI's
+ * 1-based default straight into the first group silently skipped a whole page -- `key list
+ * --page-size 100` against 27 keys returned `totalCount: 27` with an empty `keys` array,
+ * and `--page-size 20` returned the last 7. The flag stays 1-based; only the first group converts.
+ */
+export function zeroBasedPageNumber(flags: Record<string, string | boolean>): number {
+  const page = integerFlag(flags, "page-number", 1);
+  if (page < 1) throw new Error("--page-number must be greater than or equal to 1");
+  return page - 1;
+}

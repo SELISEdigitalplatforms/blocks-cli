@@ -1,4 +1,4 @@
-import { integerFlag, optionalBooleanFlag, stringFlag } from "../../../lib/args.js";
+import { integerFlag, optionalBooleanFlag, stringFlag, zeroBasedPageNumber } from "../../../lib/args.js";
 import { blocksRequest } from "../../../lib/api.js";
 import { compact, jsonBodyFlag, listFlag } from "../../../lib/json-flag.js";
 import { writeOutput } from "../../../lib/output.js";
@@ -26,7 +26,7 @@ export async function localizationKeyList(argv: string[]): Promise<void> {
       lastUpdateDateRange: lastUpdateDateStart || lastUpdateDateEnd ? { endDate: lastUpdateDateEnd, startDate: lastUpdateDateStart } : undefined,
       missingLanguages: listFlag(flags, "missing-languages"),
       moduleIds: listFlag(flags, "module-ids"),
-      pageNumber: integerFlag(flags, "page-number", 1),
+      pageNumber: zeroBasedPageNumber(flags),
       pageSize: integerFlag(flags, "page-size", 20),
       searchKey: stringFlag(flags, "search-key") || undefined,
       sortProperty: stringFlag(flags, "sort-by") || undefined
