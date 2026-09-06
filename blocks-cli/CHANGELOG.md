@@ -6,6 +6,45 @@ This project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 Versions before 0.3.0 were released without a changelog; their history is in the
 repository's git log.
 
+## 0.4.3
+
+### Fixed
+
+- `localization push` no longer wipes every other culture. `Key/SaveKeys` ends in
+  `repoKey.Resources = key.Resources` -- the request's resource list replaces the
+  stored one -- and push sent only the culture being pushed, so pushing en-US,
+  de-DE, fr-FR and it-IT into one module in sequence left all 27 keys holding
+  it-IT alone and the app rendered `[ KEY MISSING ]` for every string. Push now
+  reads the module's keys back (`Key/GetsByKeyNames`) and upserts one culture per
+  key, carrying itemId, routes, glossary ids, context and the partially-translated
+  flag so none of those are defaulted away either. `--dry-run` resolves the module
+  read-only (it can no longer be the call that creates it) and reports
+  `created`/`updated` counts plus the merged request.
+- Localization list page numbers are sent zero-based. `Key/Gets`, `Glossary/Gets`,
+  `Key/GetUilmExportedFiles` and `Key/GetLanguageFileGenerationHistory` skip
+  `PageNumber * PageSize`, so the CLI's 1-based default skipped a whole page:
+  `key list --page-size 100` against 27 keys answered `totalCount: 27` with an
+  empty `keys` array, and `--page-size 20` returned only the last 7. The flag
+  stays 1-based (`zeroBasedPageNumber`, next to the existing `zeroBasedPage` for
+  `--page`); the timeline endpoints, which are genuinely 1-based, are untouched.
+- `key generate-uilm-file --module-id <id>` works without `--guid`. The server's
+  `GenerateUilmRequest.Guid` is non-nullable, so omitting it failed binding with
+  `Guid: The Guid field is required.` while `--guid` alone failed the CLI's own
+  `--module-id` check. The generator never reads the value -- it is only carried
+  onto the queued event -- so it now defaults to the module id, which also
+  repairs `key translate-and-export`, whose generate step passed no guid at all.
+- `key save` publishes by default. `Key/Save` queues the UILM regeneration only
+  when `ShouldPublish` is true, and the runtime reads that generated file rather
+  than the keys -- so a save without `--should-publish` stored the translation and
+  left every reader on the previous file. It now sends `shouldPublish: true`
+  unless `--should-publish=false` is passed, matching push.
+- `key save --item-id <id>` no longer demands `--key-name` and `--module-id` as
+  well. `Key/Save` upserts by keyName + moduleId, so both are still required in
+  the request; the CLI now reads them from `Key/Get` when only the id is known.
+- The command catalog knows the flags read by `zeroBasedPage`/`zeroBasedPageNumber`.
+  Catalog analysis stops at `lib/`, so `--page` was missing from every IAM list
+  command and `blocks` warned about it as an unknown flag on valid usage.
+
 ## 0.4.2
 
 ### Fixed
