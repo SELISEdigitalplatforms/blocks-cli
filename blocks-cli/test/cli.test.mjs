@@ -1015,8 +1015,15 @@ test("localization key save upserts one culture and keeps the other translations
       routes: ["/home"],
       glossaryIds: ["g-1"],
       context: "Landing page header",
-      isPartiallyTranslated: true
+      isPartiallyTranslated: true,
+      shouldPublish: true
     });
+
+    const optedOut = await runAsync([
+      "localization", "key", "save", "--key-name", "greeting", "--module-id", "mod-1", "--value", "Bonjour", "--culture", "fr-FR", "--should-publish=false", "--dry-run", "--api-url", server.url, "--json"
+    ], { cwd, env });
+    assert.equal(optedOut.status, 0, optedOut.stderr);
+    assert.equal(JSON.parse(optedOut.stdout).request.shouldPublish, false, "--should-publish=false must opt out of regenerating the UILM file");
 
     const replaced = await runAsync([
       "localization", "key", "save", "--key-name", "greeting", "--module-id", "mod-1", "--value", "Servus", "--culture", "de-de", "--dry-run", "--api-url", server.url, "--json"
@@ -2462,6 +2469,19 @@ test("localization push uses v4 gateway paths without api segment", async () => 
   const server = await startJsonServer((request, body) => {
     requests.push({ body, method: request.method, url: request.url });
     if (request.url === "/localization/v4/Module/Gets") return [{ itemId: "module-1", moduleName: "common" }];
+    if (request.url === "/localization/v4/Key/GetsByKeyNames") {
+      return {
+        keys: [
+          {
+            itemId: "key-1",
+            keyName: "dashboard.title",
+            moduleId: "module-1",
+            resources: [{ characterLength: 9, culture: "de-DE", value: "Ubersicht" }],
+            routes: ["/dashboard"]
+          }
+        ]
+      };
+    }
     if (request.url === "/localization/v4/Key/SaveKeys") return { success: true };
     return { success: false, errorMessage: `Unexpected ${request.method} ${request.url}` };
   });
@@ -2483,10 +2503,35 @@ test("localization push uses v4 gateway paths without api segment", async () => 
       stderr: result.stderr,
       stdout: result.stdout
     }, null, 2));
-    assert.deepEqual(requests.map((item) => item.url), ["/localization/v4/Module/Gets", "/localization/v4/Key/SaveKeys"]);
-    assert.equal(requests[1].body.length, 2);
-    assert.equal(requests[1].body[0].moduleId, "module-1");
-    assert.equal(requests[1].body[0].resources[0].culture, "en");
+    assert.deepEqual(requests.map((item) => item.url), [
+      "/localization/v4/Module/Gets",
+      "/localization/v4/Key/GetsByKeyNames",
+      "/localization/v4/Key/SaveKeys"
+    ]);
+    assert.deepEqual(requests[1].body, { keyNames: ["dashboard.title", "products.title"], moduleId: "module-1" });
+
+    const saved = requests[2].body;
+    assert.equal(saved.length, 2);
+    assert.equal(saved[0].moduleId, "module-1");
+    // The stored de-DE translation survives an en push -- SaveKeys replaces the whole
+    // resource list, so a push that sent only its own culture wiped every other one.
+    assert.deepEqual(saved[0], {
+      itemId: "key-1",
+      keyName: "dashboard.title",
+      moduleId: "module-1",
+      resources: [
+        { characterLength: 9, culture: "de-DE", value: "Ubersicht" },
+        { characterLength: 9, culture: "en", value: "Dashboard" }
+      ],
+      routes: ["/dashboard"],
+      shouldPublish: true
+    });
+    assert.deepEqual(saved[1].resources, [{ characterLength: 8, culture: "en", value: "Products" }]);
+    assert.equal(saved[1].itemId, undefined, "a key the module does not store yet must not borrow another key's itemId");
+
+    const summary = JSON.parse(result.stdout);
+    assert.equal(summary.created, 1);
+    assert.equal(summary.updated, 1);
     assert.ok(!requests.some((item) => item.url.includes("/api/")), "gateway v4 paths must not include /api");
   } finally {
     await new Promise((resolveClose) => server.close(resolveClose));
@@ -4871,6 +4916,41 @@ test("captcha enable re-saves without a secret and reports which configuration l
     const listed = JSON.parse(list.stdout);
     assert.equal(listed.activeForLogin, "cfg-1");
     assert.equal(listed.totalCount, 2);
+  } finally {
+    await new Promise((resolveClose) => server.close(resolveClose));
+  }
+});
+
+test("localization list page numbers are sent zero-based so page 1 is not skipped", async () => {
+  const { cwd, configDir } = await makeWorkspace();
+  await writeProjectAuth(configDir);
+  const requests = [];
+  const server = await startJsonServer((request, body) => {
+    requests.push({ body, url: request.url });
+    if (request.url.split("?")[0] === "/localization/v4/Key/Gets") return { keys: [], totalCount: 27 };
+    return { totalCount: 0 };
+  });
+
+  try {
+    const env = testEnv(configDir, { BLOCKS_SECRET_STORE: "file" });
+    // Key/Gets skips PageNumber * PageSize: sending the CLI's 1-based default made
+    // `--page-size 100` skip past all 27 keys and report totalCount 27 with no rows.
+    const first = await runAsync(["localization", "key", "list", "--page-size", "100", "--api-url", server.url, "--json"], { cwd, env });
+    assert.equal(first.status, 0, first.stderr);
+    assert.equal(requests[0].body.pageNumber, 0);
+    assert.equal(requests[0].body.pageSize, 100);
+
+    const second = await runAsync(["localization", "key", "list", "--page-number", "2", "--api-url", server.url, "--json"], { cwd, env });
+    assert.equal(second.status, 0, second.stderr);
+    assert.equal(requests[1].body.pageNumber, 1);
+
+    const glossary = await runAsync(["localization", "glossary", "list", "--api-url", server.url, "--json"], { cwd, env });
+    assert.equal(glossary.status, 0, glossary.stderr);
+    assert.match(requests[2].url, /PageNumber=0/);
+
+    const invalid = await runAsync(["localization", "key", "list", "--page-number", "0", "--api-url", server.url, "--json"], { cwd, env });
+    assert.equal(invalid.status, 1);
+    assert.match(invalid.stderr, /--page-number must be greater than or equal to 1/);
   } finally {
     await new Promise((resolveClose) => server.close(resolveClose));
   }
