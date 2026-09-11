@@ -714,7 +714,7 @@ The binding lives in `blocks.json` as `repo: { provider, fullName, url, branch }
 - `device_login_expired`: approval did not finish before the device code expired; run `blocks login --account <account>` again.
 - `device_login_failed`: the identity provider rejected device login for the reason in `message`; correct that reason before retrying login.
 - `device_login_network_error`: check connectivity to the configured identity provider, then restart `blocks login --account <account>`.
-- `refresh_token_rejected`: locally run `blocks login --account <account>`; in Studio, replace/rebootstrap the isolated session unless device approval is explicitly supported.
+- `refresh_token_rejected`: the identity provider revoked the refresh token; the CLI drops it from the store on the spot, so `blocks auth status --json` now reports it `missing` rather than `available`. Locally run `blocks login --account <account>`; in Studio the binder treats this as a sign-in problem and starts the device-login card itself.
 - `refresh_network_error`: check the network and configured OIDC URL, then retry.
 - `auth_repair_required`: inspect `blocks auth status --json`; if local storage is unreadable or stale, run `blocks auth remove <account>`, then `blocks auth status --json` and `blocks login --account <account>`.
 - `project_not_selected`: run `blocks projects list`, then `blocks use <projectTenantId>`.

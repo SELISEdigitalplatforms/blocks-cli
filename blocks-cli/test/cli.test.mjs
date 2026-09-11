@@ -4176,6 +4176,51 @@ async function writeTwoAccountProjectAuth(configDir, apiUrl) {
   }, null, 2)}\n`);
 }
 
+test("a rejected account refresh token is dropped from the store so auth status stops calling it available", async () => {
+  await withAuthLifecycleEnv(async ({ configDir }) => {
+    await writeLifecycleAccount(configDir);
+    globalThis.fetch = async () => new Response(JSON.stringify({ error: "invalid_grant", error_description: "Refresh token is invalid or expired" }), {
+      headers: { "content-type": "application/json" },
+      status: 400
+    });
+
+    await assert.rejects(
+      () => getAccountSession(undefined, { forceRefresh: true }),
+      (error) => error instanceof CliActionableError && error.code === "refresh_token_rejected"
+    );
+
+    const store = await readTokenStore();
+    assert.equal(store.accounts.default.account.refreshToken, undefined, "the dead refresh token must not survive");
+    assert.ok(store.accounts.default.account.accessToken, "the access token stays; it reports expired on its own");
+  });
+});
+
+test("a rejected project refresh token is dropped from the store, leaving the account untouched", async () => {
+  await withAuthLifecycleEnv(async ({ configDir }) => {
+    await writeLifecycleConfig(configDir);
+    await writeTokenStore({
+      accounts: {
+        default: {
+          account: { accessToken: "acct", accountTenant: "root-tenant", expiresAt: new Date(Date.now() + 3_600_000).toISOString(), refreshToken: "account-refresh", tokenType: "Bearer" },
+          projects: {
+            "project-tenant": { accessToken: "proj", expiresAt: new Date(Date.now() - 60_000).toISOString(), refreshToken: "project-refresh" }
+          }
+        }
+      }
+    });
+    globalThis.fetch = async () => new Response(JSON.stringify({ error: "invalid_grant" }), { headers: { "content-type": "application/json" }, status: 400 });
+
+    await assert.rejects(
+      () => getImpersonatedProjectSession("default", "project-tenant"),
+      (error) => error instanceof CliActionableError && error.code === "refresh_token_rejected"
+    );
+
+    const store = await readTokenStore();
+    assert.equal(store.accounts.default.projects["project-tenant"].refreshToken, undefined);
+    assert.equal(store.accounts.default.account.refreshToken, "account-refresh", "only the rejected token goes");
+  });
+});
+
 async function withAuthLifecycleEnv(operation) {
   const { configDir } = await makeWorkspace();
   const originalConfigDir = process.env.BLOCKS_CONFIG_DIR;

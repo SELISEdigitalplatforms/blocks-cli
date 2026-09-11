@@ -8,6 +8,15 @@ repository's git log.
 
 ## Unreleased
 
+### Fixed
+
+- A refresh token the identity provider rejects is now removed from the token
+  store immediately. It used to stay there indistinguishable from a live one,
+  so `blocks auth status` kept saying `available`, every command kept failing
+  with `refresh_token_rejected`, and Studio -- which reads that status to decide
+  whether to start a device login -- never started one. The access token is
+  kept (it reports `expired` on its own).
+
 ### Added
 
 - `blocks git` -- source control for the project's own code, through the GitHub
