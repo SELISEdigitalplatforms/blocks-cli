@@ -118,6 +118,13 @@ import { releaseDeploy } from "./commands/release/deploy.js";
 import { releaseDomainSet } from "./commands/release/domain/set.js";
 import { releaseGitBranches } from "./commands/release/git/branches.js";
 import { releaseGitRepos } from "./commands/release/git/repos.js";
+import { gitClone } from "./commands/git/clone.js";
+import { gitConnect } from "./commands/git/connect.js";
+import { gitDisconnect } from "./commands/git/disconnect.js";
+import { gitInit } from "./commands/git/init.js";
+import { gitPull } from "./commands/git/pull.js";
+import { gitPush } from "./commands/git/push.js";
+import { gitStatus } from "./commands/git/status.js";
 import { releaseLogs } from "./commands/release/logs.js";
 import { releaseMonitorList } from "./commands/release/monitor/list.js";
 import { releaseRepoGet } from "./commands/release/repo/get.js";
@@ -497,6 +504,13 @@ const commands: Partial<Record<string, CommandHandler>> = {
   "auth:remove": authRemove,
   "iam:me": iamMe,
   "projects:get": getProject,
+  "git:status": gitStatus,
+  "git:init": gitInit,
+  "git:clone": gitClone,
+  "git:connect": gitConnect,
+  "git:pull": gitPull,
+  "git:push": gitPush,
+  "git:disconnect": gitDisconnect,
   "new:web": newWeb,
 };
 
@@ -1423,6 +1437,39 @@ Release:
     DELETE a repo's live deployment: cancels in-flight builds and deletes the
     Kubernetes namespace. Requires the repo named explicitly; not undoable.
     Mutating.
+
+Source control (GitHub, through the account connected in the Blocks portal):
+  blocks git status [--json]
+    Connected repository, branch, uncommitted files, commits ahead/behind the
+    last fetch. Local and read-only; exit 0 even when nothing is connected.
+
+  blocks git init [--repo <owner/name>] [--name <n>] [--org <o>] [--public] [--branch <b>]
+                  [--message <m>] [--dry-run] [--yes] [--json]
+    Code exists here, not on GitHub: create the repository (private unless
+    --public; --repo uses an existing empty one instead), git init if needed,
+    commit, push, and record the binding in blocks.json. Refuses if a
+    repository is already connected. Mutating.
+
+  blocks git clone <owner/name> [--branch <b>] [--dir <path>] [--json]
+    Code exists on GitHub, not here: clone it and write the binding plus the
+    selected project into its blocks.json. Refuses a non-empty directory.
+
+  blocks git connect <owner/name> --strategy keep-local|adopt-remote|merge
+                     [--branch <b>] [--dry-run] [--yes] [--json]
+    Code exists in both places and was never connected. The strategy is
+    required and never guessed: keep-local overwrites the remote branch,
+    adopt-remote overwrites this directory, merge joins the histories (a
+    conflict aborts with merge_conflict and pushes nothing). Mutating.
+
+  blocks git pull [--rebase] [--json]
+  blocks git push [--message <m>] [--dry-run] [--yes] [--json]
+    Everyday sync of the connected branch. pull refuses on uncommitted changes
+    (working_tree_dirty) rather than stashing; push commits what changed and
+    pushes, or reports nothingToPush. Studio runs push after each build.
+
+  blocks git disconnect [--yes] [--json]
+    Forget the connected repository (blocks.json only); .git and GitHub are
+    left untouched. Mutating.
 
 Scaffold:
   blocks new web <name> [--app-domain <domain>] [--client-id <oidcClientId>] [--yes]

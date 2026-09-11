@@ -682,6 +682,27 @@ blocks release secrets lock|unlock|delete|restore ...        # whole-set lifecyc
 
 `release git repos` / `release git branches <owner/repo>` browse the connected source-control account; `--provider` defaults to `github`, the only provider blocks-release has activated (others fail with `provider_not_supported`).
 
+## Source Control (`blocks git`)
+
+`blocks git` moves the project's code between the working directory and GitHub through the account connected in the Blocks portal. The credential comes from blocks-release per command and reaches git through `GIT_ASKPASS` for that one process -- it is never written into `.git/config`, a remote URL or `blocks.json`. Never run raw `git push`/`git remote`/`gh` yourself to reach GitHub, and never look for a token to do so: the CLI is the only path that has one.
+
+Pick the command by where the code is:
+
+```bash
+blocks git status --json                                   # what is connected, branch, dirty files, ahead/behind (local, read-only)
+blocks git init [--name <n>] [--org <o>] [--public] --yes  # code is HERE only: create the repo, commit, push, bind
+blocks git init --repo <owner/name> --yes                  # ...or push into an existing EMPTY repo instead of creating one
+blocks git clone <owner/name> [--dir <d>]                  # code is on GITHUB only: clone and bind
+blocks git connect <owner/name> --strategy <s> --yes       # code is in BOTH and not connected (see strategies)
+blocks git pull [--rebase] --json                          # everyday sync
+blocks git push [--message "<what changed>"] --yes --json  # commit what changed and push; nothingToPush:true when clean
+blocks git disconnect --yes                                # forget the binding; .git and GitHub untouched
+```
+
+`git connect` requires `--strategy` and never guesses it, because every choice destroys something: `keep-local` force-pushes this directory over the remote branch, `adopt-remote` resets this directory to the remote (local commits and uncommitted files are lost), `merge` joins the two histories and aborts with `merge_conflict` -- pushing nothing -- if they conflict. Ask the user which side wins; do not pick for them.
+
+The binding lives in `blocks.json` as `repo: { provider, fullName, url, branch }` and is committed with the code, so a clone already knows its repository. `git pull` refuses a dirty working tree (`working_tree_dirty`) rather than stashing; commit with `git push` or discard first.
+
 ## Agent Failure Handling
 
 - `not_logged_in`: locally run `blocks login --account <account>`, then `blocks projects list --account <account>`, then `blocks use <tenantId> --account <account>`; in Studio, require bootstrap or explicitly supported device approval.
@@ -712,6 +733,18 @@ blocks release secrets lock|unlock|delete|restore ...        # whole-set lifecyc
 - `branch_environment_mismatch` (from `release deploy`/`setup`): the connected repo's branch doesn't match this environment's name. The message states the branch found and the environment required - do not retry; the repo's connected branch must be fixed first.
 - `build_wait_timeout` (from `--wait`/`--follow`): the build didn't reach a terminal status within `--timeout`. The deploy itself already succeeded (this only affects the wait) - check manually with `release status <buildId>` (add `--wait` to keep watching) rather than assuming failure.
 - `provider_not_supported` (from `release git ...`): only `github` is active in blocks-release; re-run with `--provider github` or omit the flag.
+- `github_not_connected` (from `git ...`): the Blocks account has no GitHub connection, or it was revoked. Tell the user to connect GitHub from the Blocks portal (Repositories -> Connect GitHub); the CLI cannot do it and retrying will not help.
+- `repo_not_bound` (from `git pull|push|disconnect`): no `repo` entry in blocks.json. Run `blocks git init` (code only here) or `blocks git connect <owner/name> --strategy ...` (repo already exists).
+- `repo_already_bound` (from `git init|connect`): a different repository is connected. Do not disconnect on your own judgment; ask the user, then `blocks git disconnect --yes` if they confirm.
+- `not_a_git_repository` (from `git connect|pull|push`): the directory has no `.git`. `blocks git init` creates one; `blocks git clone` starts from the remote instead.
+- `strategy_required` / `invalid_strategy` (from `git connect`): pass `--strategy keep-local|adopt-remote|merge` after asking the user which side of the history wins.
+- `merge_conflict` (from `git connect --strategy merge`, `git pull`): the merge was aborted and nothing was pushed. Offer `--strategy keep-local` or `adopt-remote`, or resolve by hand with git and then `blocks git push`.
+- `working_tree_dirty` (from `git pull`): uncommitted changes would be overwritten. `blocks git push` commits and pushes them first; then pull.
+- `push_rejected` (from `git push|init|connect`): non-fast-forward -- the remote has commits this directory lacks. `blocks git pull`, then push again. From `git init --repo`, the target repository was not empty: use `git connect` with a strategy instead.
+- `directory_not_empty` (from `git clone`): pass `--dir <new path>`, or run `blocks git connect` inside the existing directory.
+- `remote_create_failed` (from `git init`): GitHub refused to create the repository (usually the name is taken). Re-run with `--repo <owner/name>` to use the existing one, or `--name <other>`.
+- `nothing_to_commit` (from `git init|connect --strategy keep-local`): the directory has no files to push.
+- `git_not_installed` / `git_timeout` (from `git ...`): git is missing from PATH, or the network operation did not finish; fix the environment and retry.
 - `secrets_file_unreadable` / `secrets_file_empty` (from `release secrets sync`): the dotenv file is missing, unreadable, or has no KEY=value lines; fix `--file` before retrying.
 - `invalid_report_type` (from `release reports get`): `--type` must be one of `sast`, `sca-container`, `sca-libraries`, `dast` (the server's own report types).
 - `secrets_read_failed` (from `release secrets sync`): the current secret set could not be read for a reason other than "no set yet", so nothing was saved (saving replaces the whole set). If the set was soft-deleted, run `release secrets restore` first; otherwise fix the error in the message and retry.
