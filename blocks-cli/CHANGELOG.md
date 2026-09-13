@@ -6,6 +6,38 @@ This project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 Versions before 0.3.0 were released without a changelog; their history is in the
 repository's git log.
 
+## 0.5.0
+
+### Fixed
+
+- A refresh token the identity provider rejects is now removed from the token
+  store immediately. It used to stay there indistinguishable from a live one,
+  so `blocks auth status` kept saying `available`, every command kept failing
+  with `refresh_token_rejected`, and Studio -- which reads that status to decide
+  whether to start a device login -- never started one. The access token is
+  kept (it reports `expired` on its own).
+
+- A generated app running inside blocks-studio's preview can be handed a
+  refresh again. The preview keeps its session in an httpOnly cookie the page
+  cannot read, and the host has no way to reach the auth module's variables,
+  so `getRefreshToken()` now falls back to `sessionStorage` for a marker the
+  host seeds there. The app itself still never writes a refresh token to
+  storage -- it stays in memory -- and sign-out clears the key either way.
+
+### Added
+
+- `blocks git` -- source control for the project's own code, through the GitHub
+  account connected in the Blocks portal: `status`, `init` (create the repo,
+  commit, push, bind), `clone`, `connect <owner/name> --strategy
+  keep-local|adopt-remote|merge`, `pull`, `push`, `disconnect`. The push
+  credential is fetched from blocks-release (`Github/credential`) per command
+  and handed to git through `GIT_ASKPASS` for that one process only; it is
+  never written to `.git/config`, a remote URL or `blocks.json`. The binding
+  lives in `blocks.json` as `repo: { provider, fullName, url, branch }`.
+  `connect` refuses to guess which history wins (`strategy_required`); `pull`
+  refuses a dirty tree (`working_tree_dirty`) instead of stashing. Studio's
+  sandbox runs `blocks git push --yes` after each successful build.
+
 ## 0.4.3
 
 ### Fixed

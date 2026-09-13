@@ -1183,6 +1183,92 @@ export const commandCatalog: readonly CommandEntry[] = [
     "flags": []
   },
   {
+    "name": "git clone",
+    "family": "git",
+    "summary": "Clone a GitHub repository and bind it to the selected project.",
+    "positional": "<owner/name>",
+    "details": "Clones with the connected GitHub account's credential into --dir (default: the repository name) and writes repo + project.tenantId into that directory's blocks.json, merging with any blocks.json the repository already carries. Refuses a non-empty directory with directory_not_empty -- attaching an existing directory is 'git connect'.",
+    "scope": "project",
+    "mutating": false,
+    "flags": [
+      "branch",
+      "dir",
+      "repo"
+    ]
+  },
+  {
+    "name": "git connect",
+    "family": "git",
+    "summary": "Attach this directory to an existing GitHub repository, with an explicit strategy for the two histories.",
+    "positional": "<owner/name>",
+    "details": "--strategy is required (strategy_required) because every choice destroys something: keep-local force-pushes this directory's branch over the remote's; adopt-remote resets this directory to the remote branch, discarding local commits and uncommitted files; merge joins the unrelated histories and pushes, aborting with merge_conflict (nothing pushed) if they conflict. Requires an existing git repository here (not_a_git_repository otherwise -- use 'git init'). Records the binding in blocks.json. Mutating.",
+    "scope": "project",
+    "mutating": true,
+    "flags": [
+      "branch",
+      "message",
+      "repo",
+      "strategy"
+    ]
+  },
+  {
+    "name": "git disconnect",
+    "family": "git",
+    "summary": "Forget the connected repository without touching git history or GitHub.",
+    "details": "Removes only the repo entry from blocks.json; .git, its remotes, every commit and the GitHub repository are left as they are. Undo with 'git connect <owner/name> --strategy keep-local'. Mutating.",
+    "scope": "local",
+    "mutating": true,
+    "flags": []
+  },
+  {
+    "name": "git init",
+    "family": "git",
+    "summary": "Create a GitHub repository for code that exists only here, push it, and connect it.",
+    "details": "Creates the repository through blocks-release using the GitHub account connected in the portal (private unless --public; --org places it under an organisation the account belongs to; --repo <owner/name> uses an existing empty repository instead). Runs git init if needed, ensures a .gitignore, commits everything, pushes --branch (default main, or the current branch) and writes the repo binding to blocks.json. Refuses with repo_already_bound when a repository is already connected -- run 'git disconnect' first. github_not_connected means the Blocks account has no GitHub connection. Mutating.",
+    "scope": "project",
+    "mutating": true,
+    "flags": [
+      "branch",
+      "description",
+      "message",
+      "name",
+      "org",
+      "public",
+      "repo"
+    ]
+  },
+  {
+    "name": "git pull",
+    "family": "git",
+    "summary": "Pull the connected branch from GitHub.",
+    "details": "Requires a connected repository (repo_not_bound). Refuses when the working tree has uncommitted changes (working_tree_dirty) rather than stashing them. A conflicting pull is aborted and reported as merge_conflict. --rebase rebases instead of merging.",
+    "scope": "project",
+    "mutating": false,
+    "flags": [
+      "rebase"
+    ]
+  },
+  {
+    "name": "git push",
+    "family": "git",
+    "summary": "Commit what changed and push the connected branch to GitHub.",
+    "details": "Requires a connected repository (repo_not_bound). Stages and commits all changes with --message (default 'Update from Blocks'), then pushes; with nothing changed and nothing ahead it exits 0 with nothingToPush:true. A non-fast-forward rejection is push_rejected with 'blocks git pull' as the next step. This is the command Studio runs after a successful build, with --yes and the run's summary as --message. Mutating.",
+    "scope": "project",
+    "mutating": true,
+    "flags": [
+      "message"
+    ]
+  },
+  {
+    "name": "git status",
+    "family": "git",
+    "summary": "Connected repository, branch, uncommitted files and ahead/behind counts for this workspace.",
+    "details": "Local and read-only -- never fetches, so behind reflects the last fetch or pull. Exits 0 with bound:null / isRepository:false when nothing is connected, so a caller branches on the JSON rather than on an error.",
+    "scope": "local",
+    "mutating": false,
+    "flags": []
+  },
+  {
     "name": "iam email available",
     "family": "iam",
     "summary": "Check whether an email address is free to register.",

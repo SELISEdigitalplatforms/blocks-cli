@@ -343,7 +343,13 @@ async function getAccountSessionUnlocked(accountOverride?: string, options: Sess
     throw new Error(`Account '${name}' token expired and no refresh token is available. Run 'blocks login' again.`);
   }
 
-  const refreshed = await refreshToken(profile.oidcUrl, profile.clientId, token.refreshToken, await getClientSecret(name), profile.rootTenantId ?? token.accountTenant);
+  let refreshed: TokenResponse;
+  try {
+    refreshed = await refreshToken(profile.oidcUrl, profile.clientId, token.refreshToken, await getClientSecret(name), profile.rootTenantId ?? token.accountTenant);
+  } catch (error) {
+    await forgetRejectedRefreshToken(error, store, name);
+    throw error;
+  }
   const next = applyAccountToken(config, store, name, profile.clientId, refreshed);
   await writeConfig(next.config);
   await writeTokenStore(next.store);
@@ -367,7 +373,13 @@ async function getImpersonatedProjectSessionUnlocked(
   }
 
   if (projectToken?.refreshToken) {
-    const refreshed = await refreshToken(profile.oidcUrl, profile.clientId, projectToken.refreshToken, await getClientSecret(name), profile.rootTenantId ?? tenantId);
+    let refreshed: TokenResponse;
+    try {
+      refreshed = await refreshToken(profile.oidcUrl, profile.clientId, projectToken.refreshToken, await getClientSecret(name), profile.rootTenantId ?? tenantId);
+    } catch (error) {
+      await forgetRejectedRefreshToken(error, store, name, tenantId);
+      throw error;
+    }
     const next = applyProjectToken(config, store, name, tenantId, refreshed);
     await writeConfig(next.config);
     await writeTokenStore(next.store);
@@ -465,6 +477,31 @@ async function postLogout(apiUrl: string, accessToken: string, accountTenant: st
     const body = await response.text();
     throw new Error(`Logout revoke failed with HTTP ${response.status}${body ? `: ${body}` : ""}`);
   }
+}
+
+/**
+ * A refresh token the identity provider has rejected is dead for good, yet
+ * until now it stayed in the store looking exactly like a live one -- so
+ * `blocks auth status` kept reporting "available", every caller kept trying
+ * to spend it and failing the same way, and Studio's binder (which decides
+ * whether to start a device login from that status) kept skipping the one
+ * step that would have fixed it. Drop the token so the store tells the truth:
+ * the next status read says "missing", and the next step really is a login.
+ * The access token is left in place -- it reports "expired" on its own, and
+ * removing it would hide that the account ever existed.
+ */
+async function forgetRejectedRefreshToken(
+  error: unknown,
+  store: Awaited<ReturnType<typeof readTokenStore>>,
+  account: string,
+  tenantId?: string
+): Promise<void> {
+  if (!(error instanceof CliActionableError) || error.code !== "refresh_token_rejected") return;
+  const target = tenantId === undefined ? store.accounts[account]?.account : store.accounts[account]?.projects?.[tenantId];
+  if (!target?.refreshToken) return;
+  delete target.refreshToken;
+  delete target.refreshTokenExpiresAt;
+  await writeTokenStore(store);
 }
 
 function accountSessionFromToken(name: string, profile: AccountProfile, token: TokenSet): AccountSession {
