@@ -1287,6 +1287,228 @@ test("space-separated complex command aliases resolve like colon commands", asyn
     validations: [{ type: 1, value: "^[0-9]{5}$", isActive: true }]
   });
 });
+test("a --body the shell stripped of its quotes is named as a shell problem, not a JSON one", async () => {
+  const { cwd, configDir } = await makeWorkspace();
+  const env = testEnv(configDir, { BLOCKS_SECRET_STORE: "file" });
+
+  // Exactly what PowerShell hands a native executable for --body '{"validations":[...]}'.
+  const stripped = run([
+    "data", "validation", "save",
+    "--schema-id", "schema-1",
+    "--field-name", "phone",
+    "--body", "{validations:[{type:1,value:^[0-9]+$}]}",
+    "--dry-run", "--json"
+  ], { cwd, env });
+
+  assert.equal(stripped.status, 1);
+  const strippedError = JSON.parse(stripped.stderr);
+  assert.equal(strippedError.code, "json_payload_shell_mangled");
+  assert.match(strippedError.message, /removed them before the CLI saw the payload/);
+  assert.match(strippedError.nextStep, /--file <path\.json>/);
+  // The payload can hold secrets on other commands, so it is described, never echoed.
+  assert.ok(!strippedError.message.includes("[0-9]"), strippedError.message);
+
+  // cmd.exe leaves the single quotes attached instead of removing the inner ones.
+  const wrapped = run([
+    "data", "validation", "save",
+    "--schema-id", "schema-1",
+    "--field-name", "phone",
+    "--body", "'{\"validations\":[{\"type\":1}]}'",
+    "--dry-run", "--json"
+  ], { cwd, env });
+
+  assert.equal(wrapped.status, 1);
+  const wrappedError = JSON.parse(wrapped.stderr);
+  assert.equal(wrappedError.code, "json_payload_shell_mangled");
+  assert.match(wrappedError.message, /still wrapped in the literal single quotes/);
+
+  // Genuinely malformed JSON still reports as malformed JSON.
+  const broken = run([
+    "data", "validation", "save",
+    "--schema-id", "schema-1",
+    "--field-name", "phone",
+    "--body", "{\"validations\": [",
+    "--dry-run", "--json"
+  ], { cwd, env });
+
+  assert.equal(broken.status, 1);
+  assert.equal(JSON.parse(broken.stderr).code, "command_failed");
+});
+
+test("--file reads a payload written with a UTF-8 BOM", async () => {
+  const { cwd, configDir } = await makeWorkspace();
+  const env = testEnv(configDir, { BLOCKS_SECRET_STORE: "file" });
+  const payload = { validations: [{ isActive: true, type: 1, value: "^[0-9]{5}$" }] };
+  // What PowerShell's Out-File -Encoding utf8, Set-Content and Notepad all produce.
+  await writeFile(join(cwd, "rules.json"), `﻿${JSON.stringify(payload)}`);
+
+  const result = run([
+    "data", "validation", "save",
+    "--schema-id", "schema-1",
+    "--field-name", "postalCode",
+    "--file", "rules.json",
+    "--dry-run", "--json"
+  ], { cwd, env });
+
+  assert.equal(result.status, 0, result.stderr);
+  assert.deepEqual(JSON.parse(result.stdout).request.validations, payload.validations);
+});
+
+test("data validation save builds one rule from scalar flags, naming the type instead of numbering it", async () => {
+  const { cwd, configDir } = await makeWorkspace();
+  const env = testEnv(configDir, { BLOCKS_SECRET_STORE: "file" });
+
+  const result = run([
+    "data", "validation", "save",
+    "--schema-id", "schema-1",
+    "--field-name", "phone",
+    "--type", "regex",
+    "--value", "^[0-9]+$",
+    "--error-message", "Digits only",
+    "--dry-run", "--json"
+  ], { cwd, env });
+
+  assert.equal(result.status, 0, result.stderr);
+  assert.deepEqual(JSON.parse(result.stdout).request.validations, [
+    { errorMessage: "Digits only", isActive: true, type: 1, value: "^[0-9]+$" }
+  ]);
+
+  // Names normalize, and the raw enum numbers still work for anything already scripted.
+  const byNumber = run([
+    "data", "validation", "save",
+    "--schema-id", "schema-1", "--field-name", "name",
+    "--type", "2", "--value", "3", "--dry-run", "--json"
+  ], { cwd, env });
+  assert.equal(byNumber.status, 0, byNumber.stderr);
+  // A length bound is sent as a number, the way the server reads it back.
+  assert.deepEqual(JSON.parse(byNumber.stdout).request.validations, [{ isActive: true, type: 2, value: 3 }]);
+
+  const byHyphenatedName = run([
+    "data", "validation", "save",
+    "--schema-id", "schema-1", "--field-name", "age",
+    "--type", "greater-than-or-equal", "--value", "18", "--dry-run", "--json"
+  ], { cwd, env });
+  assert.equal(byHyphenatedName.status, 0, byHyphenatedName.stderr);
+  assert.equal(JSON.parse(byHyphenatedName.stdout).request.validations[0].type, 9);
+
+  // An unknown type lists the real ones rather than sending a wrong number.
+  const wrongType = run([
+    "data", "validation", "save",
+    "--schema-id", "schema-1", "--field-name", "phone",
+    "--type", "pattern", "--value", "x", "--dry-run", "--json"
+  ], { cwd, env });
+  assert.equal(wrongType.status, 1);
+  const typeError = JSON.parse(wrongType.stderr);
+  assert.equal(typeError.code, "invalid_validation_type");
+  assert.match(typeError.nextStep, /regex/);
+
+  // A range needs both bounds before anything is sent.
+  const halfRange = run([
+    "data", "validation", "save",
+    "--schema-id", "schema-1", "--field-name", "score",
+    "--type", "range", "--value", "1", "--dry-run", "--json"
+  ], { cwd, env });
+  assert.equal(halfRange.status, 1);
+  assert.equal(JSON.parse(halfRange.stderr).code, "missing_validation_secondary_value");
+
+  // Two sources for the same list is a conflict, not a silent winner.
+  const conflict = run([
+    "data", "validation", "save",
+    "--schema-id", "schema-1", "--field-name", "phone",
+    "--type", "regex", "--value", "^x$",
+    "--body", JSON.stringify({ validations: [{ type: 0 }] }),
+    "--dry-run", "--json"
+  ], { cwd, env });
+  assert.equal(conflict.status, 1);
+  assert.equal(JSON.parse(conflict.stderr).code, "validation_rules_conflict");
+});
+
+test("data validation save updates the field's existing rule record instead of failing as a duplicate", async () => {
+  const { cwd, configDir } = await makeWorkspace();
+  await writeProjectAuth(configDir);
+  const requests = [];
+  const server = await startJsonServer((request, body) => {
+    const path = request.url.split("?")[0];
+    requests.push({ body, method: request.method, url: request.url });
+
+    if (path === "/data/v4/data-validations/by-schema-and-field" && request.method === "GET") {
+      return {
+        data: { fieldName: "phone", itemId: "validation-7", schemaId: "schema-1", validations: [{ type: 0 }, { type: 1 }] },
+        isSuccess: true
+      };
+    }
+    if (path === "/data/v4/data-validations") return { data: { acknowledged: true, itemId: "validation-7" }, isSuccess: true };
+    if (path === "/data/v4/schema-configurations/reload") return { data: true, isSuccess: true };
+    return rawResponse(500, { errorMessage: `Unexpected ${request.method} ${path}` });
+  });
+
+  try {
+    const context = ["--api-url", server.url, "--json"];
+    const env = testEnv(configDir, { BLOCKS_SECRET_STORE: "file" });
+
+    // The dry-run says it is an update and how many rules it replaces, before any write.
+    const preview = await runAsync([
+      "data", "validation", "save", "--schema-id", "schema-1", "--field-name", "phone",
+      "--type", "regex", "--value", "^[0-9]+$", "--dry-run", ...context
+    ], { cwd, env });
+    assert.equal(preview.status, 0, preview.stderr);
+    const previewOutput = JSON.parse(preview.stdout);
+    assert.equal(previewOutput.target, "update");
+    assert.equal(previewOutput.method, "PUT");
+    assert.equal(previewOutput.replacesExistingRules, 2);
+    assert.equal(previewOutput.request.itemId, "validation-7");
+
+    const applied = await runAsync([
+      "data", "validation", "save", "--schema-id", "schema-1", "--field-name", "phone",
+      "--type", "regex", "--value", "^[0-9]+$", "--yes", ...context
+    ], { cwd, env });
+    assert.equal(applied.status, 0, applied.stderr);
+
+    // The write is a PUT carrying the id the lookup found -- the POST that the server
+    // answers with "Validation already exists for this schema field" is never sent.
+    const write = requests.find((item) => item.url.split("?")[0] === "/data/v4/data-validations" && item.method !== "GET");
+    assert.equal(write.method, "PUT");
+    assert.equal(write.body.itemId, "validation-7");
+    assert.equal(write.body.validations.length, 1);
+  } finally {
+    await new Promise((resolveClose) => server.close(resolveClose));
+  }
+});
+
+test("a failed gateway reload reports the write as applied rather than failing the command", async () => {
+  const { cwd, configDir } = await makeWorkspace();
+  await writeProjectAuth(configDir);
+  let writes = 0;
+  const server = await startJsonServer((request) => {
+    const path = request.url.split("?")[0];
+    if (path === "/data/v4/data-validations/by-schema-and-field") return { data: null, isSuccess: false, message: "Data validation not found for this schema field" };
+    if (path === "/data/v4/data-validations" && request.method === "POST") {
+      writes += 1;
+      return { data: { acknowledged: true, itemId: "validation-9" }, isSuccess: true };
+    }
+    if (path === "/data/v4/schema-configurations/reload") return rawResponse(500, { errorMessage: "reload unavailable" });
+    return rawResponse(500, { errorMessage: `Unexpected ${request.method} ${path}` });
+  });
+
+  try {
+    const result = await runAsync([
+      "data", "validation", "save", "--schema-id", "schema-1", "--field-name", "phone",
+      "--type", "notempty", "--yes", "--api-url", server.url, "--json"
+    ], { cwd, env: testEnv(configDir, { BLOCKS_SECRET_STORE: "file" }) });
+
+    // The write landed, so the command succeeds and stdout stays one JSON document.
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(writes, 1);
+    const output = JSON.parse(result.stdout);
+    assert.equal(output.gatewayReload.ok, false);
+    assert.equal(output.gatewayReload.writeApplied, true);
+    assert.equal(output.gatewayReload.nextStep, "blocks data reload --yes");
+    // And the warning that says not to re-run the write goes to stderr.
+    assert.match(result.stderr, /do not re-run the write/i);
+  } finally {
+    await new Promise((resolveClose) => server.close(resolveClose));
+  }
+});
 
 test("rich JSON payload commands let scalar flags override body fields without dropping arrays", async () => {
   const { cwd, configDir } = await makeWorkspace();

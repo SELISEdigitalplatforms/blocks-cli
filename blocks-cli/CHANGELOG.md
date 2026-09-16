@@ -6,6 +6,52 @@ This project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 Versions before 0.3.0 were released without a changelog; their history is in the
 repository's git log.
 
+## 0.6.0
+
+### Fixed
+
+- A JSON payload the shell mangled is now reported as a shell problem. PowerShell
+  removes the inner double quotes when it hands an argument to a native executable,
+  so the documented `--body '{"validations":[...]}'` reached the CLI as
+  `{validations:[...]}` and failed with a JSON parse error pointing at the JSON --
+  the wrong layer to go and fix. The retry with escaped quotes split the argument
+  into three tokens, and the `--file` fallback then died on the BOM that
+  PowerShell's `Out-File -Encoding utf8` writes, whose error message contains an
+  invisible character. All three now resolve: a BOM is stripped before parsing, and
+  a quote-stripped (PowerShell) or quote-wrapped (cmd.exe) payload fails as
+  `json_payload_shell_mangled` naming the shell, the working escaped form, and the
+  `--file` route that needs no quoting anywhere. bash and zsh were never affected
+  and are unchanged. Applies to every command that takes `--body`/`--file`.
+
+- `data validation save` no longer fails as a duplicate on the second save of a
+  field. Its create endpoint refuses a second record for the same schema+field and
+  answers HTTP 200 with `isSuccess: false` ("Validation already exists for this
+  schema field"), so the documented "upsert" was really create-or-fail: the caller
+  had to run `by-schema-field` themselves and retry with `--item-id`. The command
+  now looks the field up and updates the record already there. `--item-id` still
+  works and still wins. Because the endpoint replaces the whole rule list, the
+  dry-run reports `target` (`create`/`update`) and `replacesExistingRules`.
+
+- A failing Data Gateway reload no longer fails the command that wrote. The write
+  has already been applied at that point, and reporting the whole mutation as failed
+  invited a re-run -- which for `data validation save` came back as "Validation
+  already exists", and for schema/rules writes re-sent a mutation that had landed.
+  The write is now authoritative: `gatewayReload` reports `ok: false` with
+  `writeApplied: true` and the `blocks data reload --yes` that finishes the job,
+  and a stderr warning says not to repeat the write.
+
+### Added
+
+- `data validation save` builds a single rule from scalar flags, so the common case
+  needs no hand-written JSON at all: `--type`, `--value`, `--secondary-value`,
+  `--error-message`, `--is-active`. `validations` was the only payload field in the
+  CLI with no scalar equivalent, which made inline JSON mandatory on this one command
+  and nowhere else. `--type` takes a name (`regex`, `minlength`, `greater-than-or-equal`,
+  ...; case and hyphens ignored) as well as the raw enum number -- the API publishes no
+  named constants for `ValidationType`, so a number written from memory stored a
+  different rule than the one asked for with no error. A length or comparison bound is
+  sent as a number, matching how the server reads it back.
+
 ## 0.5.0
 
 ### Fixed

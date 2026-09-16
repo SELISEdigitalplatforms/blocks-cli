@@ -115,26 +115,37 @@ blocks data validation by-schema <schemaId> --json                        # ever
 blocks data validation by-schema-field <schemaId> <fieldName> --json      # one field's rule
 blocks data validation list --schema-id <schemaId> --json                 # paginated browse
 ```
-
-Create or update a rule (upsert: omit `--item-id` to create, pass it to update). The `validations` array itself has no scalar-flag equivalent — pass it via `--body`/`--file`:
+Create or replace the rules on a field. One rule needs no JSON at all — use the scalar flags, and name the type rather than numbering it:
 
 ```bash
 blocks data validation save --schema-id <schemaId> --field-name email \
-  --body '{"validations":[{"type":1,"value":"^[^@]+@[^@]+\\.[^@]+$","errorMessage":"Enter a valid email","isActive":true}]}' \
+  --type regex --value "^[^@]+@[^@]+\.[^@]+$" --error-message "Enter a valid email" \
   --dry-run --json
 blocks data validation save --schema-id <schemaId> --field-name email \
-  --body '{"validations":[{"type":1,"value":"^[^@]+@[^@]+\\.[^@]+$","errorMessage":"Enter a valid email","isActive":true}]}' \
+  --type regex --value "^[^@]+@[^@]+\.[^@]+$" --error-message "Enter a valid email" \
   --yes --json
 
 blocks data validation delete <validationId> --dry-run --json
 blocks data validation delete <validationId> --yes --json
 ```
 
-`type` inside a `validations` entry is the Data Gateway's `ValidationType` enum, zero-based in declaration order — `0` NotEmpty, `1` Regex, `2` MinLength, `3` MaxLength, `4` LengthRange, `5` Equal, `6` NotEqual, `7` GreaterThan, `8` LessThan, `9` GreaterThanOrEqual, `10` LessThanOrEqual, `11` Range. The example above uses `1`, so `value` is the regex. `value` is interpreted per type: a pattern for `1`, a number for the length and comparison types, a range for `4`/`11`.
+`--type` accepts `notempty`, `regex`, `minlength`, `maxlength`, `lengthrange`, `equal`, `notequal`, `greaterthan`, `lessthan`, `greaterthanorequal`, `lessthanorequal`, `range` (hyphens and case are ignored, and the raw enum numbers below still work). `--value` is the pattern, bound, or comparison value; `--secondary-value` is the upper bound and is required for `lengthrange` and `range`. `--type notempty` takes no `--value`. Rules are active unless you pass `--is-active=false`.
+
+**Several rules on one field** still need a `validations` array via `--body`/`--file`. Prefer `--file`: inline JSON is shell-dependent, and in PowerShell the documented `--body '{"a":1}'` form loses its double quotes before the CLI sees it. The CLI now detects that and says so, but a file avoids the problem on every platform.
+
+```bash
+blocks data validation save --schema-id <schemaId> --field-name email --file rules.json --dry-run --json
+```
+
+**`--item-id` is optional and rarely needed.** Without it the command looks the field up and updates the rule record already there, so a second save on the same field is an update, not the "Validation already exists for this schema field" failure it used to be. The endpoint replaces the whole rule list, so the rules you pass are the rules the field ends up with — the dry-run reports `target` (`create` or `update`) and `replacesExistingRules` so you can see what a save would drop before approving it.
+
+If a save reports `gatewayReload.ok: false`, the rules were stored and only the reload failed. Run `blocks data reload --yes`; do not re-run the save.
+
+`type` inside a `validations` entry is the Data Gateway's `ValidationType` enum, zero-based in declaration order — `0` NotEmpty, `1` Regex, `2` MinLength, `3` MaxLength, `4` LengthRange, `5` Equal, `6` NotEqual, `7` GreaterThan, `8` LessThan, `9` GreaterThanOrEqual, `10` LessThanOrEqual, `11` Range. `value` is interpreted per type: a pattern for `1`, a number for the length and comparison types, a range for `4`/`11`.
 
 The separate `--schema-type` flag on the `data schema *` commands is a *different* enum with no zero: `1` Entity, `2` Dto.
 
-The API doesn't publish named constants for the `type` enum in its schema — if the user needs a specific validation type and you're not sure of its numeric value, run `data validation by-schema-field` on a field with a known-working rule (e.g. one set up in the portal) to see the value in context, rather than guessing.
+Prefer `--type <name>` over the numbers: the API publishes no named constants for this enum, so a number written from memory can store a different rule than the one asked for without any error.
 
 ## More granular Schema commands
 
