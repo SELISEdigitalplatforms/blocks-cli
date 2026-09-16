@@ -1152,16 +1152,21 @@ export const commandCatalog: readonly CommandEntry[] = [
   {
     "name": "data validation save",
     "family": "data",
-    "summary": "Create or update the field-level validation rules on a schema field.",
-    "details": "Upsert: omit --item-id to create, pass it to update. --body must include a \"validations\" array, e.g. '{\"validations\":[{\"type\":1,\"value\":\"^[0-9]+$\",\"isActive\":true}]}'.",
+    "summary": "Create or replace the field-level validation rules on a schema field.",
+    "details": "One rule from scalar flags: --type regex --value \"^[0-9]+$\" --error-message \"Digits only\". Several rules: a \"validations\" array via --body/--file. --type accepts a name (notempty, regex, minlength, maxlength, lengthrange, equal, notequal, greaterthan, lessthan, greaterthanorequal, lessthanorequal, range) or its number. --item-id is optional: without it the command finds the field's existing rule record and updates it. The endpoint replaces the whole rule list, so the rules passed are the rules the field ends up with; --dry-run reports how many it would replace.",
     "scope": "project",
     "mutating": true,
     "flags": [
       "body",
+      "error-message",
       "field-name",
       "file",
+      "is-active",
       "item-id",
-      "schema-id"
+      "schema-id",
+      "secondary-value",
+      "type",
+      "value"
     ]
   },
   {

@@ -92,6 +92,7 @@ Every field it reports is derived from the command's own source, not from prose,
 - Treat any secret pasted into chat or logs as exposed and rotate it before production use.
 - Generated apps must not contain CLI tokens.
 - If a CLI command returns an error, fix or report the CLI path. Do not bypass the CLI with a one-off API request when the command exists.
+- Prefer `--file <path.json>` over inline `--body` for any JSON payload. Inline JSON is shell-dependent: PowerShell strips the double quotes out of `--body '{"a":1}'` before the CLI sees it, and cmd.exe passes the surrounding single quotes through as part of the value. Both now fail with `json_payload_shell_mangled` naming the shell rather than the JSON, and a file sidesteps the whole question. bash and zsh take the documented form as-is.
 - Run `blocks` commands one at a time per resolved config directory. Token transitions are mutex-protected; parallel invocations can fail with `auth_transition_busy`.
 - Treat every paginated `list` result as one page. Read `totalCount` when the response provides it, and request subsequent pages when completeness matters; never report a total from the returned array length alone.
 
@@ -330,7 +331,7 @@ there and cannot drift from behavior the way prose can.
 Rules:
 
 - Use `--dry-run` before guarded configuration/admin mutations, then `--yes` only after explicit approval. MFA challenge/setup/verify/resend and backup-code consumption are live authentication protocol steps without dry-run; run them only inside the user's explicit authentication flow.
-- Rich payloads (identity provider config, OIDC client config, user/role/permission create-update bodies, etc.) accept `--body '<json>'` or `--file <path.json>` on top of the documented convenience flags - use whichever is easier for the exact fields you need to set.
+- Rich payloads (identity provider config, OIDC client config, user/role/permission create-update bodies, etc.) accept `--body '<json>'` or `--file <path.json>` on top of the documented convenience flags - use whichever is easier for the exact fields you need to set. A payload file may carry a UTF-8 BOM (PowerShell's `Out-File -Encoding utf8` and Notepad both write one); it is stripped before parsing.
 - `iam roles update`, `iam signup-settings save`, `iam permissions update`, `auth config save`, `auth oidc-clients save` and `auth client-credentials save --item-id` read the current record first and merge your flags over it, because their endpoints replace the whole document. Omitting a flag keeps the stored value. To clear a boolean, pass it explicitly (`--is-default=false`); to clear a text field, use `--body '{"description": ""}'` -- an empty convenience flag reads as "not passed" and keeps the stored value.
 - `iam users update` is a sparse patch (the server keeps omitted/null fields itself, `""` via `--body` clears one), so it sends only the fields you pass and needs no read. Roles, permissions and MFA state are not part of this endpoint any more -- the CLI rejects them with a pointer to `iam users access grant` and the MFA commands.
 - `iam users access grant`: a non-empty `--roles` or `--permissions` REPLACES that organization's list (an omitted one is kept). The dry-run prints `current` so you can see what a grant would drop; pass the complete set.
@@ -722,6 +723,12 @@ The binding lives in `blocks.json` as `repo: { provider, fullName, url, branch }
 - `missing_project_name`: pass a project name, for example `blocks projects create "<name>"`.
 - `invalid_project_name`: use a project name between 3 and 100 characters.
 - `project_create_failed`: creation was rejected; inspect `message`, then run `blocks projects list --json` before deciding whether to retry.
+- `json_payload_shell_mangled` (any `--body`/`--file` command): the shell mangled the JSON before the CLI saw it - PowerShell removes the inner double quotes, cmd.exe leaves the outer single quotes attached. Do not rewrite the JSON; write the payload to a file and pass `--file <path.json>`, or use the escaped form the message names.
+- `invalid_validation_type` (from `data validation save`): the message lists the accepted type names; re-run with one of them.
+- `missing_validation_value` / `missing_validation_secondary_value` (from `data validation save`): pass `--value`, and `--secondary-value` too for `lengthrange`/`range`. Only `--type notempty` takes no value.
+- `validation_rules_conflict` (from `data validation save`): `--type` and a `validations` array in `--body`/`--file` both describe the rule list. Keep one.
+- `missing_validation_rules` (from `data validation save`): pass one rule as `--type <name> --value <value>`, or several as a `validations` array via `--body`/`--file`.
+- `gatewayReload.ok: false` in a successful data mutation: the write was applied and only the reload failed, so the change is stored but not live. Run `blocks data reload --yes`. Do NOT re-run the write - repeating a `data validation save` used to be what produced "Validation already exists for this schema field".
 - `interactive_input_required`: the command needs a value that was not supplied and cannot prompt without a TTY. Re-run with the explicit flag named by the command documentation; common cases are `new web --app-domain ... --client-id ...` and `mfa totp enable --code ...`.
 - `unknown_help_target` (from `blocks help <name>`): no command or family matches that name. List what exists with `blocks --help --json`, then retry with a name from it.
 - `impersonation_invalid_client`: give an admin the CLI client id printed in the error and have that client registered for project impersonation. Re-login and `auth config` cannot repair it.

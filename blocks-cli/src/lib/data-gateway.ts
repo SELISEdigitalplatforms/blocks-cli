@@ -31,15 +31,37 @@ export async function reloadDataGateway(
  *
  * The reload outcome is reported as `gatewayReload` beside the original response
  * rather than replacing it, so existing fields keep their shape.
+ *
+ * A failing reload must NOT fail the command: the write it follows has already been
+ * applied, and rethrowing here reported the whole mutation as failed. The caller's
+ * natural response to that is to run the write again -- which for `data validation
+ * save` came back as "Validation already exists for this schema field", and for
+ * schema/rules writes re-sent a mutation that had already landed. The write is the
+ * authoritative result, so the reload failure is reported in place, loudly, with the
+ * command that finishes the job.
  */
 export async function withGatewayReload<T>(
   flags: Record<string, string | boolean>,
   projectTenantId: string,
   result: T
 ): Promise<Record<string, unknown>> {
-  const gatewayReload = await reloadDataGateway(flags, projectTenantId);
   const base = isRecord(result) ? result : { result };
-  return { ...base, gatewayReload };
+
+  try {
+    return { ...base, gatewayReload: await reloadDataGateway(flags, projectTenantId) };
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error);
+    // stderr, so a --json document on stdout stays one parseable object.
+    console.error(
+      `Warning: the write succeeded but the Data Gateway reload failed (${detail}). `
+      + "The change is stored and staged, and goes live once a reload succeeds. "
+      + "Run 'blocks data reload --yes' -- do not re-run the write, it has already been applied."
+    );
+    return {
+      ...base,
+      gatewayReload: { error: detail, nextStep: "blocks data reload --yes", ok: false, writeApplied: true }
+    };
+  }
 }
 
 /** SchemaAccessLevel: Inherited = 0, User = 1, Public = 2, Custom = 3. */
