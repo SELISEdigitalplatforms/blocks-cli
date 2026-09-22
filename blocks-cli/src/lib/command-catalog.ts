@@ -1188,6 +1188,19 @@ export const commandCatalog: readonly CommandEntry[] = [
     "flags": []
   },
   {
+    "name": "git branch create",
+    "family": "git",
+    "summary": "Create a new branch from the connected repository and push it.",
+    "positional": "<name>",
+    "details": "Requires a connected repository (repo_not_bound). --from names the starting point (default: the connected branch). Uses 'git branch', never 'git checkout -b' -- the workspace's checked-out HEAD is never touched, so 'git push'/'git pull' keep targeting the connected branch exactly as before. branch_create_failed if the name already exists locally; push_rejected if the remote branch already exists. Mutating.",
+    "scope": "project",
+    "mutating": true,
+    "flags": [
+      "from",
+      "name"
+    ]
+  },
+  {
     "name": "git clone",
     "family": "git",
     "summary": "Clone a GitHub repository and bind it to the selected project.",
