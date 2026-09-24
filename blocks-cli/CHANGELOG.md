@@ -6,6 +6,37 @@ This project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 Versions before 0.3.0 were released without a changelog; their history is in the
 repository's git log.
 
+## 0.7.0
+
+### Added
+
+- `mail config save` now configures the Office 365 SMTP outbound provider
+  (`--provider 2`). Blocks OS added Exchange Online SMTP with OAuth client
+  credentials (STARTTLS + SASL XOAUTH2) alongside the existing Amazon SES
+  (`0`) and Zoho (`1`) providers, and this exposes it from the terminal. Four
+  new flags carry its contract: `--tenant-id` (the **Microsoft Entra** tenant
+  used to acquire the token -- deliberately distinct from the Blocks tenant,
+  which is never taken from a request field), `--client-id` (the Entra
+  application id), `--mailbox-address` (the address the app sends as, validated
+  as an email), and `--client-secret`. Host, port, SSL and the security mode are
+  fixed server-side for this provider (`smtp.office365.com:587`, STARTTLS, SSL
+  off), so there is nothing to pass for them and a submitted value is ignored.
+
+  The client secret is handled the opposite way to an SES/Zoho
+  `--account-password`. The server writes it to Blocks Secrets as a
+  tenant-scoped Service secret and persists only its reference; the response
+  omits both the value and the reference, reporting only
+  `isClientSecretConfigured`. So on an update you *omit* `--client-secret` to
+  keep the secret already on file -- passing it rotates the stored secret, and a
+  whitespace-only value is rejected rather than treated as "unchanged" -- whereas
+  `--account-password` must still be re-passed on every SES/Zoho update because
+  the API returns it masked. The read-merge-write step now also carries
+  `tenantId`/`clientId`/`mailboxAddress` forward from the stored record, so an
+  edit that only touches, say, the sender name no longer blanks the Entra
+  binding. `--client-secret` is redacted in `--dry-run` output (it was already in
+  the shared secret-field list). Provider and direction of an existing
+  configuration still cannot be changed; the server rejects an attempt to.
+
 ## 0.6.0
 
 ### Fixed

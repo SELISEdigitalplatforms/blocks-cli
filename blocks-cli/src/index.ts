@@ -891,9 +891,14 @@ Mail (/os/v4/Mail/* — project-scoped: requires a selected project, impersonate
   blocks mail config get <name> [--json]
   blocks mail config save [--configuration-id <id>] [--name <n>] [--host <h>] [--port <n>]
                               [--enable-ssl] [--sender-name] [--sender-address] [--sender-username]
-                              [--account-password] [--inbound] [--provider <0|1>]
+                              [--account-password] [--inbound] [--provider <0|1|2>]
+                              [--tenant-id] [--client-id] [--mailbox-address] [--client-secret]
                               [--body '<json>'|--file <path>] [--dry-run] [--yes] [--json]
     Upsert: omit --configuration-id to create; pass it to update.
+    Provider 2 is Office 365 SMTP (outbound, OAuth client credentials): pass
+    --tenant-id (Entra tenant), --client-id, --mailbox-address and --client-secret.
+    Host/port/SSL are fixed by the server; --client-secret is stored in Blocks
+    Secrets and never returned, so omit it on edit to keep the secret on file.
   blocks mail config delete <configurationId> [--dry-run] [--yes] [--json]
   blocks mail config duplicate <configurationId> [--dry-run] [--yes] [--json]
   blocks mail template list [--page-number] [--page-size] [--search] [--sort-by] [--sort-desc]

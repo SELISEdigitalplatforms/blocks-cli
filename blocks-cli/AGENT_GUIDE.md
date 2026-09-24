@@ -519,6 +519,11 @@ blocks mail config get <name> --json
 blocks mail config save --name <n> --host <h> --port <p> --enable-ssl \
   --sender-name <n> --sender-address <addr> --account-password <p> --dry-run --json
 blocks mail config save --configuration-id <id> ... --yes --json   # update
+# --provider: 0 Amazon SES, 1 Zoho (username/password), 2 Office 365 SMTP.
+# Office 365 (outbound-only OAuth client credentials) — host/port/SSL are server-fixed:
+blocks mail config save --name <n> --provider 2 --sender-name <n> --sender-address <addr> \
+  --tenant-id <entraTenantId> --client-id <entraAppId> --mailbox-address <addr> \
+  --client-secret <s> --dry-run --json
 blocks mail config delete <configurationId> --dry-run --json
 blocks mail config duplicate <configurationId> --dry-run --json
 
@@ -533,7 +538,7 @@ blocks mail mailbox list --inbound=false --page-number 1 --page-size 20 --json
 blocks mail mailbox get <messageId> --json
 ```
 
-Treat `--account-password` as a secret; the CLI redacts it in `--dry-run` output but the live response is still yours to protect.
+Treat `--account-password` and `--client-secret` as secrets; the CLI redacts both in `--dry-run` output but the live response is still yours to protect. For Office 365 the client secret is stored in Blocks Secrets and never returned (`config get` reports only `isClientSecretConfigured`), so omit `--client-secret` on an update to keep the existing one — the opposite of `--account-password`, which must be re-passed on every SES/Zoho update. Provider and direction of an existing configuration cannot be changed.
 
 Sending mail is a separate surface, `/logic/v4/Mail/Send` and `/logic/v4/Mail/SendToAny` (not `/os/v4`):
 

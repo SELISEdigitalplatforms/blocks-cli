@@ -2367,23 +2367,27 @@ export const commandCatalog: readonly CommandEntry[] = [
     "name": "mail config save",
     "family": "mail",
     "summary": "Create or update an SMTP / inbound mail server configuration.",
-    "details": "Upsert: omit --configuration-id to create; pass it to update. --provider and --port are raw integers. --account-password is redacted from dry-run output, but the live response and the stored value are still sensitive.",
+    "details": "Upsert: omit --configuration-id to create; pass it to update. --provider and --port are raw integers (0 Amazon SES, 1 Zoho, 2 Office 365 SMTP). Provider 2 is outbound-only OAuth client credentials: supply --tenant-id (Microsoft Entra tenant, not the Blocks tenant), --client-id, --mailbox-address and --client-secret; the server fixes host/port/SSL. --client-secret and --account-password are redacted from dry-run output. The client secret is stored in Blocks Secrets and never returned, so omit it on edit to keep the secret on file (whitespace-only is rejected); the response reports only whether one is configured.",
     "scope": "project",
     "mutating": true,
     "flags": [
       "account-password",
       "body",
+      "client-id",
+      "client-secret",
       "configuration-id",
       "enable-ssl",
       "file",
       "host",
       "inbound",
+      "mailbox-address",
       "name",
       "port",
       "provider",
       "sender-address",
       "sender-name",
-      "sender-username"
+      "sender-username",
+      "tenant-id"
     ]
   },
   {

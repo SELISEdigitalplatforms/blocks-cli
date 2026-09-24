@@ -234,7 +234,7 @@
   },
   "mail config save": {
     "summary": "Create or update an SMTP / inbound mail server configuration.",
-    "details": "Upsert: omit --configuration-id to create; pass it to update. --provider and --port are raw integers. --account-password is redacted from dry-run output, but the live response and the stored value are still sensitive."
+    "details": "Upsert: omit --configuration-id to create; pass it to update. --provider and --port are raw integers (0 Amazon SES, 1 Zoho, 2 Office 365 SMTP). Provider 2 is outbound-only OAuth client credentials: supply --tenant-id (Microsoft Entra tenant, not the Blocks tenant), --client-id, --mailbox-address and --client-secret; the server fixes host/port/SSL. --client-secret and --account-password are redacted from dry-run output. The client secret is stored in Blocks Secrets and never returned, so omit it on edit to keep the secret on file (whitespace-only is rejected); the response reports only whether one is configured."
   },
   "mail config delete": {
     "summary": "Delete a mail configuration.",

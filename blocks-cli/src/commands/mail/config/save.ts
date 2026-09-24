@@ -14,16 +14,20 @@ export async function mailConfigSave(argv: string[]): Promise<void> {
     ...(await jsonBodyFlag(flags)),
     ...compact({
       accountPassword: stringFlag(flags, "account-password") || undefined,
+      clientId: stringFlag(flags, "client-id") || undefined,
+      clientSecret: stringFlag(flags, "client-secret") || undefined,
       configurationId: stringFlag(flags, "configuration-id") || undefined,
       configurationName: stringFlag(flags, "name") || undefined,
       enableSSL: optionalBooleanFlag(flags, "enable-ssl"),
       host: stringFlag(flags, "host") || undefined,
       isInbound: optionalBooleanFlag(flags, "inbound"),
+      mailboxAddress: stringFlag(flags, "mailbox-address") || undefined,
       port: optionalIntegerFlag(flags, "port"),
       provider: optionalIntegerFlag(flags, "provider"),
       senderAddress: stringFlag(flags, "sender-address") || undefined,
       senderName: stringFlag(flags, "sender-name") || undefined,
-      senderUserName: stringFlag(flags, "sender-username") || undefined
+      senderUserName: stringFlag(flags, "sender-username") || undefined,
+      tenantId: stringFlag(flags, "tenant-id") || undefined
     })
   };
 
@@ -41,6 +45,16 @@ export async function mailConfigSave(argv: string[]): Promise<void> {
   // API returns it masked and storing the mask would break sending, so an update still
   // passes --account-password (which the server requires regardless). A new
   // configuration has nothing to read, so its dry-run stays offline.
+  //
+  // Provider 2 (Office365Smtp, OAuth client credentials) adds tenantId/clientId/
+  // mailboxAddress, which the response DTO returns and which carry forward here so an
+  // edit that only touches, say, the sender name does not blank the Entra binding. The
+  // client secret is NOT carried: it is stored as a tenant-scoped Service secret in
+  // Blocks Secrets and the response omits both the value and its reference, so a null/
+  // empty ClientSecret on the wire tells the server to keep the secret on file --
+  // exactly what leaving --client-secret out should mean. Host/Port/SecurityMode/
+  // EnableSSL/AuthenticationType are server-normalized for Office 365 regardless of what
+  // is sent, so carrying them forward is harmless.
   const current = configurationId
     ? carryCurrent(
         findInList(
@@ -51,7 +65,7 @@ export async function mailConfigSave(argv: string[]): Promise<void> {
           }),
           (item) => item.itemId === configurationId
         ),
-        ["name", "host", "port", "enableSSL", "senderName", "senderAddress", "senderUserName", "isInbound", "provider", "isEnableSnsConfiguration"],
+        ["name", "host", "port", "enableSSL", "senderName", "senderAddress", "senderUserName", "isInbound", "provider", "isEnableSnsConfiguration", "tenantId", "clientId", "mailboxAddress"],
         { name: "configurationName" }
       )
     : {};
