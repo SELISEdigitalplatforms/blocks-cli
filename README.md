@@ -87,14 +87,14 @@ Use these package-specific guides for exact contracts:
 ### Skills
 
 The task-level workflow skills live in [`blocks-skills/`](blocks-skills/) in this
-repository. They are **not** part of either npm package — copy the ones you want
-into your agent's own skills directory from here.
+repository. They are **not** part of either npm package — the supported way to
+get them into your agent is [seliseblocks.com/bootstrap](https://seliseblocks.com/bootstrap),
+not a manual copy from this repo.
 
 Each skill is self-contained by design: it assumes only the installed `blocks`
 CLI and a project-local `@seliseblocks/client`, and never links to a sibling
-skill or to this repository's layout, so copying a single `SKILL.md` (plus its
-`flows/` folder, if it has one) is enough. `blocks-skills/lint.mjs` enforces
-that, and runs as part of `npm test`.
+skill or to this repository's layout. `blocks-skills/lint.mjs` enforces that,
+and runs as part of `npm test`.
 
 ## Development
 
