@@ -2,6 +2,7 @@ import { booleanFlag, stringFlag } from "../../../lib/args.js";
 import { blocksRequest } from "../../../lib/api.js";
 import { confirmMutation } from "../../../lib/confirm.js";
 import { writeOutput } from "../../../lib/output.js";
+import { redactSecrets } from "../../../lib/redact.js";
 import { requestContext } from "../../../lib/request-context.js";
 import { parseCommand, selectedProject } from "../../../lib/workspace.js";
 
@@ -25,5 +26,7 @@ export async function authIdpStatus(argv: string[]): Promise<void> {
     ...requestContext(flags),
     projectTenantId: projectKey
   });
-  writeOutput(result, flags);
+  // The updated record echoes clientSecret back verbatim -- redact it for the same
+  // reason idp list/get/create/update redact their responses.
+  writeOutput(redactSecrets(result), flags);
 }
