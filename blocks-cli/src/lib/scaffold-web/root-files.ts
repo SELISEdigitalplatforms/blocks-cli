@@ -66,7 +66,7 @@ export async function writeRootFiles(root: string, options: WebOptions): Promise
     "# Set to your project's real domain (Project/Gets -> applications[].domain,",
     "# no scheme) to test OIDC login locally over HTTPS -- see README.md.",
     `VITE_BLOCKS_DEV_HOST=${devHost}`,
-    "VITE_BLOCKS_DEV_PORT=5173",
+    `VITE_BLOCKS_DEV_PORT=${options.devPort}`,
     ""
   ].join("\n"));
 
@@ -78,7 +78,7 @@ export async function writeRootFiles(root: string, options: WebOptions): Promise
     `VITE_BLOCKS_OIDC_CLIENT_ID=${options.oidcClientId ?? ""}`,
     "VITE_BLOCKS_OIDC_SCOPE=openid profile",
     `VITE_BLOCKS_DEV_HOST=${devHost}`,
-    "VITE_BLOCKS_DEV_PORT=5173",
+    `VITE_BLOCKS_DEV_PORT=${options.devPort}`,
     ""
   ].join("\n"));
 
@@ -193,7 +193,8 @@ export async function writeRootFiles(root: string, options: WebOptions): Promise
     "",
     "1. Find the app's registered Blocks domain in the Blocks OS project settings, or ask whoever created the project. It must match the OIDC redirect URI's host.",
     "2. Point it at your machine — add to your hosts file (`/etc/hosts`, or `C:\\Windows\\System32\\drivers\\etc\\hosts` as Administrator): `127.0.0.1  <domain>`.",
-    "3. Confirm `.env` has `VITE_BLOCKS_DEV_HOST=<domain>` (generated from `--app-domain`) and `VITE_BLOCKS_DEV_PORT=5173`.",
+    "3. Confirm `.env` has `VITE_BLOCKS_DEV_HOST=<domain>` (generated from `--app-domain`) and " +
+      `\`VITE_BLOCKS_DEV_PORT=${options.devPort}\`.`,
     "4. Generate a local HTTPS cert for that exact domain: `npm run cert`. Trust it in your OS store to remove the browser warning (command printed by the script), then restart the browser.",
     "5. `npm run dev` -> open `https://<domain>:<port>` (not `localhost`).",
     "6. Register that exact origin's `/login/callback` as a redirect URI on the OIDC client — byte-for-byte, including the port.",
@@ -249,7 +250,7 @@ export async function writeRootFiles(root: string, options: WebOptions): Promise
     "  // every key, not just VITE_-prefixed ones, though ours already are).",
     "  const env = loadEnv(mode, process.cwd(), \"\");",
     "  const domain = env.VITE_BLOCKS_DEV_HOST || undefined;",
-    "  const port = Number(env.VITE_BLOCKS_DEV_PORT || 5173);",
+    `  const port = Number(env.VITE_BLOCKS_DEV_PORT || ${options.devPort});`,
     "  const https = fs.existsSync(\".cert/dev-key.pem\") && fs.existsSync(\".cert/dev-cert.pem\")",
     "    ? { key: fs.readFileSync(\".cert/dev-key.pem\"), cert: fs.readFileSync(\".cert/dev-cert.pem\") }",
     "    : undefined;",
