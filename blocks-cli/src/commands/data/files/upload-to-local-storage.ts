@@ -1,6 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { basename } from "node:path";
-import { booleanFlag, stringFlag } from "../../../lib/args.js";
+import { booleanFlag, optionalBooleanFlag, stringFlag } from "../../../lib/args.js";
 import { blocksRequest } from "../../../lib/api.js";
 import { confirmMutation } from "../../../lib/confirm.js";
 import { writeOutput } from "../../../lib/output.js";
@@ -38,6 +38,10 @@ export async function dataFilesUploadToLocalStorage(argv: string[]): Promise<voi
   if (accessModifier) form.set("AccessModifier", accessModifier);
   const configurationName = stringFlag(flags, "configuration-name");
   if (configurationName) form.set("ConfigurationName", configurationName);
+  const objectAccessLevel = stringFlag(flags, "object-access-level");
+  if (objectAccessLevel) form.set("ObjectAccessLevel", objectAccessLevel);
+  const inheritsParentAccess = optionalBooleanFlag(flags, "inherits-parent-access");
+  if (inheritsParentAccess !== undefined) form.set("InheritsParentAccess", String(inheritsParentAccess));
 
   if (additionalPropertiesRaw) {
     const parsed = JSON.parse(additionalPropertiesRaw) as Record<string, string>;

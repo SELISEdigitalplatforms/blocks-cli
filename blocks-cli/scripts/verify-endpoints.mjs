@@ -91,7 +91,9 @@ function collectCliCalls() {
   const calls = new Map(); // "VERB path" -> [files]
   for (const file of walk(join(cliRoot, "src"), (p) => p.endsWith(".ts"))) {
     const source = readFileSync(file, "utf8");
-    const re = /blocksRequest(?:<[^>]*>)?\(\s*(`[^`]*`|"[^"]*")/g;
+    // The type argument may nest one level (`blocksRequest<Record<string, unknown>>(`); a
+    // flat `<[^>]*>` stopped at the inner `>` and silently skipped every such call.
+    const re = /blocksRequest(?:<(?:[^<>]|<[^<>]*>)*>)?\(\s*(`[^`]*`|"[^"]*")/g;
     let m;
     while ((m = re.exec(source))) {
       const path = normalizePath(m[1].slice(1, -1));

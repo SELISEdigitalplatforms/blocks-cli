@@ -2301,7 +2301,6 @@ test("configuration boolean flags preserve explicit false values", async () => {
   const { cwd, configDir } = await makeWorkspace();
   const env = testEnv(configDir, { BLOCKS_SECRET_STORE: "file" });
   const cases = [
-    [["iam", "organizations", "config", "save", "--multi-org-enabled=false", "--dry-run", "--json"], "isMultiOrgEnabled"],
     [["mfa", "config", "save", "--enable=false", "--dry-run", "--json"], "enableMfa"],
     [["mail", "config", "save", "--enable-ssl=false", "--dry-run", "--json"], "enableSSL"]
   ];
@@ -2578,16 +2577,213 @@ test("composed data file upload dry-run plans metadata creation and provider PUT
   assert.equal(output.dryRun, true);
   assert.deepEqual(output.steps.map((step) => step.endpoint), [
     "/data/v4/files/get-pre-signed-url-for-upload",
-    "PUT <uploadUrl>"
+    "PUT <uploadUrl>",
+    "/data/v4/files/complete-upload"
   ]);
   assert.deepEqual(output.steps[0].body, {
     accessModifier: "Public",
+    contentType: "application/pdf",
     moduleName: 3,
     name: "invoice.pdf",
     parentDirectoryId: "folder-1",
     tags: "finance,2026"
   });
   assert.equal(output.steps[1].contentType, "application/pdf");
+});
+
+test("data files upload completes a quarantined upload with the server's required headers", async () => {
+  const { cwd, configDir } = await makeWorkspace();
+  await writeProjectAuth(configDir);
+  // The fake server parses every body as JSON, so the uploaded bytes are JSON too.
+  await writeFile(join(cwd, "note.json"), '{"a":1}');
+
+  const requests = [];
+  const server = await startJsonServer((request, body) => {
+    const path = request.url.split("?")[0];
+    requests.push({ body, headers: request.headers, method: request.method, url: path });
+    if (path === "/data/v4/files/get-pre-signed-url-for-upload") {
+      return {
+        fileId: "file-1",
+        fileVersionId: "version-1",
+        isSuccess: true,
+        requiredHeaders: { "Content-Type": "application/json", "x-amz-server-side-encryption": "AES256" },
+        uploadCompletionRequired: true,
+        uploadUrl: `${server.url}/bucket/quarantine/file-1`,
+        verificationStatus: 1
+      };
+    }
+    if (path === "/bucket/quarantine/file-1" && request.method === "PUT") return {};
+    if (path === "/data/v4/files/complete-upload") {
+      return { fileId: body.fileId, fileVersionId: body.fileVersionId, isSuccess: true, verificationStatus: 2 };
+    }
+    return rawResponse(500, { errorMessage: `Unexpected ${request.method} ${path}` });
+  });
+
+  try {
+    const result = await runAsync(
+      ["data", "files", "upload", "--file", "note.json", "--object-access-level", "Creator", "--yes", "--api-url", server.url, "--json"],
+      { cwd, env: testEnv(configDir, { BLOCKS_SECRET_STORE: "file" }) }
+    );
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(JSON.parse(result.stdout).verificationStatus, "Verified");
+
+    const presign = requests.find((item) => item.url === "/data/v4/files/get-pre-signed-url-for-upload");
+    assert.equal(presign.body.sizeInBytes, 7);
+    assert.equal(presign.body.contentType, "application/json");
+    assert.equal(presign.body.checksumAlgorithm, "SHA256");
+    assert.match(presign.body.checksum, /^[0-9A-F]{64}$/);
+    assert.equal(presign.body.objectAccessLevel, "Creator");
+
+    const put = requests.find((item) => item.method === "PUT");
+    assert.equal(put.headers["x-amz-server-side-encryption"], "AES256");
+    assert.equal(put.headers["x-ms-blob-type"], undefined);
+
+    const complete = requests.find((item) => item.url === "/data/v4/files/complete-upload");
+    assert.deepEqual(complete.body, { fileId: "file-1", fileVersionId: "version-1" });
+  } finally {
+    await new Promise((resolveClose) => server.close(resolveClose));
+  }
+});
+
+test("data files upload fails when completion rejects the upload", async () => {
+  const { cwd, configDir } = await makeWorkspace();
+  await writeProjectAuth(configDir);
+  await writeFile(join(cwd, "note.json"), '{"a":1}');
+
+  const server = await startJsonServer((request, body) => {
+    const path = request.url.split("?")[0];
+    if (path === "/data/v4/files/get-pre-signed-url-for-upload") {
+      return { fileId: "file-1", fileVersionId: "version-1", isSuccess: true, uploadCompletionRequired: true, uploadUrl: `${server.url}/bucket/q` };
+    }
+    if (path === "/bucket/q") return {};
+    if (path === "/data/v4/files/complete-upload") {
+      return { ...body, isSuccess: true, rejectionReason: "real_file_type_does_not_match_extension", verificationStatus: 3 };
+    }
+    return rawResponse(500, { errorMessage: `Unexpected ${request.method} ${path}` });
+  });
+
+  try {
+    const result = await runAsync(["data", "files", "upload", "--file", "note.json", "--yes", "--api-url", server.url, "--json"], {
+      cwd,
+      env: testEnv(configDir, { BLOCKS_SECRET_STORE: "file" })
+    });
+    assert.notEqual(result.status, 0);
+    assert.match(result.stdout + result.stderr, /Rejected: real_file_type_does_not_match_extension/);
+  } finally {
+    await new Promise((resolveClose) => server.close(resolveClose));
+  }
+});
+
+test("storage config save --update carries upload settings and refuses provider fields", async () => {
+  const { cwd, configDir } = await makeWorkspace();
+  await writeProjectAuth(configDir);
+  const server = await startJsonServer((request) => {
+    const path = request.url.split("?")[0];
+    if (path === "/os/v4/Storage/Gets") {
+      return [{
+        itemId: "cfg-1",
+        name: "primary",
+        storageStrategy: "S3",
+        uploadUrlExpirySeconds: 900,
+        downloadUrlExpirySeconds: 120,
+        maxFileSizeInBytes: 1048576,
+        uploadCompletionRequiredFor: ["Private"]
+      }];
+    }
+    return rawResponse(500, { errorMessage: `Unexpected ${request.method} ${path}` });
+  });
+
+  try {
+    const env = testEnv(configDir, { BLOCKS_SECRET_STORE: "file" });
+    const merged = await runAsync(
+      ["storage", "config", "save", "--update", "--item-id", "cfg-1", "--max-file-size-bytes", "2097152", "--dry-run", "--api-url", server.url, "--json"],
+      { cwd, env }
+    );
+    assert.equal(merged.status, 0, merged.stderr);
+    const output = JSON.parse(merged.stdout);
+    assert.equal(output.target, "update");
+    assert.deepEqual(output.request, {
+      itemId: "cfg-1",
+      updateRequest: true,
+      uploadUrlExpirySeconds: 900,
+      downloadUrlExpirySeconds: 120,
+      maxFileSizeInBytes: 2097152,
+      uploadCompletionRequiredFor: ["Private"]
+    });
+
+    const refused = await runAsync(
+      ["storage", "config", "save", "--update", "--item-id", "cfg-1", "--connection-string", "x", "--dry-run", "--api-url", server.url, "--json"],
+      { cwd, env }
+    );
+    assert.notEqual(refused.status, 0);
+    assert.match(refused.stdout + refused.stderr, /provider and credentials are fixed/);
+  } finally {
+    await new Promise((resolveClose) => server.close(resolveClose));
+  }
+});
+
+test("iam organizations config save merges over the stored policy", async () => {
+  const { cwd, configDir } = await makeWorkspace();
+  await writeProjectAuth(configDir);
+  const server = await startJsonServer((request) => {
+    const path = request.url.split("?")[0];
+    if (path === "/iam/v4/iam/organizations/config" && request.method === "GET") {
+      return {
+        allowOrgCreationFromCloud: true,
+        allowOrgCreationFromConstruct: false,
+        allowOrgCreationFromSignup: true,
+        allowOrgCreationFromPortal: true,
+        isMultiOrgEnabled: true,
+        consentForMultiOrgEnable: true,
+        isOrgNameUniquenessEnabled: false,
+        itemId: "cfg"
+      };
+    }
+    return rawResponse(500, { errorMessage: `Unexpected ${request.method} ${path}` });
+  });
+
+  try {
+    const result = await runAsync(
+      ["iam", "organizations", "config", "save", "--allow-org-creation-from-signup=false", "--org-name-uniqueness", "--dry-run", "--api-url", server.url, "--json"],
+      { cwd, env: testEnv(configDir, { BLOCKS_SECRET_STORE: "file" }) }
+    );
+    assert.equal(result.status, 0, result.stderr);
+    assert.deepEqual(JSON.parse(result.stdout).request, {
+      allowOrgCreationFromCloud: true,
+      allowOrgCreationFromConstruct: false,
+      allowOrgCreationFromSignup: false,
+      allowOrgCreationFromPortal: true,
+      isMultiOrgEnabled: true,
+      consentForMultiOrgEnable: true,
+      isOrgNameUniquenessEnabled: true
+    });
+  } finally {
+    await new Promise((resolveClose) => server.close(resolveClose));
+  }
+});
+
+test("mail config save builds an Office 365 configuration and redacts its client secret", async () => {
+  const { cwd, configDir } = await makeWorkspace();
+  const result = run([
+    "mail", "config", "save", "--name", "o365", "--provider", "office365-smtp",
+    "--entra-tenant-id", "entra-tenant", "--client-id", "app-id", "--client-secret", "s3cret",
+    "--mailbox-address", "noreply@example.test", "--sender-name", "Example", "--sender-address", "noreply@example.test",
+    "--dry-run", "--json"
+  ], { cwd, env: testEnv(configDir, { BLOCKS_SECRET_STORE: "file" }) });
+  assert.equal(result.status, 0, result.stderr);
+  const request = JSON.parse(result.stdout).request;
+  assert.equal(request.provider, 2);
+  assert.equal(request.tenantId, "entra-tenant");
+  assert.equal(request.clientId, "app-id");
+  assert.equal(request.mailboxAddress, "noreply@example.test");
+  assert.equal(request.clientSecret, "***");
+  assert.equal(result.stdout.includes("s3cret"), false);
+
+  const unknown = run(["mail", "config", "save", "--provider", "gmail", "--dry-run", "--json"], {
+    cwd,
+    env: testEnv(configDir, { BLOCKS_SECRET_STORE: "file" })
+  });
+  assert.notEqual(unknown.status, 0);
 });
 
 test("current storage commands dry-run object-tree mutations with safe delete defaults", async () => {
