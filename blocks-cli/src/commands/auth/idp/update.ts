@@ -64,5 +64,7 @@ export async function authIdpUpdate(argv: string[]): Promise<void> {
     ...requestContext(flags),
     projectTenantId: projectKey
   });
-  writeOutput(result, flags);
+  // The updated record echoes clientSecret back verbatim -- redact it for the same
+  // reason the dry-run body above is redacted and idp list/get redact their reads.
+  writeOutput(redactSecrets(result), flags);
 }
