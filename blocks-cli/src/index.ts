@@ -39,6 +39,7 @@ import { dataFilesPresignedUploadUrl } from "./commands/data/files/presigned-upl
 import { dataFilesUpdateAdditionalInfo } from "./commands/data/files/update-additional-info.js";
 import { dataFilesUpload } from "./commands/data/files/upload.js";
 import { dataFilesUploadToLocalStorage } from "./commands/data/files/upload-to-local-storage.js";
+import { dataFilesCompleteUpload } from "./commands/data/files/complete-upload.js";
 import { dataFilesUploadToUrl } from "./commands/data/files/upload-to-url.js";
 import {
   dataFilesAccessGrant,
@@ -309,6 +310,7 @@ const commands: Partial<Record<string, CommandHandler>> = {
   "data:files:presigned-upload-url": dataFilesPresignedUploadUrl,
   "data:files:upload-to-url": dataFilesUploadToUrl,
   "data:files:upload-to-local-storage": dataFilesUploadToLocalStorage,
+  "data:files:complete-upload": dataFilesCompleteUpload,
   "data:files:update-additional-info": dataFilesUpdateAdditionalInfo,
   "data:files:delete": dataFilesDelete,
   "data:files:list": dataFilesList,
@@ -839,8 +841,8 @@ IAM:
     blocks iam organizations config save [--allow-org-creation-from-cloud]
                               [--allow-org-creation-from-construct] [--allow-org-creation-from-signup]
                               [--allow-org-creation-from-portal] [--multi-org-enabled]
-                              [--consent-for-multi-org-enable] [--body '<json>'|--file <path>]
-                              [--dry-run] [--yes] [--json]
+                              [--consent-for-multi-org-enable] [--org-name-uniqueness]
+                              [--body '<json>'|--file <path>] [--dry-run] [--yes] [--json]
 
   Signup settings (/iam/v4/iam/signup-settings):
     blocks iam signup-settings get [--json]
@@ -891,11 +893,16 @@ Mail (/os/v4/Mail/* — project-scoped: requires a selected project, impersonate
   blocks mail config get <name> [--json]
   blocks mail config save [--configuration-id <id>] [--name <n>] [--host <h>] [--port <n>]
                               [--enable-ssl] [--sender-name] [--sender-address] [--sender-username]
-                              [--account-password] [--inbound] [--provider <0|1>]
+                              [--account-password] [--inbound]
+                              [--provider amazon-ses|zoho|office365-smtp] [--security-mode]
+                              [--entra-tenant-id] [--client-id] [--client-secret] [--mailbox-address]
                               [--body '<json>'|--file <path>] [--dry-run] [--yes] [--json]
     Upsert: omit --configuration-id to create; pass it to update.
+    office365-smtp (outbound only) takes --entra-tenant-id, --client-id, --client-secret and
+    --mailbox-address instead of a username/password; host, port and TLS are fixed by the server.
   blocks mail config delete <configurationId> [--dry-run] [--yes] [--json]
-  blocks mail config duplicate <configurationId> [--dry-run] [--yes] [--json]
+  blocks mail config duplicate <configurationId> [--client-secret] [--dry-run] [--yes] [--json]
+    An office365-smtp copy needs its own --client-secret; it never shares the source's.
   blocks mail template list [--page-number] [--page-size] [--search] [--sort-by] [--sort-desc]
                               [--configuration-id] [--language] [--json]
   blocks mail template get <itemId> [--json]
@@ -958,8 +965,11 @@ Storage (/os/v4/Storage/* — project-scoped: requires a selected project, imper
   blocks storage config save [--item-id <id>] [--name <n>] [--strategy] [--connection-string]
                               [--secret-key] [--access-key] [--region-endpoint] [--host] [--port]
                               [--username] [--password] [--remote-base-path] [--update]
+                              [--upload-url-expiry-seconds] [--download-url-expiry-seconds]
+                              [--max-file-size-bytes] [--upload-completion-required-for Public,Private]
                               [--body '<json>'|--file <path>] [--dry-run] [--yes] [--json]
-    Upsert: omit --item-id to create; pass --update to update.
+    Upsert: omit --item-id to create; pass --update to update. Once a configuration exists only
+    the upload settings can change; the provider and its credentials are fixed.
   blocks storage config delete <name> [--dry-run] [--yes] [--json]
 
 Captcha (/os/v4/captcha/* — project-scoped: requires a selected project, impersonated project token only):
@@ -1043,7 +1053,11 @@ Auth Admin (/iam/v4/auth/identity-providers*, /config, /client-credentials, /oid
                               [--access-token-minutes] [--remember-me-refresh-token-minutes]
                               [--wrong-attempts-to-lock] [--account-lock-duration-minutes]
                               [--oidc-enabled] [--logout-on-password-change]
-                              [--password-strength-regex] [--body '<json>'|--file <path>]
+                              [--password-strength-regex] [--password-strength-message]
+                              [--password-policy-min-length] [--password-policy-max-length]
+                              [--password-policy-require-uppercase] [--password-policy-require-lowercase]
+                              [--password-policy-require-numbers] [--password-policy-require-special-chars]
+                              [--password-policy-message] [--body '<json>'|--file <path>]
                               [--dry-run] [--yes] [--json]
   blocks auth client-credentials list [--json]
     clientSecret is included in list responses; treat CLI output as sensitive.
@@ -1135,7 +1149,8 @@ Data:
                               [--body '<json>'|--file <path>] [--dry-run] [--yes] [--json]
     blocks data config update --item-id <id> [--connection-string] [--database-name]
                               [--collection-name-editable] [--collection-name-pattern]
-                              [--body '<json>'|--file <path>] [--dry-run] [--yes] [--json]
+                              [--enable-analytics] [--body '<json>'|--file <path>]
+                              [--dry-run] [--yes] [--json]
 
   Raw Schema API (/data/v4/schemas* - beyond the file-oriented list/pull/push above):
     blocks data schema get <id> [--json]
@@ -1193,12 +1208,15 @@ Data:
     blocks data files upload --file <localPath> [--name] [--item-id] [--parent-id] [--tags]
                               [--access-modifier Public|Private] [--content-type]
                               [--configuration-name] [--module-name <1-11>] [--local-storage]
+                              [--object-access-level Creator|Organization] [--inherits-parent-access]
                               [--dry-run] [--yes] [--json]
-      Cloud: create file/version metadata, then PUT bytes to the returned URL. Local:
-      one multipart request. The file appears in the object tree without registration.
+      Cloud: create file/version metadata, PUT bytes to the returned URL, and complete the
+      upload when the storage configuration requires it. Local: one multipart request.
     blocks data files presigned-upload-url --name <fileName> [--item-id] [--parent-directory-id]
                               [--access-modifier Public|Private] [--configuration-name]
                               [--module-name <1-11>] [--meta-data] [--tags]
+                              [--object-access-level Creator|Organization] [--inherits-parent-access]
+                              [--size-in-bytes] [--content-type] [--checksum] [--checksum-algorithm]
                               [--body '<json>'|--file <path>] [--dry-run] [--yes] [--json]
       Mutating cloud step 1: creates metadata/version and returns uploadUrl/fileId.
     blocks data files upload-to-url --url <presignedUrl> --file <localPath>
@@ -1208,8 +1226,11 @@ Data:
     blocks data files upload-to-local-storage --file <localPath> [--name] [--item-id]
                               [--parent-directory-id] [--tags] [--access-modifier Public|Private]
                               [--configuration-name] [--meta-data] [--additional-properties '<json>']
+                              [--object-access-level Creator|Organization] [--inherits-parent-access]
                               [--dry-run] [--yes] [--json]
       One-call alternative to the two commands above, for local-storage-backed projects.
+    blocks data files complete-upload <fileId> <fileVersionId> [--dry-run] [--yes] [--json]
+      Step 3 when step 1 said uploadCompletionRequired: verify and promote the quarantined upload.
     blocks data files update-additional-info <itemId> --additional-properties '<json>'
                               [--dry-run] [--yes] [--json]
     blocks data files delete <fileId> [--configuration-name] [--event-queue-name]

@@ -88,7 +88,18 @@ blocks data files upload-to-url \
   --yes --json
 ```
 
-The presign response contains `uploadUrl`, `fileId`, and `isSuccess`. The first call creates the file metadata/version; the PUT fills its object-storage key. Handle PUT failure explicitly because it can leave metadata for missing bytes.
+The presign response contains `uploadUrl`, `fileId`, `fileVersionId`, `requiredHeaders`, `uploadCompletionRequired`, and `isSuccess`. The first call creates the file metadata/version; the PUT fills its object-storage key. Handle PUT failure explicitly because it can leave metadata for missing bytes. Pass `--size-in-bytes`, `--content-type` and `--checksum` (with `--checksum-algorithm SHA256|SHA1|MD5`) so blocks-data can refuse an oversized file before issuing a URL and verify the bytes later.
+
+**Upload completion.** When the storage configuration lists the file's access modifier in `uploadCompletionRequiredFor` (see **blocks-storage-configuration**), the response says `uploadCompletionRequired: true` and the bytes land in private quarantine: the file is in the tree but unreadable until completed. Send the `requiredHeaders` on the PUT, then:
+
+```bash
+blocks data files complete-upload <fileId> <fileVersionId> --dry-run --json
+blocks data files complete-upload <fileId> <fileVersionId> --yes --json
+```
+
+It verifies declared size, content type, checksum, and that the real file type matches the extension, then promotes the file (`verificationStatus: "Verified"`) or rejects it with a `rejectionReason`. It is idempotent. On a version that never needed completion it answers `file_version_not_found`. `data files upload` does all of this itself: it declares size/type/SHA-256 checksum, uses the server's headers, completes when required, and fails on a rejection.
+
+**Access defaults.** `--object-access-level Creator|Organization` sets who can reach an unshared file (omitted keeps the legacy allow-all default), and `--inherits-parent-access=false` stops a broad grant on a parent directory from carrying down. Both apply to `upload`, `presigned-upload-url` and `upload-to-local-storage`.
 
 When `parentDirectoryId` is empty, the cloud upload resolves `moduleName` to that module's default directory. The backend default is module value `8` (`Default_Construct`), but pass the intended module or a concrete directory id instead of relying on that default.
 
@@ -123,7 +134,9 @@ await blocksClient.data.files.uploadToUrl({
 });
 ```
 
-`uploadToUrl` is provider-direct and sends no bearer token or `x-blocks-key`. The SDK adds Azure's `x-ms-blob-type: Blockblob` header unless overridden; ensure that header matches the signed provider policy.
+`uploadToUrl` is provider-direct and sends no bearer token or `x-blocks-key`. The SDK adds Azure's `x-ms-blob-type: Blockblob` header unless overridden; ensure that header matches the signed provider policy (the presign response's `requiredHeaders` names the ones the provider expects).
+
+The SDK has no upload-completion call yet. If the presign response says `uploadCompletionRequired`, the file stays quarantined until the upload is completed with its `fileId` and `fileVersionId`. Use `blocks data files complete-upload` from the terminal, or avoid completion-required access modifiers for app-code uploads until the SDK exposes it.
 
 ### Local-storage upload
 

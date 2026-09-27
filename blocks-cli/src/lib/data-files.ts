@@ -184,3 +184,12 @@ export function validateSchemas(schemas: Array<{ file: string; schema: SchemaDoc
 
   return errors;
 }
+
+// FileVerificationStatus in blocks-data. The API sends the ordinal.
+const VERIFICATION_STATUSES = ["Unverified", "Quarantined", "Verified", "Rejected"];
+
+/** Names an upload's verification status, whether the API sent the ordinal or the name. */
+export function verificationStatusName(value: unknown): string | undefined {
+  if (typeof value === "number") return VERIFICATION_STATUSES[value];
+  return typeof value === "string" ? value : undefined;
+}

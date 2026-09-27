@@ -417,7 +417,7 @@ Same rules as everywhere else: `--dry-run` before any mutating command, then `--
 
 **`--file` means two different things depending on the command.** Everywhere else in this CLI (`--body '<json>'`/`--file <path.json>`), `--file` is a JSON payload file read by `jsonBodyFlag`. On the `data files *` upload commands (`upload-to-url`, `upload-to-local-storage`), `--file` is instead the local binary file to read and upload - there is no JSON payload involved. Don't conflate the two: passing a JSON path to `data files upload-to-local-storage --file` uploads the JSON text as the file's bytes, it does not set a request body.
 
-**Prefer the composed `data files upload` over the manual steps below.** For cloud storage it creates the file/version metadata and PUTs the bytes; for local storage it performs one multipart call. Either path creates the visible object directly—there is no DMS registration step:
+**Prefer the composed `data files upload` over the manual steps below.** For cloud storage it creates the file/version metadata (declaring size, content type and a SHA-256 checksum), PUTs the bytes with the headers the server names, and -- when the storage configuration requires completion for the access modifier -- completes the upload so blocks-data verifies it and promotes it out of quarantine, failing with the `rejectionReason` if verification rejects it. For local storage it performs one multipart call. `--object-access-level Creator|Organization` and `--inherits-parent-access=false` set the file's default access. Either path creates the visible object directly—there is no DMS registration step:
 
 ```bash
 blocks data files upload --file ./invoice.pdf --access-modifier Public --dry-run --json
@@ -425,7 +425,7 @@ blocks data files upload --file ./invoice.pdf --access-modifier Public --yes --j
 blocks data files upload --file ./invoice.pdf --local-storage --yes --json   # local-storage-backed projects
 ```
 
-Manual cloud-storage upload, if you need the intermediate steps for some reason (two calls):
+Manual cloud-storage upload, if you need the intermediate steps for some reason (two calls, three when the presign response says `uploadCompletionRequired`):
 
 ```bash
 blocks data files presigned-upload-url --name invoice.pdf --access-modifier Public --dry-run --json
@@ -433,6 +433,8 @@ blocks data files presigned-upload-url --name invoice.pdf --access-modifier Publ
 # take the returned uploadUrl and fileId, then:
 blocks data files upload-to-url --url "<uploadUrl>" --file ./invoice.pdf --content-type application/pdf --dry-run --json
 blocks data files upload-to-url --url "<uploadUrl>" --file ./invoice.pdf --content-type application/pdf --yes --json
+# only when the presign response said uploadCompletionRequired -- until then the file is unreadable:
+blocks data files complete-upload <fileId> <fileVersionId> --yes --json
 ```
 
 Manual local-storage upload (one call):
@@ -519,8 +521,11 @@ blocks mail config get <name> --json
 blocks mail config save --name <n> --host <h> --port <p> --enable-ssl \
   --sender-name <n> --sender-address <addr> --account-password <p> --dry-run --json
 blocks mail config save --configuration-id <id> ... --yes --json   # update
+blocks mail config save --name <n> --provider office365-smtp --entra-tenant-id <entraTenant> \
+  --client-id <appId> --client-secret <s> --mailbox-address <addr> \
+  --sender-name <n> --sender-address <addr> --dry-run --json      # Office 365 (OAuth, outbound)
 blocks mail config delete <configurationId> --dry-run --json
-blocks mail config duplicate <configurationId> --dry-run --json
+blocks mail config duplicate <configurationId> [--client-secret <s>] --dry-run --json   # Office 365 copies need a new secret
 
 blocks mail template list --configuration-id <id> --json
 blocks mail template get <itemId> --json
@@ -591,11 +596,13 @@ Project-scoped storage backend configuration via `/os/v4/Storage/*`:
 blocks storage config list --json
 blocks storage config get <name> --json
 blocks storage config save --name <n> --strategy <s> --secret-key <k> --access-key <k> --dry-run --json
-blocks storage config save --item-id <id> --update ... --yes --json   # update
+blocks storage config save --item-id <id> --update --max-file-size-bytes <n> --yes --json   # update
 blocks storage config delete <name> --dry-run --json
 ```
 
 `--secret-key`, `--access-key`, `--password`, and `--connection-string` are secrets; the CLI redacts them in `--dry-run` output only.
+
+An update can change only the upload settings (`--upload-url-expiry-seconds`, `--download-url-expiry-seconds`, `--max-file-size-bytes`, `--upload-completion-required-for Public,Private`). The provider and its credentials are fixed at create: blocks-os drops them on an update and still reports success, so the CLI refuses them (`delete` and re-create to change them). The four upload settings are read from the stored record and carried, because the server resets any left out.
 
 ## Captcha
 
