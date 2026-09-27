@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { delimiter, join, resolve } from "node:path";
 import { spawn, spawnSync } from "node:child_process";
 import { createServer } from "node:http";
+import { createServer as createTcpServer } from "node:net";
 import test from "node:test";
 import { applyAccountToken, applyProjectToken } from "../dist/lib/token.js";
 import { writeConfig as writeConfigFile } from "../dist/lib/config.js";
@@ -20,6 +21,7 @@ import {
 import { withAuthTransitionLock } from "../dist/lib/auth-lock.js";
 import { CliActionableError } from "../dist/lib/errors.js";
 import { oidcRedirectUrisFromAppDomain } from "../dist/lib/domains.js";
+import { findAvailablePort, isPortFree } from "../dist/lib/port.js";
 import { isNewerVersion } from "../dist/lib/update-check.js";
 
 const repoRoot = resolve(import.meta.dirname, "..");
@@ -596,6 +598,27 @@ test("OIDC redirect URI defaults include production and local HTTPS callbacks", 
     "https://demo.example.test/login/callback",
     "https://demo.example.test:5173/login/callback"
   ]);
+  assert.deepEqual(oidcRedirectUrisFromAppDomain("https://demo.example.test", 4001), [
+    "https://demo.example.test/login/callback",
+    "https://demo.example.test:4001/login/callback"
+  ]);
+});
+
+test("isPortFree/findAvailablePort detect a bound port and skip past it", async () => {
+  const blocker = createTcpServer();
+  await new Promise((resolveListen) => blocker.listen(0, "0.0.0.0", resolveListen));
+  const port = blocker.address().port;
+
+  try {
+    assert.equal(await isPortFree(port), false);
+    const picked = await findAvailablePort(port);
+    assert.notEqual(picked, port);
+    assert.equal(await isPortFree(picked), true);
+  } finally {
+    await new Promise((resolveClose) => blocker.close(resolveClose));
+  }
+
+  assert.equal(await isPortFree(port), true);
 });
 
 test("device authorization reads only the requested account's client secret", async () => {
@@ -3289,6 +3312,102 @@ test("new web preserves an explicit blocks API URL override", async () => {
     const envFile = await readFile(join(cwd, "override-app", ".env"), "utf8");
     assert.match(envFile, /^VITE_BLOCKS_API_URL=https:\/\/api\.override\.example\.test$/m);
   } finally {
+    await new Promise((resolveClose) => server.close(resolveClose));
+  }
+});
+
+test("new web keeps .env and vite.config.ts on the explicit --dev-port", async () => {
+  const { cwd, configDir } = await makeWorkspace();
+  const server = await startJsonServer(() => ({ isOidcEnabled: true }));
+  try {
+    await writeProjectModeAuth(configDir, server.url);
+    const result = await runAsync([
+      "new", "web", "custom-port-app",
+      "--x-blocks-key", "project-tenant",
+      "--app-domain", "https://app.example.test",
+      "--client-id", "dev-client-id",
+      "--dev-port", "4321",
+      "--account", "studio",
+      "--project", "project-tenant",
+      "--api-url", server.url,
+      "--json"
+    ], { cwd, env: testEnv(configDir, { BLOCKS_SECRET_STORE: "file" }) });
+
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(JSON.parse(result.stdout).devPort, 4321);
+
+    const envFile = await readFile(join(cwd, "custom-port-app", ".env"), "utf8");
+    assert.match(envFile, /^VITE_BLOCKS_DEV_PORT=4321$/m);
+
+    const viteConfig = await readFile(join(cwd, "custom-port-app", "vite.config.ts"), "utf8");
+    assert.match(viteConfig, /VITE_BLOCKS_DEV_PORT \|\| 4321/);
+  } finally {
+    await new Promise((resolveClose) => server.close(resolveClose));
+  }
+});
+
+test("new web rejects an explicit --dev-port that is already bound", async () => {
+  const { cwd, configDir } = await makeWorkspace();
+  const server = await startJsonServer(() => ({ isOidcEnabled: true }));
+  const blocker = createTcpServer();
+  await new Promise((resolveListen) => blocker.listen(0, "0.0.0.0", resolveListen));
+  const busyPort = blocker.address().port;
+
+  try {
+    await writeProjectModeAuth(configDir, server.url);
+    const result = await runAsync([
+      "new", "web", "busy-port-app",
+      "--x-blocks-key", "project-tenant",
+      "--app-domain", "https://app.example.test",
+      "--client-id", "dev-client-id",
+      "--dev-port", String(busyPort),
+      "--account", "studio",
+      "--project", "project-tenant",
+      "--api-url", server.url,
+      "--json"
+    ], { cwd, env: testEnv(configDir, { BLOCKS_SECRET_STORE: "file" }) });
+
+    assert.equal(result.status, 1);
+    assert.equal(JSON.parse(result.stderr).code, "dev_port_in_use");
+    await assert.rejects(readFile(join(cwd, "busy-port-app", ".env"), "utf8"), /ENOENT/);
+  } finally {
+    await new Promise((resolveClose) => blocker.close(resolveClose));
+    await new Promise((resolveClose) => server.close(resolveClose));
+  }
+});
+
+test("new web auto-picks the next free port when the Vite default is already bound by another app", async () => {
+  const { cwd, configDir } = await makeWorkspace();
+  const server = await startJsonServer(() => ({ isOidcEnabled: true }));
+  const blocker = createTcpServer();
+  await new Promise((resolveListen) => blocker.listen(5173, "0.0.0.0", resolveListen));
+
+  try {
+    await writeProjectModeAuth(configDir, server.url);
+    const result = await runAsync([
+      "new", "web", "collision-app",
+      "--x-blocks-key", "project-tenant",
+      "--app-domain", "https://app.example.test",
+      "--client-id", "dev-client-id",
+      "--account", "studio",
+      "--project", "project-tenant",
+      "--api-url", server.url,
+      "--json"
+    ], { cwd, env: testEnv(configDir, { BLOCKS_SECRET_STORE: "file" }) });
+
+    assert.equal(result.status, 0, result.stderr);
+    assert.match(result.stderr, /default dev port 5173 is already in use/);
+
+    const devPort = JSON.parse(result.stdout).devPort;
+    assert.notEqual(devPort, 5173);
+
+    const envFile = await readFile(join(cwd, "collision-app", ".env"), "utf8");
+    assert.match(envFile, new RegExp(`^VITE_BLOCKS_DEV_PORT=${devPort}$`, "m"));
+
+    const viteConfig = await readFile(join(cwd, "collision-app", "vite.config.ts"), "utf8");
+    assert.match(viteConfig, new RegExp(`VITE_BLOCKS_DEV_PORT \\|\\| ${devPort}`));
+  } finally {
+    await new Promise((resolveClose) => blocker.close(resolveClose));
     await new Promise((resolveClose) => server.close(resolveClose));
   }
 });
