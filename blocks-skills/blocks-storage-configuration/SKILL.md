@@ -49,8 +49,14 @@ blocks storage config get --name Default --json
 | `--password` | `password` |
 | `--remote-base-path` | `remoteBasePath` |
 | `--update` (boolean) | `updateRequest` |
+| `--upload-url-expiry-seconds` | `uploadUrlExpirySeconds` (1–604800; blocks-data default 600) |
+| `--download-url-expiry-seconds` | `downloadUrlExpirySeconds` (1–604800; default 300) |
+| `--max-file-size-bytes` | `maxFileSizeInBytes` (at most 50 MB; default 5 MiB) |
+| `--upload-completion-required-for Public,Private` | `uploadCompletionRequiredFor` — uploads with these access modifiers land in quarantine until `data files complete-upload` verifies them; `--upload-completion-required-for=` clears it |
 
-Unset flags are dropped (`compact`), so they never overwrite fields already present in a `--body`/`--file` payload. `save` is a create-or-update in one command, not two separate verbs — pass `--item-id` (and typically `--update`) when modifying an existing configuration, omit it to create a new one.
+Unset flags are dropped (`compact`), so they never overwrite fields already present in a `--body`/`--file` payload. `save` is a create-or-update in one command, not two separate verbs — pass `--item-id` with `--update` when modifying an existing configuration, omit both to create a new one.
+
+**Once a configuration exists, only the four upload settings can change.** The provider identity and credentials (`--strategy`, `--connection-string`, `--access-key`, `--secret-key`, `--host`, `--port`, `--username`, `--password`, `--region-endpoint`, `--remote-base-path`) are fixed at create: blocks-os drops them on an update and still answers success, so the CLI refuses them on `--update`. To change provider or rotate its credentials, delete the configuration and create it again. An update reads the stored record and carries the upload settings you don't pass, because the server resets any that are left out. A create whose `--name` is already taken is refused on the live run (the server would treat it as an update); use `--update --item-id <id>` instead.
 
 ```bash
 blocks storage config save --name Default --strategy AzureBlob \
@@ -60,14 +66,16 @@ blocks storage config save --name Default --strategy AzureBlob \
   --host mystorageaccount.blob.core.windows.net --region-endpoint eu-west-1 \
   --access-key <key> --secret-key <secret> --yes --json
 
-# Update an existing configuration
-blocks storage config save --item-id <id> --update --connection-string "<new connection string>" --dry-run --json
-blocks storage config save --item-id <id> --update --connection-string "<new connection string>" --yes --json
+# Change an existing configuration's upload settings (the only fields an update can change)
+blocks storage config save --item-id <id> --update --max-file-size-bytes 10485760 \
+  --upload-completion-required-for Public,Private --dry-run --json
+blocks storage config save --item-id <id> --update --max-file-size-bytes 10485760 \
+  --upload-completion-required-for Public,Private --yes --json
 ```
 
 ## `--dry-run` before `--yes` — always
 
-Both mutating commands (`save`, `delete`) follow the standard `blocks` mutation discipline: `--dry-run` prints what would be sent and returns without calling the API; `--yes` skips the interactive confirmation prompt and sends the request for real. Omitting both drops into an interactive "Type 'yes' to continue" prompt — not viable in a scripted/agent context, so always pass one or the other explicitly.
+Both mutating commands (`save`, `delete`) follow the standard `blocks` mutation discipline: `--dry-run` prints what would be sent and returns without mutating anything (an `--update` dry-run still reads the stored record so it can show the merged body, and reports `target: "update"`); `--yes` skips the interactive confirmation prompt and sends the request for real. Omitting both drops into an interactive "Type 'yes' to continue" prompt — not viable in a scripted/agent context, so always pass one or the other explicitly.
 
 ```bash
 blocks storage config delete Default --dry-run --json
@@ -79,7 +87,8 @@ blocks storage config delete Default --yes --json
 ## Gotchas
 
 - **`get`/`list` are not redacted.** Only `save --dry-run`'s own preview output redacts `accessKey`/`connectionString`/`password`/`secretKey`. If a `get`/`list` response ever echoes credential fields back, treat that output as sensitive — don't paste it into logs, tickets, or chat verbatim.
-- **`save` is upsert, not separate create/update commands.** Whether a call creates or updates is determined by whether `--item-id` is present, not by a different command name.
+- **`save` is upsert, not separate create/update commands.** Whether a call creates or updates is determined by `--update --item-id`, not by a different command name.
+- **Credentials cannot be rotated in place.** An update changes only the upload settings; see above.
 - **This is provider configuration, not object management.** `blocks storage config *` never touches file bytes, directory hierarchy, versions, trash, sharing, or ACLs. Those belong to **blocks-data-storage**, using a `configurationName` that a storage config already defines.
 - **No positional-or-flag ambiguity trap:** `get`/`delete` accept the configuration name as either the first positional argument or `--name`; only one is required, not both.
 - **Impersonated project token only.** Like `secrets *` and `data config *`, none of these four commands run against the account token — a project must be selected first (`blocks use <tenantId>`).
@@ -89,7 +98,8 @@ blocks storage config delete Default --yes --json
 - "Set up Azure Blob storage for this project." → `storage config save --strategy AzureBlob ...`.
 - "What storage configurations exist on this project?" → `storage config list`.
 - "Show me the `Default` storage configuration." → `storage config get Default`.
-- "Rotate the access key on our storage config." → `storage config save --item-id <id> --update --access-key <new key> ...`.
+- "Rotate the access key on our storage config." → not possible in place: the provider and credentials are fixed once created. Confirm with the user, then `storage config delete <name>` and `storage config save` again with the new key.
+- "Cap uploads at 10 MB and verify every upload." → `storage config save --item-id <id> --update --max-file-size-bytes 10485760 --upload-completion-required-for Public,Private`.
 - "Switch this project to local storage." → `storage config save --strategy <local strategy value> --host ... --port ...` (confirm the exact strategy value expected by the project rather than guessing).
 - "Delete this storage configuration, we don't use it anymore." → `storage config delete <name>`.
 - "How do I actually upload a file once storage is configured?" → hand off to **blocks-data-storage**, not this skill.

@@ -6,6 +6,68 @@ This project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 Versions before 0.3.0 were released without a changelog; their history is in the
 repository's git log.
 
+## 0.7.0
+
+Brings the CLI back in line with the service changes shipped since 0.6.0 (blocks-os
+mail and storage configuration, blocks-data upload security, blocks-iam password
+policy and organization settings).
+
+### Fixed
+
+- `storage config save --update` no longer reports success for a change it never
+  made. blocks-os now fixes a configuration's provider and credentials at create and
+  drops them from every later save, still answering success, so the documented
+  "rotate the access key with `--update --access-key`" silently did nothing. The CLI
+  now refuses provider and credential flags on an existing configuration and says
+  to delete and re-create. The four upload settings an update *can* change are
+  replaced wholesale by the server, so the command reads the stored record and
+  carries the ones not passed. A create whose `--name` is already taken, which the
+  server would quietly turn into an update, is refused on the live run with the
+  `--update --item-id` to use instead.
+
+- `iam organizations config save` no longer switches org creation off for every
+  channel it wasn't told about. The server assigns the four `allowOrgCreationFrom*`
+  booleans straight from the request, so `--multi-org-enabled true` alone stored all
+  four as false. The command now reads the current policy and merges over it.
+
+- `data files upload` no longer leaves a file stuck in quarantine. When the storage
+  configuration requires upload completion for the file's access modifier,
+  blocks-data now holds the bytes privately until `files/complete-upload` verifies
+  them, and the old two-step flow produced a file that was listed but unreadable.
+  The command now declares size, content type and a SHA-256 checksum up front
+  (an oversized file is refused before a URL is issued), sends the headers the
+  presign response names instead of a hardcoded Azure pair, completes the upload
+  when required, and fails with the server's `rejectionReason` if verification
+  rejects it.
+
+- `scripts/verify-endpoints.mjs` checks calls typed with a nested generic
+  (`blocksRequest<Record<string, unknown>>(...)`). Its pattern stopped at the inner
+  `>`, so seven route+verb pairs were never verified; all of them match.
+
+### Added
+
+- `mail config save` supports the new SMTP Office 365 provider (outbound-only,
+  OAuth client credentials): `--entra-tenant-id` (the Microsoft Entra tenant, named
+  so it is not mistaken for the Blocks one), `--client-id`, `--client-secret` (stored
+  in Blocks Secrets, never returned, kept when omitted on an update) and
+  `--mailbox-address`. `--provider` takes `amazon-ses`, `zoho` or `office365-smtp` as
+  well as the raw number, and `--security-mode` takes `legacy`, `none`, `starttls` or
+  `ssl-on-connect`. Updates carry the new fields from the stored record.
+- `mail config duplicate --client-secret`: an Office 365 copy needs its own secret.
+- `data files complete-upload <fileId> <fileVersionId>` for the manual cloud upload
+  path, and `--size-in-bytes`, `--content-type`, `--checksum`, `--checksum-algorithm`
+  on `data files presigned-upload-url`.
+- `--object-access-level Creator|Organization` and `--inherits-parent-access` on
+  `data files upload`, `presigned-upload-url` and `upload-to-local-storage`.
+- `storage config save --upload-url-expiry-seconds`, `--download-url-expiry-seconds`,
+  `--max-file-size-bytes` and `--upload-completion-required-for Public,Private`.
+- `data config update --enable-analytics` (the first enable opens blocks-data's
+  14-day analytics window).
+- `auth config save` structured password policy flags: `--password-policy-min-length`,
+  `--password-policy-max-length`, `--password-policy-require-uppercase|lowercase|numbers|special-chars`,
+  `--password-policy-message`, and `--password-strength-message`.
+- `iam organizations config save --org-name-uniqueness`.
+
 ## 0.6.0
 
 ### Fixed
