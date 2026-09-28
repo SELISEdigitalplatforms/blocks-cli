@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { spawn } from "node:child_process";
@@ -113,12 +113,12 @@ async function startServer({ approveAfterPolls = Infinity, clientId = "Iv1.test-
 const ctx = (url) => ["--account", "alpha", "--project", "target-project", "--api-url", url, "--json"];
 
 test("github connect: opens authorize URL and reports connected after credential appears", async () => {
-  const { cwd, configDir, base } = await makeWorkspace();
-  const recordPath = join(base, "opened-url.txt");
+  const { cwd, configDir } = await makeWorkspace();
   const server = await startServer({ approveAfterPolls: 2, clientId: "Iv1.happy" });
   try {
     await writeProjectAuth(configDir, server.url);
-    const env = testEnv(configDir, { BLOCKS_OPEN_BROWSER: `record:${recordPath}` });
+    // Default BLOCKS_OPEN_BROWSER=0 skips launch; authorize URL is printed to stderr under --json.
+    const env = testEnv(configDir);
     // Force HTML scrape (no env client id).
     delete env.BLOCKS_GITHUB_SSO_CLIENT_ID;
 
@@ -129,10 +129,9 @@ test("github connect: opens authorize URL and reports connected after credential
     assert.equal(out.login, "octocat");
     assert.deepEqual(out.scopes, ["repo", "user:email", "read:user", "read:repo_hook"]);
 
-    const opened = (await readFile(recordPath, "utf8")).trim();
-    assert.match(opened, /^https:\/\/github\.com\/login\/oauth\/authorize\?/);
-    assert.match(opened, /client_id=Iv1\.happy/);
-    assert.match(opened, /scope=repo\+user%3Aemail\+read%3Auser\+read%3Arepo_hook/);
+    assert.match(result.stderr, /URL: https:\/\/github\.com\/login\/oauth\/authorize\?/);
+    assert.match(result.stderr, /client_id=Iv1\.happy/);
+    assert.match(result.stderr, /scope=repo\+user%3Aemail\+read%3Auser\+read%3Arepo_hook/);
     assert.ok(server.state.credentialPolls >= 2);
   } finally {
     await server.close();
@@ -140,17 +139,17 @@ test("github connect: opens authorize URL and reports connected after credential
 });
 
 test("github status: reports connected login without opening a browser", async () => {
-  const { cwd, configDir, base } = await makeWorkspace();
-  const recordPath = join(base, "opened-url.txt");
+  const { cwd, configDir } = await makeWorkspace();
   const server = await startServer({ approveAfterPolls: 0 });
   try {
     await writeProjectAuth(configDir, server.url);
     server.state.approved = true;
-    const env = testEnv(configDir, { BLOCKS_OPEN_BROWSER: `record:${recordPath}`, BLOCKS_GITHUB_SSO_CLIENT_ID: "unused" });
+    const env = testEnv(configDir, { BLOCKS_GITHUB_SSO_CLIENT_ID: "unused" });
     const result = await run(["github", "status", ...ctx(server.url)], { cwd, env });
     assert.equal(result.status, 0, result.stderr);
     assert.deepEqual(JSON.parse(result.stdout), { connected: true, login: "octocat" });
-    await assert.rejects(readFile(recordPath), /ENOENT/);
+    // status never prints an authorize URL (no browser path).
+    assert.doesNotMatch(result.stderr, /URL: https:\/\/github\.com\/login\/oauth\/authorize/);
   } finally {
     await server.close();
   }
@@ -174,15 +173,11 @@ test("github connect: times out when credential never appears", async () => {
 });
 
 test("github connect --dry-run: prints plan without polling or opening browser", async () => {
-  const { cwd, configDir, base } = await makeWorkspace();
-  const recordPath = join(base, "opened-url.txt");
+  const { cwd, configDir } = await makeWorkspace();
   const server = await startServer();
   try {
     await writeProjectAuth(configDir, server.url);
-    const env = testEnv(configDir, {
-      BLOCKS_OPEN_BROWSER: `record:${recordPath}`,
-      BLOCKS_GITHUB_SSO_CLIENT_ID: "Iv1.dry"
-    });
+    const env = testEnv(configDir, { BLOCKS_GITHUB_SSO_CLIENT_ID: "Iv1.dry" });
     const result = await run(["github", "connect", "--dry-run", "--timeout", "120", ...ctx(server.url)], { cwd, env });
     assert.equal(result.status, 0, result.stderr);
     const out = JSON.parse(result.stdout);
@@ -191,15 +186,15 @@ test("github connect --dry-run: prints plan without polling or opening browser",
     assert.equal(out.pollIntervalSeconds, 5);
     assert.match(out.authorizeUrl, /client_id=Iv1\.dry/);
     assert.equal(server.state.credentialPolls, 0);
-    await assert.rejects(readFile(recordPath), /ENOENT/);
+    // dry-run must not print the live progress URL line (no browser open).
+    assert.doesNotMatch(result.stderr, /URL: https:\/\/github\.com\/login\/oauth\/authorize/);
   } finally {
     await server.close();
   }
 });
 
 test("github connect: fails before browser when client id cannot be resolved", async () => {
-  const { cwd, configDir, base } = await makeWorkspace();
-  const recordPath = join(base, "opened-url.txt");
+  const { cwd, configDir } = await makeWorkspace();
   // Server with no index.html client id and no env override.
   const server = createServer((request, response) => {
     response.statusCode = 404;
@@ -243,13 +238,13 @@ test("github connect: fails before browser when client id cannot be resolved", a
   const bareUrl = `http://127.0.0.1:${bare.address().port}`;
   try {
     await writeProjectAuth(configDir, bareUrl);
-    const env = testEnv(configDir, { BLOCKS_OPEN_BROWSER: `record:${recordPath}` });
+    const env = testEnv(configDir);
     delete env.BLOCKS_GITHUB_SSO_CLIENT_ID;
     delete env.BLOCKS_RELEASE_WEB_URL;
     const result = await run(["github", "connect", "--timeout", "5", ...ctx(bareUrl)], { cwd, env });
     assert.equal(result.status, 1);
     assert.match(result.stderr, /github_client_id_unavailable/);
-    await assert.rejects(readFile(recordPath), /ENOENT/);
+    assert.doesNotMatch(result.stderr, /URL: https:\/\/github\.com\/login\/oauth\/authorize/);
     assert.equal(state.polls, 0, "must not poll credential before client id resolves");
   } finally {
     await new Promise((r) => { bare.closeAllConnections(); bare.close(r); });

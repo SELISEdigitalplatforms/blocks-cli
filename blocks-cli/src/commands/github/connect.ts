@@ -2,7 +2,7 @@ import { booleanFlag, integerFlag } from "../../lib/args.js";
 import {
   GITHUB_CONNECT_DEFAULT_TIMEOUT_SECONDS,
   GITHUB_CONNECT_POLL_INTERVAL_SECONDS,
-  GITHUB_OAUTH_SCOPES,
+  GITHUB_CONNECT_SCOPES,
   buildGithubAuthorizeUrl,
   installConnectAbortSignal,
   newGithubOAuthState,
@@ -30,7 +30,7 @@ export async function githubConnect(argv: string[]): Promise<void> {
         authorizeUrl,
         dryRun: true,
         pollIntervalSeconds: GITHUB_CONNECT_POLL_INTERVAL_SECONDS,
-        scopes: [...GITHUB_OAUTH_SCOPES],
+        scopes: [...GITHUB_CONNECT_SCOPES],
         timeoutSeconds
       },
       flags
@@ -60,7 +60,7 @@ export async function githubConnect(argv: string[]): Promise<void> {
       {
         connected: true,
         login: connection.login,
-        scopes: [...GITHUB_OAUTH_SCOPES]
+        scopes: [...GITHUB_CONNECT_SCOPES]
       },
       flags
     );

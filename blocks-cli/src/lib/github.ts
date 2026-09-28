@@ -5,7 +5,7 @@ import { CliActionableError } from "./errors.js";
 import { RELEASE_API } from "./release.js";
 import { requestContext } from "./request-context.js";
 
-export const GITHUB_OAUTH_SCOPES = ["repo", "user:email", "read:user", "read:repo_hook"] as const;
+export const GITHUB_CONNECT_SCOPES = ["repo", "user:email", "read:user", "read:repo_hook"] as const;
 export const GITHUB_CONNECT_POLL_INTERVAL_SECONDS = 5;
 export const GITHUB_CONNECT_DEFAULT_TIMEOUT_SECONDS = 300;
 
@@ -23,7 +23,7 @@ export type GithubConnection = {
 export function buildGithubAuthorizeUrl(clientId: string, state: string): string {
   const url = new URL("https://github.com/login/oauth/authorize");
   url.searchParams.set("client_id", clientId);
-  url.searchParams.set("scope", GITHUB_OAUTH_SCOPES.join(" "));
+  url.searchParams.set("scope", GITHUB_CONNECT_SCOPES.join(" "));
   url.searchParams.set("state", state);
   return url.toString();
 }
@@ -139,7 +139,7 @@ export async function getGithubConnection(projectKey: string, flags: Flags): Pro
   return {
     connected: true,
     login: credential.login,
-    scopes: [...GITHUB_OAUTH_SCOPES],
+    scopes: [...GITHUB_CONNECT_SCOPES],
     tokenPresent: Boolean(credential.token)
   };
 }
