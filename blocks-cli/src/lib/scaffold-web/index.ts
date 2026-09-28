@@ -1,10 +1,8 @@
 import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import { writeAppCore } from "./app-core.js";
-import { writeAssetsFeature } from "./assets-feature.js";
 import { writeAuthPages } from "./auth-pages.js";
 import { writeBlocksLib } from "./blocks-lib.js";
-import { writeDashboard } from "./dashboard.js";
 import { writeI18n } from "./i18n.js";
 import { writeLayout } from "./layout.js";
 import { writeProfileFeature } from "./profile-feature.js";
@@ -34,8 +32,6 @@ export async function scaffoldWebProject(options: WebOptions): Promise<void> {
   await writeBlocksLib(root);
   await writeUiBasics(root);
   await writeAuthPages(root);
-  await writeDashboard(root);
-  await writeAssetsFeature(root);
   await writeProfileFeature(root);
   await writeStyles(root);
 }

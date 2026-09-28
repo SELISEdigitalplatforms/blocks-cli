@@ -1,28 +1,119 @@
-# Blocks Packages
+# SELISE Blocks Packages
 
-Umbrella workspace for SELISE Blocks npm packages.
+This repository contains the public npm packages and AI workflow assets for building with SELISE Blocks.
+
+SELISE Blocks provides a CLI for project setup and administration, a framework-neutral frontend SDK for runtime application code, and a set of AI workflow skills, kept in this repository, that guide agents through supported Blocks workflows.
 
 ## Packages
 
-| Folder | Package | Purpose |
+| Package | Source | Purpose |
 |---|---|---|
-| `blocks-cli` | `@seliseblocks/cli-os` | Terminal/admin/AI control plane for auth, projects, scaffolding, Data config, Release operations, and IAM/MFA/Auth/Mail/Notification/Storage admin. |
-| `blocks-client` | `@seliseblocks/client` | Framework-neutral frontend TypeScript SDK for auth, current user, Data runtime access, Localization, and shared HTTP/config. |
+| [`@seliseblocks/cli-os`](https://www.npmjs.com/package/@seliseblocks/cli-os) | [`blocks-cli`](blocks-cli/README.md) | Terminal/admin/AI control plane for auth, projects, scaffolding, Data configuration, Release operations, IAM, MFA, Auth, Mail, Notification, and Storage. |
+| [`@seliseblocks/client`](https://www.npmjs.com/package/@seliseblocks/client) | [`blocks-client`](blocks-client/README.md) | Framework-neutral TypeScript SDK for frontend/runtime access to Auth, IAM, Data, Localization, Mail, MFA, and Notifier APIs. |
 
-## Commands
+## Repository Structure
 
-For AI agents that need to enter the workflow from any state, start with [AI_START_GUIDE.md](AI_START_GUIDE.md).
+```text
+.
+|-- blocks-cli/          # @seliseblocks/cli-os source, README, agent guide, tests
+|-- blocks-client/       # @seliseblocks/client source, README, agent guide, tests
+|-- blocks-skills/       # AI workflow skills (repo-only; not shipped in either package)
+|-- docs/                # Cross-package documentation, including the AI routing guide
+|-- AGENTS.md            # Repository instructions for AI coding agents
+|-- CONTRIBUTING.md      # Contribution workflow
+|-- CODE_OF_CONDUCT.md   # Community standards
+|-- SECURITY.md          # Private vulnerability disclosure policy
+`-- LICENSE              # MIT license
+```
 
-Run all package tests:
+## Installation
+
+Install the CLI globally when you want to operate Blocks from a terminal or automation environment:
 
 ```bash
-npm test
+npm install -g @seliseblocks/cli-os@latest
+blocks --version
+```
+
+Install the SDK inside a frontend application:
+
+```bash
+npm install @seliseblocks/client@latest
+```
+
+Both packages require Node.js 20 or newer.
+
+## CLI Quick Start
+
+```bash
+blocks --help
+blocks login
+blocks auth status --json
+blocks doctor --json
+```
+
+The CLI uses supported Blocks APIs and stores local auth state through OS-aware credential storage. Do not inspect local token/config files directly; use `blocks auth status` and `blocks doctor` for diagnostics.
+
+Run `blocks help` for the full command reference, or see [`blocks-cli/README.md`](blocks-cli/README.md) for setup and account/project details.
+
+## SDK Quick Start
+
+```ts
+import { createBlocksClient } from "@seliseblocks/client";
+
+const blocks = createBlocksClient({
+  apiUrl: "https://api.seliseblocks.com",
+  xBlocksKey: "<blocks-key>",
+  accessToken: () => currentUserSession?.accessToken,
+  oidc: {
+    url: "https://iam.seliseblocks.com",
+    clientId: "<public-browser-client-id>",
+    redirectUri: `${window.location.origin}/login/callback`
+  }
+});
+```
+
+See [`blocks-client/README.md`](blocks-client/README.md) for SDK setup and runtime examples.
+
+## AI Agent Usage
+
+AI agents should start with [`docs/AI_ROUTING_GUIDE.md`](docs/AI_ROUTING_GUIDE.md). It routes agents based on whether they are bootstrapping setup, building a Blocks app, operating the CLI, using the SDK, or maintaining this monorepo.
+
+Use these package-specific guides for exact contracts:
+
+- [`blocks-cli/AGENT_GUIDE.md`](blocks-cli/AGENT_GUIDE.md)
+- [`blocks-client/AGENT_GUIDE.md`](blocks-client/AGENT_GUIDE.md)
+
+### Skills
+
+The task-level workflow skills live in [`blocks-skills/`](blocks-skills/) in this
+repository. They are **not** part of either npm package — the supported way to
+get them into your agent is [seliseblocks.com/bootstrap](https://seliseblocks.com/bootstrap),
+not a manual copy from this repo.
+
+Each skill is self-contained by design: it assumes only the installed `blocks`
+CLI and a project-local `@seliseblocks/client`, and never links to a sibling
+skill or to this repository's layout. `blocks-skills/lint.mjs` enforces that,
+and runs as part of `npm test`.
+
+## Development
+
+Install workspace dependencies from the repository root:
+
+```bash
+npm install
 ```
 
 Build all packages:
 
 ```bash
 npm run build
+```
+
+Run all package tests:
+
+```bash
+npm test
 ```
 
 Work on a single package:
@@ -34,3 +125,32 @@ npm test
 cd ../blocks-client
 npm test
 ```
+
+On Windows PowerShell, use `npm.cmd` if script execution policy blocks `npm`.
+
+## Publishing Checks
+
+Before publishing a package, run its local test suite and verify the tarball contents:
+
+```bash
+cd blocks-cli
+npm test
+npm pack --dry-run
+
+cd ../blocks-client
+npm test
+npm pack --dry-run
+```
+
+Both packages are configured for public npm publishing through `publishConfig.access = "public"`.
+
+## Community And Security
+
+GitHub displays these root-level files automatically in the repository UI:
+
+- [Contributing](CONTRIBUTING.md)
+- [Code of Conduct](CODE_OF_CONDUCT.md)
+- [Security Policy](SECURITY.md)
+- [License](LICENSE)
+
+Please report suspected vulnerabilities privately through the process in [SECURITY.md](SECURITY.md).

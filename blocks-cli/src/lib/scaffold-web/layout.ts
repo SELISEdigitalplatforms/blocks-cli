@@ -1,14 +1,12 @@
 import { write } from "./fs.js";
 
-// App shell chrome: nav items, the collapsible sidebar + topbar (AppShell), UserMenu, NotificationsMenu.
+// App shell chrome: nav items, the collapsible sidebar + topbar (AppShell), UserMenu, NotificationsMenu, LanguageSwitcher.
 export async function writeLayout(root: string): Promise<void> {
   await write(root, "src/app/layout/navItems.ts", [
-    "import { Boxes, Home, UserRound } from \"lucide-react\";",
+    "import { UserRound } from \"lucide-react\";",
     "",
     "export const navItems = [",
-    "  { href: \"/\", labelKey: \"nav.dashboard\", icon: Home },",
-    "  { href: \"/assets\", labelKey: \"nav.assets\", icon: Boxes },",
-    "  { href: \"/profile\", labelKey: \"nav.profile\", icon: UserRound }",
+    "  { href: \"/\", labelKey: \"nav.profile\", icon: UserRound }",
     "] as const;",
     ""
   ].join("\n"));
@@ -17,6 +15,7 @@ export async function writeLayout(root: string): Promise<void> {
     "import { Activity, PanelLeft } from \"lucide-react\";",
     "import { useEffect, useState } from \"react\";",
     "import type { ReactNode } from \"react\";",
+    "import { LanguageSwitcher } from \"./LanguageSwitcher\";",
     "import { navItems } from \"./navItems\";",
     "import { NotificationsMenu } from \"./NotificationsMenu\";",
     "import { UserMenu } from \"./UserMenu\";",
@@ -96,6 +95,7 @@ export async function writeLayout(root: string): Promise<void> {
     "            </div>",
     "          ) : null}",
     "          <div className=\"topbar-spacer\" />",
+    "          <LanguageSwitcher />",
     "          <NotificationsMenu />",
     "          <UserMenu onNavigate={onNavigate} />",
     "        </header>",
@@ -107,8 +107,42 @@ export async function writeLayout(root: string): Promise<void> {
     ""
   ].join("\n"));
 
+  await write(root, "src/app/layout/LanguageSwitcher.tsx", [
+    "import { Languages } from \"lucide-react\";",
+    "import { useT } from \"../../lib/i18n/LocalizationProvider\";",
+    "import {",
+    "  DropdownMenu,",
+    "  DropdownMenuContent,",
+    "  DropdownMenuItem,",
+    "  DropdownMenuTrigger",
+    "} from \"../../shared/ui/dropdown-menu\";",
+    "",
+    "// Hidden until the tenant actually has more than one language configured --",
+    "// a switcher with a single option is dead chrome.",
+    "export function LanguageSwitcher() {",
+    "  const { language, languages, setLanguage } = useT();",
+    "  if (languages.length < 2) return null;",
+    "",
+    "  return (",
+    "    <DropdownMenu>",
+    "      <DropdownMenuTrigger className=\"icon-button\" aria-label=\"Change language\">",
+    "        <Languages size={18} />",
+    "      </DropdownMenuTrigger>",
+    "      <DropdownMenuContent align=\"end\" className=\"min-w-[160px]\">",
+    "        {languages.map((entry) => (",
+    "          <DropdownMenuItem key={entry.code} onSelect={() => setLanguage(entry.code)}>",
+    "            {entry.name}{entry.code === language ? \" \\u2713\" : \"\"}",
+    "          </DropdownMenuItem>",
+    "        ))}",
+    "      </DropdownMenuContent>",
+    "    </DropdownMenu>",
+    "  );",
+    "}",
+    ""
+  ].join("\n"));
+
   await write(root, "src/app/layout/UserMenu.tsx", [
-    "import { LogOut, UserRound } from \"lucide-react\";",
+    "import { LogOut } from \"lucide-react\";",
     "import { useAuth } from \"../providers/AuthProvider\";",
     "import { useCurrentUser, userDisplayName, userInitials } from \"../../features/profile/useCurrentUser\";",
     "import { useT } from \"../../lib/i18n/LocalizationProvider\";",
@@ -148,10 +182,6 @@ export async function writeLayout(root: string): Promise<void> {
     "            {roles.length > 0 ? <small className=\"truncate text-xs capitalize text-[hsl(var(--muted-foreground))]\">{roles.join(\", \")}</small> : null}",
     "          </div>",
     "        </DropdownMenuLabel>",
-    "        <DropdownMenuSeparator />",
-    "        <DropdownMenuItem onSelect={() => onNavigate(\"/profile\")}>",
-    "          <UserRound size={18} /> {t(\"nav.profile\")}",
-    "        </DropdownMenuItem>",
     "        <DropdownMenuSeparator />",
     "        <DropdownMenuItem destructive onSelect={handleLogout}>",
     "          <LogOut size={18} /> {t(\"nav.logout\")}",

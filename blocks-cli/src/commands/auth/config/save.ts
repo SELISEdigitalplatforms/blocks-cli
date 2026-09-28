@@ -1,4 +1,4 @@
-import { booleanFlag, optionalIntegerFlag, stringFlag } from "../../../lib/args.js";
+import { booleanFlag, optionalBooleanFlag, optionalIntegerFlag, stringFlag } from "../../../lib/args.js";
 import { blocksRequest } from "../../../lib/api.js";
 import { confirmMutation } from "../../../lib/confirm.js";
 import { compact, jsonBodyFlag } from "../../../lib/json-flag.js";
@@ -8,20 +8,55 @@ import { parseCommand, selectedProject } from "../../../lib/workspace.js";
 
 export async function authConfigSave(argv: string[]): Promise<void> {
   const { flags } = parseCommand(argv);
-  const body = {
+  const overrides = {
     ...(await jsonBodyFlag(flags)),
     ...compact({
       absoluteRefreshTokenValidForNumberMinutes: optionalIntegerFlag(flags, "absolute-refresh-token-minutes"),
       accessTokenValidForNumberMinutes: optionalIntegerFlag(flags, "access-token-minutes"),
+      accountActionBaseUrl: stringFlag(flags, "account-action-base-url") || undefined,
       accountLockDurationInMinutes: optionalIntegerFlag(flags, "account-lock-duration-minutes"),
       getNumberOfWrongAttemptsToLockTheAccount: optionalIntegerFlag(flags, "wrong-attempts-to-lock"),
-      isOidcEnabled: booleanFlag(flags, "oidc-enabled") || undefined,
-      logoutOnPasswordChange: booleanFlag(flags, "logout-on-password-change") || undefined,
+      isOidcEnabled: optionalBooleanFlag(flags, "oidc-enabled"),
+      logoutOnPasswordChange: optionalBooleanFlag(flags, "logout-on-password-change"),
+      passwordPolicyMaxLength: optionalIntegerFlag(flags, "password-policy-max-length"),
+      passwordPolicyMessage: stringFlag(flags, "password-policy-message") || undefined,
+      passwordPolicyMinLength: optionalIntegerFlag(flags, "password-policy-min-length"),
+      passwordPolicyRequireLowercase: optionalBooleanFlag(flags, "password-policy-require-lowercase"),
+      passwordPolicyRequireNumbers: optionalBooleanFlag(flags, "password-policy-require-numbers"),
+      passwordPolicyRequireSpecialChars: optionalBooleanFlag(flags, "password-policy-require-special-chars"),
+      passwordPolicyRequireUppercase: optionalBooleanFlag(flags, "password-policy-require-uppercase"),
+      passwordStrengthCheckerMessage: stringFlag(flags, "password-strength-message") || undefined,
       passwordStrengthCheckerRegex: stringFlag(flags, "password-strength-regex") || undefined,
       refreshTokenValidForNumberMinutes: optionalIntegerFlag(flags, "refresh-token-minutes"),
       rememberMeRefreshTokenValidForNumberMinutes: optionalIntegerFlag(flags, "remember-me-refresh-token-minutes")
     })
   };
+
+  const projectKey = await selectedProject(flags);
+
+  // POST /auth/config replaces the whole config document rather than merging
+  // (confirmed against the portal's own save call, which always resends every
+  // field it read on load) -- fetch the current config first so fields the
+  // caller didn't mention here survive the round trip instead of resetting.
+  const current = omitNil(await blocksRequest<Record<string, unknown>>("/iam/v4/auth/config", {
+    impersonatedProjectAuth: true,
+    ...requestContext(flags),
+    projectTenantId: projectKey
+  }));
+  const body: Record<string, unknown> = { ...current, ...overrides };
+
+  // Turning isOidcEnabled on isn't a single independent flag: the
+  // activation-link flow keys off accountActivationPath, which has to point
+  // at the OIDC variant once OIDC is on, or activation emails break.
+  // accountActionBaseUrl has no safe default this command can guess across
+  // environments, so the caller must supply it explicitly when the tenant
+  // doesn't already have one.
+  const missingActionBaseUrl = Boolean(body.isOidcEnabled) && !body.accountActionBaseUrl;
+  if (body.isOidcEnabled) body.accountActivationPath = "oidc/activate/";
+
+  if (missingActionBaseUrl) {
+    throw new Error("Enabling OIDC login requires accountActionBaseUrl, and this tenant doesn't have one set. Pass --account-action-base-url <https://your-iam-host>.");
+  }
 
   if (booleanFlag(flags, "dry-run")) {
     writeOutput({ dryRun: true, endpoint: "/iam/v4/auth/config", request: body }, flags);
@@ -29,7 +64,6 @@ export async function authConfigSave(argv: string[]): Promise<void> {
   }
 
   await confirmMutation(flags, "Save AuthController configuration for the selected project.");
-  const projectKey = await selectedProject(flags);
   const result = await blocksRequest<unknown>("/iam/v4/auth/config", {
     body,
     impersonatedProjectAuth: true,
@@ -37,4 +71,8 @@ export async function authConfigSave(argv: string[]): Promise<void> {
     projectTenantId: projectKey
   });
   writeOutput(result, flags);
+}
+
+function omitNil<T extends Record<string, unknown>>(value: T): T {
+  return Object.fromEntries(Object.entries(value).filter(([, entry]) => entry !== null && entry !== undefined)) as T;
 }

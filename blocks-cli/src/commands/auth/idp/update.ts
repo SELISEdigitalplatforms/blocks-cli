@@ -1,8 +1,9 @@
-import { booleanFlag, stringFlag } from "../../../lib/args.js";
+import { booleanFlag, optionalBooleanFlag, stringFlag } from "../../../lib/args.js";
 import { blocksRequest } from "../../../lib/api.js";
 import { confirmMutation } from "../../../lib/confirm.js";
 import { compact, jsonBodyFlag, listFlag } from "../../../lib/json-flag.js";
 import { writeOutput } from "../../../lib/output.js";
+import { redactSecrets } from "../../../lib/redact.js";
 import { requestContext } from "../../../lib/request-context.js";
 import { parseCommand, selectedProject } from "../../../lib/workspace.js";
 
@@ -11,6 +12,13 @@ import { parseCommand, selectedProject } from "../../../lib/workspace.js";
  * IAM requires them to echo the existing value when supplied, so only pass them
  * via --provider/--provider-type/--protocol/--client-id if you're re-sending the
  * current configuration alongside other field changes.
+ *
+ * This is also the only endpoint that can set the OIDC endpoint URLs: the create
+ * endpoint silently drops authorizationUrl/tokenUrl/userInfoUrl, and a provider
+ * auto-registered from an OIDC client may still be missing them when discovery
+ * was unavailable or the provider predates discovery wiring. `GET /iam/v4/idp/initiate`
+ * needs authorizationUrl, so an incomplete provider has to be patched here. Apple-only fields
+ * stay in --body/--file so no private key lands in shell history.
  */
 export async function authIdpUpdate(argv: string[]): Promise<void> {
   const { args, flags } = parseCommand(argv);
@@ -18,20 +26,32 @@ export async function authIdpUpdate(argv: string[]): Promise<void> {
   const body = {
     ...(await jsonBodyFlag(flags)),
     ...compact({
+      authorizationUrl: stringFlag(flags, "authorization-url") || undefined,
       clientId: stringFlag(flags, "client-id") || undefined,
       displayName: stringFlag(flags, "display-name") || undefined,
-      isActive: booleanFlag(flags, "active") || undefined,
+      grantTypes: listFlag(flags, "grant-types"),
+      icon: stringFlag(flags, "icon") || undefined,
+      initialPermissions: listFlag(flags, "initial-permissions"),
+      initialRoles: listFlag(flags, "initial-roles"),
+      isActive: optionalBooleanFlag(flags, "active"),
       issuer: stringFlag(flags, "issuer") || undefined,
+      jwksUri: stringFlag(flags, "jwks-uri") || undefined,
       protocol: stringFlag(flags, "protocol") || undefined,
       provider: stringFlag(flags, "provider") || undefined,
       providerType: stringFlag(flags, "provider-type") || undefined,
       redirectUris: listFlag(flags, "redirect-uris"),
-      scope: stringFlag(flags, "scope") || undefined
+      requirePkce: optionalBooleanFlag(flags, "require-pkce"),
+      responseType: stringFlag(flags, "response-type") || undefined,
+      scope: stringFlag(flags, "scope") || undefined,
+      tokenEndpointAuthMethod: stringFlag(flags, "token-endpoint-auth-method") || undefined,
+      tokenUrl: stringFlag(flags, "token-url") || undefined,
+      userInfoUrl: stringFlag(flags, "user-info-url") || undefined,
+      wellKnownUrl: stringFlag(flags, "well-known-url") || undefined
     })
   };
 
   if (booleanFlag(flags, "dry-run")) {
-    writeOutput({ dryRun: true, endpoint: `/iam/v4/auth/identity-providers/${id}`, request: body }, flags);
+    writeOutput({ dryRun: true, endpoint: `/iam/v4/auth/identity-providers/${encodeURIComponent(id)}`, request: redactSecrets(body) }, flags);
     return;
   }
 
@@ -44,5 +64,7 @@ export async function authIdpUpdate(argv: string[]): Promise<void> {
     ...requestContext(flags),
     projectTenantId: projectKey
   });
-  writeOutput(result, flags);
+  // The updated record echoes clientSecret back verbatim -- redact it for the same
+  // reason the dry-run body above is redacted and idp list/get redact their reads.
+  writeOutput(redactSecrets(result), flags);
 }

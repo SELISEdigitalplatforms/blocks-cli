@@ -52,6 +52,14 @@ export type BlocksClientConfig = {
   fetch?: typeof fetch;
 
   /**
+   * Caller-owned hook invoked at most once per request when a protected call comes back 401.
+   * Should resolve a fresh token (deduping concurrent callers itself, e.g. via a shared
+   * in-flight refresh promise) or `undefined` if the session cannot be recovered -- the SDK
+   * retries the request once with the returned token, or leaves the 401 to throw if none.
+   */
+  onUnauthorized?: () => Promise<string | undefined> | string | undefined;
+
+  /**
    * Optional hosted IdP/OIDC browser-flow configuration.
    */
   oidc?: BlocksOidcConfig;
@@ -62,9 +70,19 @@ export type BlocksClientConfig = {
   xBlocksKey: string;
 };
 
+/**
+ * The resolved configuration a client exposes on `blocks.config`: the settings
+ * an app may want to read back (which tenant, which API, which OIDC client),
+ * with the caller-owned `accessToken` resolver and `onUnauthorized` hook left
+ * out. Those two are callables that reach live credentials, and this package's
+ * boundary is that it never becomes a place to read a session from -- use
+ * `blocks.auth.accessToken()` when you need the token itself.
+ */
+export type BlocksPublicConfig = Omit<BlocksResolvedConfig, "accessToken" | "onUnauthorized">;
+
 export type BlocksClient = {
   auth: BlocksAuthenticationClient;
-  config: Readonly<RequiredConfig>;
+  config: Readonly<BlocksPublicConfig>;
   data: BlocksDataClient;
   http: BlocksHttpClient;
   iam: BlocksIAMClient;
@@ -74,13 +92,22 @@ export type BlocksClient = {
   notifier: BlocksNotifierClient;
 };
 
-export type RequiredConfig = {
+/**
+ * `BlocksClientConfig` after defaults are applied -- the shape the internal
+ * service clients are constructed with. Consumers normally want
+ * `BlocksPublicConfig` (what `blocks.config` actually exposes) instead.
+ */
+export type BlocksResolvedConfig = {
   accessToken?: string | (() => Promise<string | undefined> | string | undefined);
   apiUrl: string;
   appDomain?: string;
+  onUnauthorized?: () => Promise<string | undefined> | string | undefined;
   oidc?: BlocksOidcConfig & { redirectUri: string; scope: string };
   xBlocksKey: string;
 };
+
+/** @deprecated Renamed to `BlocksResolvedConfig` for consistency with the other exported names. */
+export type RequiredConfig = BlocksResolvedConfig;
 
 /**
  * What: creates a framework-neutral Blocks SDK instance for one tenant/app runtime.
@@ -92,9 +119,11 @@ export function createBlocksClient(config: BlocksClientConfig): BlocksClient {
   const auth = new BlocksAuthenticationClient(normalized, config.fetch);
   const http = new BlocksHttpClient(normalized, auth, config.fetch);
 
+  const { accessToken: _accessToken, onUnauthorized: _onUnauthorized, ...publicConfig } = normalized;
+
   return {
     auth,
-    config: normalized,
+    config: publicConfig,
     data: new BlocksDataClient(http),
     http,
     iam: new BlocksIAMClient(http),
@@ -105,7 +134,7 @@ export function createBlocksClient(config: BlocksClientConfig): BlocksClient {
   };
 }
 
-function normalizeConfig(config: BlocksClientConfig): RequiredConfig {
+function normalizeConfig(config: BlocksClientConfig): BlocksResolvedConfig {
   if (!config.apiUrl) throw new Error("Blocks client requires apiUrl.");
   if (!config.xBlocksKey) throw new Error("Blocks client requires xBlocksKey.");
 
@@ -113,6 +142,7 @@ function normalizeConfig(config: BlocksClientConfig): RequiredConfig {
     accessToken: config.accessToken,
     apiUrl: trimTrailingSlash(config.apiUrl),
     appDomain: config.appDomain,
+    onUnauthorized: config.onUnauthorized,
     oidc: config.oidc ? {
       ...config.oidc,
       redirectUri: config.oidc.redirectUri ?? browserRedirectUri(),

@@ -1,6 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { basename } from "node:path";
-import { booleanFlag, stringFlag } from "../../../lib/args.js";
+import { booleanFlag, optionalBooleanFlag, stringFlag } from "../../../lib/args.js";
 import { blocksRequest } from "../../../lib/api.js";
 import { confirmMutation } from "../../../lib/confirm.js";
 import { writeOutput } from "../../../lib/output.js";
@@ -18,7 +18,7 @@ export async function dataFilesUploadToLocalStorage(argv: string[]): Promise<voi
   const additionalPropertiesRaw = stringFlag(flags, "additional-properties");
 
   if (booleanFlag(flags, "dry-run")) {
-    writeOutput({ dryRun: true, endpoint: "/data/v4/Files/UploadFileToLocalStorage", name, request: { file: filePath } }, flags);
+    writeOutput({ dryRun: true, endpoint: "/data/v4/files/upload-file-to-local-storage", name, request: { file: filePath } }, flags);
     return;
   }
 
@@ -38,6 +38,10 @@ export async function dataFilesUploadToLocalStorage(argv: string[]): Promise<voi
   if (accessModifier) form.set("AccessModifier", accessModifier);
   const configurationName = stringFlag(flags, "configuration-name");
   if (configurationName) form.set("ConfigurationName", configurationName);
+  const objectAccessLevel = stringFlag(flags, "object-access-level");
+  if (objectAccessLevel) form.set("ObjectAccessLevel", objectAccessLevel);
+  const inheritsParentAccess = optionalBooleanFlag(flags, "inherits-parent-access");
+  if (inheritsParentAccess !== undefined) form.set("InheritsParentAccess", String(inheritsParentAccess));
 
   if (additionalPropertiesRaw) {
     const parsed = JSON.parse(additionalPropertiesRaw) as Record<string, string>;
@@ -45,7 +49,7 @@ export async function dataFilesUploadToLocalStorage(argv: string[]): Promise<voi
   }
 
   const projectKey = await selectedProject(flags);
-  const result = await blocksRequest<unknown>("/data/v4/Files/UploadFileToLocalStorage", {
+  const result = await blocksRequest<unknown>("/data/v4/files/upload-file-to-local-storage", {
     body: form,
     impersonatedProjectAuth: true,
     ...requestContext(flags),

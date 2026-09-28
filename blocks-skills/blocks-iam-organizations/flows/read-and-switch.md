@@ -4,7 +4,7 @@ These are read-only or scoped to switching the *caller's own* context. No confir
 
 ## `organizations.my()` — the org switcher
 
-Returns the signed-in user's own available organizations — the standard source for an org switcher / "pick your workspace" UI. Requires the user to already be authenticated (pair with `useCurrentUser` / `blocksClient.iam.me()` from the onboarding/profile scaffold).
+Returns the signed-in user's own available organizations — the standard source for an org switcher / "pick your workspace" UI. Requires the user to already be authenticated (pair with `useCurrentUser` / `blocksClient.iam.me()` from the Bootstrap skill's profile scaffold).
 
 ```ts
 // src/features/organizations/useMyOrganizations.ts

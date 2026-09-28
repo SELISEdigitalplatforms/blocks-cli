@@ -1,4 +1,4 @@
-import { booleanFlag, integerFlag, stringFlag } from "../../../lib/args.js";
+import { booleanFlag, integerFlag, stringFlag, zeroBasedPage } from "../../../lib/args.js";
 import { blocksRequest } from "../../../lib/api.js";
 import { compact } from "../../../lib/json-flag.js";
 import { writeOutput } from "../../../lib/output.js";
@@ -15,7 +15,7 @@ export async function dataFilesInfo(argv: string[]): Promise<void> {
 
   const body = {
     filter: Object.keys(filter).length ? filter : undefined,
-    page: integerFlag(flags, "page", 1),
+    page: zeroBasedPage(flags),
     pageSize: integerFlag(flags, "page-size", 20),
     sort: {
       isDescending: booleanFlag(flags, "sort-desc"),
@@ -24,7 +24,7 @@ export async function dataFilesInfo(argv: string[]): Promise<void> {
   };
 
   const projectKey = await selectedProject(flags);
-  const result = await blocksRequest<unknown>("/data/v4/Files/GetFilesInfo", {
+  const result = await blocksRequest<unknown>("/data/v4/files/get-files-info", {
     body,
     impersonatedProjectAuth: true,
     ...requestContext(flags),

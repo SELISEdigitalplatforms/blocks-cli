@@ -10,7 +10,7 @@ export async function authOidcClientsRotateSecret(argv: string[]): Promise<void>
   const clientId = args[0] || stringFlag(flags, "client-id", { required: true });
 
   if (booleanFlag(flags, "dry-run")) {
-    writeOutput({ dryRun: true, endpoint: `/iam/v4/oidc-clients/${clientId}/rotate-secret` }, flags);
+    writeOutput({ dryRun: true, endpoint: `/iam/v4/oidc-clients/${encodeURIComponent(clientId)}/rotate-secret` }, flags);
     return;
   }
 

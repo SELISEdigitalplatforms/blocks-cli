@@ -1,9 +1,11 @@
+import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { basename, extname } from "node:path";
-import { booleanFlag, optionalIntegerFlag, stringFlag } from "../../../lib/args.js";
+import { booleanFlag, optionalBooleanFlag, optionalIntegerFlag, stringFlag } from "../../../lib/args.js";
 import { blocksRequest } from "../../../lib/api.js";
 import { confirmMutation } from "../../../lib/confirm.js";
-import { compact, listFlag } from "../../../lib/json-flag.js";
+import { verificationStatusName } from "../../../lib/data-files.js";
+import { compact } from "../../../lib/json-flag.js";
 import { writeOutput } from "../../../lib/output.js";
 import { requestContext } from "../../../lib/request-context.js";
 import { parseCommand, selectedProject } from "../../../lib/workspace.js";
@@ -27,10 +29,10 @@ const CONTENT_TYPES: Record<string, string> = {
 };
 
 /**
- * Composed upload: give it a local file, it runs the right sequence of API calls itself --
- * presign + PUT + DMS-register for cloud storage (--local-storage for the single-call
- * local-storage path) -- instead of you chaining presigned-upload-url/upload-to-url/dms-upload
- * (or upload-to-local-storage) by hand.
+ * Composed upload: create the file/version metadata, PUT cloud bytes, and -- when the
+ * storage configuration requires completion for this access modifier -- complete the
+ * upload so blocks-data verifies and promotes it out of quarantine. Or use the one-call
+ * local-storage path. The upload is part of the object tree once this returns.
  */
 export async function dataFilesUpload(argv: string[]): Promise<void> {
   const { flags } = parseCommand(argv);
@@ -49,7 +51,7 @@ async function uploadToLocalStorage(filePath: string, name: string, flags: Recor
   const parentDirectoryId = stringFlag(flags, "parent-id") || stringFlag(flags, "parent-directory-id");
 
   if (booleanFlag(flags, "dry-run")) {
-    writeOutput({ dryRun: true, endpoint: "/data/v4/Files/UploadFileToLocalStorage", file: filePath, name }, flags);
+    writeOutput({ dryRun: true, endpoint: "/data/v4/files/upload-file-to-local-storage", file: filePath, name }, flags);
     return;
   }
 
@@ -59,15 +61,21 @@ async function uploadToLocalStorage(filePath: string, name: string, flags: Recor
   form.set("Name", name);
   if (parentDirectoryId) form.set("ParentDirectoryId", parentDirectoryId);
 
+  const itemId = stringFlag(flags, "item-id");
+  if (itemId) form.set("ItemId", itemId);
   const tags = stringFlag(flags, "tags");
   if (tags) form.set("Tags", tags);
   const accessModifier = stringFlag(flags, "access-modifier");
   if (accessModifier) form.set("AccessModifier", accessModifier);
   const configurationName = stringFlag(flags, "configuration-name");
   if (configurationName) form.set("ConfigurationName", configurationName);
+  const objectAccessLevel = stringFlag(flags, "object-access-level");
+  if (objectAccessLevel) form.set("ObjectAccessLevel", objectAccessLevel);
+  const inheritsParentAccess = optionalBooleanFlag(flags, "inherits-parent-access");
+  if (inheritsParentAccess !== undefined) form.set("InheritsParentAccess", String(inheritsParentAccess));
 
   const projectKey = await selectedProject(flags);
-  const result = await blocksRequest<unknown>("/data/v4/Files/UploadFileToLocalStorage", {
+  const result = await blocksRequest<unknown>("/data/v4/files/upload-file-to-local-storage", {
     body: form,
     impersonatedProjectAuth: true,
     ...requestContext(flags),
@@ -84,9 +92,13 @@ async function uploadViaPresignedUrl(filePath: string, name: string, flags: Reco
   const presignBody = compact({
     accessModifier: stringFlag(flags, "access-modifier") || undefined,
     configurationName: stringFlag(flags, "configuration-name") || undefined,
+    contentType,
+    inheritsParentAccess: optionalBooleanFlag(flags, "inherits-parent-access"),
+    itemId: stringFlag(flags, "item-id") || undefined,
     metaData: stringFlag(flags, "meta-data") || undefined,
     moduleName: optionalIntegerFlag(flags, "module-name"),
     name,
+    objectAccessLevel: stringFlag(flags, "object-access-level") || undefined,
     parentDirectoryId: parentDirectoryId || undefined,
     tags: tags || undefined
   });
@@ -96,9 +108,13 @@ async function uploadViaPresignedUrl(filePath: string, name: string, flags: Reco
       {
         dryRun: true,
         steps: [
-          { body: presignBody, endpoint: "/data/v4/Files/GetPreSignedUrlForUpload" },
+          {
+            body: presignBody,
+            declaredFromFile: ["sizeInBytes", "checksum (SHA256)"],
+            endpoint: "/data/v4/files/get-pre-signed-url-for-upload"
+          },
           { contentType, endpoint: "PUT <uploadUrl>", file: filePath },
-          { endpoint: "/data/v4/Files/UploadFile" }
+          { endpoint: "/data/v4/files/complete-upload", when: "the response says uploadCompletionRequired" }
         ]
       },
       flags
@@ -106,11 +122,19 @@ async function uploadViaPresignedUrl(filePath: string, name: string, flags: Reco
     return;
   }
 
-  await confirmMutation(flags, `Upload '${filePath}' as '${name}' (presign + PUT + DMS register).`);
+  await confirmMutation(flags, `Upload '${filePath}' as '${name}' (create metadata + PUT bytes).`);
   const projectKey = await selectedProject(flags);
 
-  const presigned = await blocksRequest<Record<string, unknown>>("/data/v4/Files/GetPreSignedUrlForUpload", {
-    body: presignBody,
+  // Size and checksum are declared up front: blocks-data refuses an oversized upload
+  // before issuing a URL, and a completion-required upload is verified against them.
+  const bytes = await readFile(filePath);
+  const presigned = await blocksRequest<Record<string, unknown>>("/data/v4/files/get-pre-signed-url-for-upload", {
+    body: {
+      ...presignBody,
+      checksum: createHash("sha256").update(bytes).digest("hex").toUpperCase(),
+      checksumAlgorithm: "SHA256",
+      sizeInBytes: bytes.length
+    },
     impersonatedProjectAuth: true,
     ...requestContext(flags),
     projectTenantId: projectKey
@@ -124,10 +148,12 @@ async function uploadViaPresignedUrl(filePath: string, name: string, flags: Reco
     );
   }
 
-  const bytes = await readFile(filePath);
+  // The server names the headers its provider needs; the fixed pair is the fallback for
+  // blocks-data builds that predate `requiredHeaders`.
+  const requiredHeaders = stringRecord(presigned.requiredHeaders);
   const putResponse = await fetch(uploadUrl, {
     body: bytes,
-    headers: { "Content-Type": contentType, "x-ms-blob-type": "BlockBlob" },
+    headers: requiredHeaders ?? { "Content-Type": contentType, "x-ms-blob-type": "BlockBlob" },
     method: "PUT"
   }).catch((error: Error) => {
     throw new Error(`Upload PUT failed: ${error.message}`);
@@ -137,23 +163,38 @@ async function uploadViaPresignedUrl(filePath: string, name: string, flags: Reco
     throw new Error(`Upload PUT ${putResponse.status} ${putResponse.statusText}: ${await putResponse.text().catch(() => "")}`);
   }
 
-  const registered = await blocksRequest<unknown>("/data/v4/Files/UploadFile", {
-    body: {
-      upload: [
-        compact({
-          artifactName: name,
-          fileStorageId: fileId,
-          parentId: parentDirectoryId || undefined,
-          tags: listFlag(flags, "tags")
-        })
-      ]
-    },
+  if (presigned.uploadCompletionRequired !== true) {
+    writeOutput({ fileId, uploadUrl, uploaded: true }, flags);
+    return;
+  }
+
+  // The bytes sit in private quarantine until completion verifies and promotes them;
+  // skipping this step leaves a file that exists in the tree but can never be read.
+  const fileVersionId = firstString(presigned, ["fileVersionId"]);
+  if (!fileVersionId) {
+    throw new Error(`Upload requires completion but the response carried no fileVersionId: ${JSON.stringify(presigned)}`);
+  }
+  const completion = await blocksRequest<Record<string, unknown>>("/data/v4/files/complete-upload", {
+    body: { fileId, fileVersionId },
     impersonatedProjectAuth: true,
     ...requestContext(flags),
     projectTenantId: projectKey
   });
+  const status = verificationStatusName(completion.verificationStatus);
+  if (completion.isSuccess === false || status !== "Verified") {
+    throw new Error(
+      `Upload of '${name}' was not verified (${status ?? "unknown status"}${completion.rejectionReason ? `: ${String(completion.rejectionReason)}` : ""}). ` +
+        `The file stays unreadable. Response: ${JSON.stringify(completion)}`
+    );
+  }
 
-  writeOutput({ fileId, registered, uploadUrl }, flags);
+  writeOutput({ fileId, fileVersionId, uploadUrl, uploaded: true, verificationStatus: status }, flags);
+}
+
+function stringRecord(value: unknown): Record<string, string> | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+  const entries = Object.entries(value).filter((entry): entry is [string, string] => typeof entry[1] === "string");
+  return entries.length > 0 ? Object.fromEntries(entries) : undefined;
 }
 
 function firstString(record: Record<string, unknown>, keys: string[]): string | undefined {

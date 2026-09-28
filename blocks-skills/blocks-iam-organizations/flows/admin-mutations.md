@@ -67,9 +67,9 @@ For anything that isn't a feature inside a running Blocks app (one-off lookups, 
 | `blocks iam organizations create --name <n> [...]` | `organizations.create()` | `--name` (required), `--description`, `--email`, `--phone-number`, `--website-url`, `--default-permissions`, `--default-roles`, or a full `--body '<json>'`/`--file <path.json>`. Mutation. |
 | `blocks iam organizations update <id> [...]` | `organizations.update(id, ...)` | `--name`, `--description`, `--email`, `--phone-number`, `--website-url`, `--currency`, `--industry`, `--locale`, `--time-zone`, `--is-enabled`, or `--body`/`--file`. Mutation. |
 | `blocks iam organizations config get` | `organizations.getConfig()` | Read-only. |
-| `blocks iam organizations config save [...]` | `organizations.saveConfig()` | `--multi-org-enabled`, `--consent-for-multi-org-enable`, `--allow-org-creation-from-signup`, `--allow-org-creation-from-portal`, `--allow-org-creation-from-cloud`, `--allow-org-creation-from-construct`, or `--body`/`--file`. Mutation. |
+| `blocks iam organizations config save [...]` | `organizations.saveConfig()` | `--multi-org-enabled`, `--consent-for-multi-org-enable`, `--allow-org-creation-from-signup`, `--allow-org-creation-from-portal`, `--allow-org-creation-from-cloud`, `--allow-org-creation-from-construct`, `--org-name-uniqueness` (organization names unique within the tenant), or `--body`/`--file`. Reads the current policy and merges the flags over it; pass `--flag=false` to switch one off. Mutation. |
 | `blocks iam signup-settings get` | `signupSettings.get()` | Read-only. |
-| `blocks iam signup-settings save [...]` | `signupSettings.save()` | `--email-password-signup`, `--sso-signup`, `--default-permissions`, `--default-roles`, or `--body`/`--file`. Mutation. |
+| `blocks iam signup-settings save [...]` | `signupSettings.save()` | `--email-password-signup`, `--sso-signup`, `--default-permissions`, `--default-roles`, or `--body`/`--file`. Mutation. The CLI reads the current settings and merges, because the endpoint stores all four fields from the body (omitted booleans become false, omitted lists empty). SDK callers must send all four every time -- the GET spells the lists `defaultRolesForNewUser`/`defaultPermissionsForNewUser`, the POST needs `...OnSignUp`. |
 
 ```bash
 blocks use <tenantId>                              # select the project once per session
@@ -80,6 +80,10 @@ blocks iam organizations config save --multi-org-enabled --yes       # only afte
 ```
 
 Every mutating command (`create`, `update`, `config save`, `signup-settings save`) supports `--dry-run` (prints the resolved request body without calling the API) and requires either `--yes` or an interactive `yes` at a confirmation prompt to actually run — the same "state the exact change, get an explicit go-ahead" discipline as the SDK guidance above, just enforced by the CLI itself instead of app code you write.
+
+Boolean configuration flags preserve explicit false values. For example,
+`--multi-org-enabled=false` and `--email-password-signup=false` send `false`;
+omitting those flags leaves the corresponding fields out.
 
 ## Gotchas
 

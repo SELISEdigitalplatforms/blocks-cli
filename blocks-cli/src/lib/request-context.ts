@@ -9,3 +9,12 @@ export function requestContext(flags: Record<string, string | boolean>): { accou
     apiUrl
   };
 }
+
+export function commandContextArgs(flags: Record<string, string | boolean>): string[] {
+  const args: string[] = [];
+  for (const name of ["account", "project", "api-url"]) {
+    const value = stringFlag(flags, name);
+    if (value) args.push(`--${name}`, value);
+  }
+  return args;
+}

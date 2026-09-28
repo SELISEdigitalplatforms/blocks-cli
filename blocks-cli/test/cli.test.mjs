@@ -1,19 +1,47 @@
 import assert from "node:assert/strict";
 import { mkdir, mkdtemp, readdir, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { delimiter, join, resolve } from "node:path";
 import { spawn, spawnSync } from "node:child_process";
 import { createServer } from "node:http";
+import { createServer as createTcpServer } from "node:net";
 import test from "node:test";
 import { applyAccountToken, applyProjectToken } from "../dist/lib/token.js";
 import { writeConfig as writeConfigFile } from "../dist/lib/config.js";
-import { writeTokenStore } from "../dist/lib/token-store.js";
-import { getAccountSession, pollDeviceToken } from "../dist/lib/auth.js";
+import { readTokenStore, writeTokenStore } from "../dist/lib/token-store.js";
+import {
+  getAccountSession,
+  getImpersonatedProjectSession,
+  logoutCurrentSession,
+  pollDeviceToken,
+  requestDeviceAuthorization,
+  stopProjectImpersonation,
+  withAccountMode
+} from "../dist/lib/auth.js";
+import { withAuthTransitionLock } from "../dist/lib/auth-lock.js";
 import { CliActionableError } from "../dist/lib/errors.js";
-import { listSkills, parseFrontmatter, readSkill } from "../dist/lib/skills.js";
+import { oidcRedirectUrisFromAppDomain } from "../dist/lib/domains.js";
+import { findAvailablePort, isPortFree } from "../dist/lib/port.js";
+import { isNewerVersion } from "../dist/lib/update-check.js";
 
 const repoRoot = resolve(import.meta.dirname, "..");
 const bin = join(repoRoot, "bin", "run.js");
+
+// Every spawned CLI inherits process.env, so this keeps the post-command
+// update notice from making live npm registry calls throughout the suite.
+// Tests that exercise the notice itself override it with an empty value.
+process.env.BLOCKS_NO_UPDATE_CHECK = "1";
+
+test("isNewerVersion orders semver correctly", () => {
+  assert.equal(isNewerVersion("0.4.0", "0.3.1"), true);
+  assert.equal(isNewerVersion("0.3.2", "0.3.1"), true);
+  assert.equal(isNewerVersion("1.0.0", "0.9.9"), true);
+  assert.equal(isNewerVersion("0.3.1", "0.3.1"), false);
+  assert.equal(isNewerVersion("0.3.0", "0.3.1"), false);
+  assert.equal(isNewerVersion("0.3.1", "0.10.0"), false);
+  assert.equal(isNewerVersion("0.4.0", "0.4.0-beta.1"), true);
+  assert.equal(isNewerVersion("0.4.0-beta.1", "0.4.0"), false);
+});
 
 test("account token refresh preserves the previous refresh token when the response omits one", () => {
   const store = {
@@ -36,6 +64,21 @@ test("account token refresh preserves the previous refresh token when the respon
 
   assert.equal(next.store.accounts.default.account.refreshToken, "old-refresh-token");
   assert.equal(next.store.accounts.default.account.accessToken, response.access_token);
+  assert.equal(next.store.accounts.default.projects, undefined);
+});
+
+test("account token refresh does not change the active account", () => {
+  const config = {
+    activeAccount: "alpha",
+    accounts: { alpha: {}, beta: {} }
+  };
+  const response = { access_token: fakeJwt({ tenant_id: "beta-root" }), expires_in: 3600 };
+
+  const refreshed = applyAccountToken(config, { accounts: {} }, "beta", "client-id", response);
+  const loggedIn = applyAccountToken(config, { accounts: {} }, "beta", "client-id", response, { activateAccount: true });
+
+  assert.equal(refreshed.config.activeAccount, "alpha");
+  assert.equal(loggedIn.config.activeAccount, "beta");
 });
 
 test("account tokens prefer the JWT access expiry and record refresh-token expiry", () => {
@@ -77,6 +120,10 @@ test("project token refresh preserves the previous refresh token when the respon
   const store = {
     accounts: {
       default: {
+        account: {
+          accessToken: "old-account-access-token",
+          refreshToken: "old-account-refresh-token"
+        },
         projects: {
           "project-tenant": {
             accessToken: "old-project-access-token",
@@ -95,6 +142,145 @@ test("project token refresh preserves the previous refresh token when the respon
 
   assert.equal(next.store.accounts.default.projects["project-tenant"].refreshToken, "old-project-refresh-token");
   assert.equal(next.store.accounts.default.projects["project-tenant"].accessToken, response.access_token);
+  assert.equal(next.store.accounts.default.account, undefined);
+  assert.deepEqual(Object.keys(next.store.accounts.default.projects), ["project-tenant"]);
+  assert.equal(next.config, config);
+});
+
+test("project selection and deselection persist exactly one refreshable token pair", async () => {
+  await withAuthLifecycleEnv(async ({ configDir }) => {
+    const projectAccess = fakeJwt({ exp: Math.floor(Date.now() / 1000) + 3600, tenant_id: "project-tenant" });
+    const restoredAccountAccess = fakeJwt({ exp: Math.floor(Date.now() / 1000) + 3600, tenant_id: "root-tenant" });
+    await writeLifecycleAccount(configDir);
+    globalThis.fetch = async (input) => {
+      const path = new URL(input).pathname;
+      if (path === "/iam/v4/auth/impersonate") {
+        return jsonResponse({ access_token: projectAccess, expires_in: 3600, refresh_token: "project-refresh" });
+      }
+      if (path === "/iam/v4/auth/impersonation/stop") {
+        return jsonResponse({ access_token: restoredAccountAccess, expires_in: 3600, refresh_token: "restored-account-refresh" });
+      }
+      return jsonResponse({ error: `Unexpected ${path}` }, 404);
+    };
+
+    await getImpersonatedProjectSession("default", "project-tenant");
+    let store = await readTokenStore();
+    assert.equal(store.accounts.default.account, undefined);
+    assert.deepEqual(Object.keys(store.accounts.default.projects), ["project-tenant"]);
+
+    // A command-level --project override can make the live token differ from
+    // the saved selection; deselection must stop the live token session.
+    await stopProjectImpersonation("default", "different-saved-project");
+    store = await readTokenStore();
+    assert.equal(store.accounts.default.projects, undefined);
+    assert.equal(store.accounts.default.account.refreshToken, "restored-account-refresh");
+  });
+});
+
+test("account-only operations stop and restore the previous project session", async () => {
+  await withAuthLifecycleEnv(async ({ configDir }) => {
+    await writeLifecycleProject(configDir);
+    const calls = [];
+    globalThis.fetch = async (input) => {
+      const path = new URL(input).pathname;
+      calls.push(path);
+      if (path === "/iam/v4/auth/impersonation/stop") {
+        return jsonResponse({
+          access_token: fakeJwt({ exp: Math.floor(Date.now() / 1000) + 3600, tenant_id: "root-tenant" }),
+          expires_in: 3600,
+          refresh_token: "account-after-stop"
+        });
+      }
+      if (path === "/iam/v4/auth/impersonate") {
+        return jsonResponse({
+          access_token: fakeJwt({ exp: Math.floor(Date.now() / 1000) + 3600, tenant_id: "project-tenant" }),
+          expires_in: 3600,
+          refresh_token: "project-after-restore"
+        });
+      }
+      if (path === "/api/oidc/token") {
+        return jsonResponse({
+          access_token: fakeJwt({ exp: Math.floor(Date.now() / 1000) + 3600, tenant_id: "root-tenant" }),
+          expires_in: 3600
+        });
+      }
+      return jsonResponse({ error: `Unexpected ${path}` }, 404);
+    };
+
+    const transition = await withAccountMode("default", async (account) => {
+      await getAccountSession(account.account, { forceRefresh: true });
+      const during = await readTokenStore();
+      assert.equal(account.accountTenant, "root-tenant");
+      assert.equal(during.accounts.default.projects, undefined);
+      assert.equal(during.accounts.default.account.refreshToken, "account-after-stop");
+      return "created";
+    });
+
+    assert.equal(transition.result, "created");
+    assert.equal(transition.previousProject, "project-tenant");
+    assert.equal(transition.restoreError, undefined);
+    assert.deepEqual(calls, ["/iam/v4/auth/impersonation/stop", "/api/oidc/token", "/iam/v4/auth/impersonate"]);
+    const after = await readTokenStore();
+    assert.equal(after.accounts.default.account, undefined);
+    assert.equal(after.accounts.default.projects["project-tenant"].refreshToken, "project-after-restore");
+  });
+});
+
+test("forced project refresh uses the project refresh token without an account session", async () => {
+  await withAuthLifecycleEnv(async ({ configDir }) => {
+    await writeLifecycleProject(configDir);
+    let refreshBody;
+    globalThis.fetch = async (input, init) => {
+      const path = new URL(input).pathname;
+      assert.equal(path, "/api/oidc/token");
+      refreshBody = String(init.body);
+      return jsonResponse({
+        access_token: fakeJwt({ exp: Math.floor(Date.now() / 1000) + 3600, tenant_id: "project-tenant" }),
+        expires_in: 3600
+      });
+    };
+
+    await getImpersonatedProjectSession("default", "project-tenant", { forceRefresh: true });
+    assert.match(refreshBody, /refresh_token=project-refresh/);
+    const store = await readTokenStore();
+    assert.equal(store.accounts.default.account, undefined);
+    assert.equal(store.accounts.default.projects["project-tenant"].refreshToken, "project-refresh");
+  });
+});
+
+test("project-mode logout revokes with the matching project access and refresh tokens", async () => {
+  await withAuthLifecycleEnv(async ({ configDir }) => {
+    await writeLifecycleProject(configDir);
+    let authorization;
+    let body;
+    globalThis.fetch = async (_input, init) => {
+      authorization = new Headers(init.headers).get("authorization");
+      body = JSON.parse(String(init.body));
+      return jsonResponse({});
+    };
+
+    const result = await logoutCurrentSession("default", "project-tenant");
+    assert.equal(result.hadTokens, true);
+    assert.match(authorization, /^Bearer /);
+    assert.equal(body.refresh_token, "project-refresh");
+    assert.equal((await readTokenStore()).accounts.default, undefined);
+  });
+});
+
+test("auth transitions are serialized within one config directory", async () => {
+  await withAuthLifecycleEnv(async () => {
+    let active = 0;
+    let maximum = 0;
+    const operation = () => withAuthTransitionLock(async () => {
+      active += 1;
+      maximum = Math.max(maximum, active);
+      await new Promise((resolveDelay) => setTimeout(resolveDelay, 80));
+      active -= 1;
+    });
+
+    await Promise.all([operation(), operation()]);
+    assert.equal(maximum, 1);
+  });
 });
 
 test("account session refresh surfaces a clear next step when the identity provider rejects the refresh token", async () => {
@@ -268,19 +454,30 @@ test("device token polling reports expiration once the deadline passes", async (
 test("scaffolded web app depends on @seliseblocks/client and has no custom Blocks fetch wrapper", async () => {
   const { cwd, configDir } = await makeWorkspace();
   const env = testEnv(configDir, { BLOCKS_SECRET_STORE: "file" });
+  const server = await startJsonServer(() => ({ isOidcEnabled: true }));
+  await writeProjectModeAuth(configDir, server.url, "test-tenant-key");
 
-  const result = run([
-    "new", "web", "demo-app",
-    "--x-blocks-key", "test-tenant-key",
-    "--app-domain", "https://demo.example.test",
-    "--client-id", "demo-client-id"
-  ], { cwd, env });
-  assert.equal(result.status, 0, result.stderr);
+  try {
+    const result = await runAsync([
+      "new", "web", "demo-app",
+      "--x-blocks-key", "test-tenant-key",
+      "--app-domain", "https://demo.example.test",
+      "--client-id", "demo-client-id",
+      "--account", "studio",
+      "--project", "test-tenant-key",
+      "--api-url", server.url
+    ], { cwd, env });
+    assert.equal(result.status, 0, result.stderr);
+  } finally {
+    await new Promise((resolveClose) => server.close(resolveClose));
+  }
 
   const appDir = join(cwd, "demo-app");
   const pkg = JSON.parse(await readFile(join(appDir, "package.json"), "utf8"));
   assert.ok(pkg.dependencies["@seliseblocks/client"], "expected a @seliseblocks/client dependency");
   assert.ok(pkg.devDependencies.selfsigned, "expected generated cert script to work without openssl");
+  assert.equal(pkg.scripts["build:dev"], "vite build --mode dev && node scripts/write-release-env.mjs dev");
+  assert.equal(pkg.scripts["build:prod"], "vite build --mode prod && node scripts/write-release-env.mjs prod");
 
   const files = await collectFiles(join(appDir, "src"));
   const contents = await Promise.all(files.map((file) => readFile(file, "utf8")));
@@ -290,8 +487,7 @@ test("scaffolded web app depends on @seliseblocks/client and has no custom Block
   assert.match(combined, /blocksClient\.auth\.idp\.redirectToProvider\(\)/, "login click should start through IdP initiate");
   assert.match(combined, /blocksClient\.auth\.idp\.callback\(callbackUrl\)/, "callback should complete through IdP callback");
   assert.match(combined, /blocksClient\.auth\.oidc\.refreshToken/, "refresh should use the SDK OIDC refresh helper");
-  assert.match(combined, /blocksClient\.data\.collection<Asset>\("Asset"/, "expected an Assets CRUD example through Blocks Data");
-  assert.match(combined, /blocksClient\.localization\.load/, "expected localization to load through the Blocks client");
+  assert.match(combined, /blocksClient\.localization\.translations/, "expected localization modules to load through the Blocks client");
   assert.match(combined, /useT\(/, "expected generated UI to consume localization helper");
   assert.doesNotMatch(combined, /blocksFetch\(/, "no generated file should call a custom blocksFetch wrapper");
   assert.doesNotMatch(combined, /fetch\(`\$\{blocksConfig\.apiUrl\}/, "no generated file should hand-rolled fetch() against blocksConfig.apiUrl");
@@ -299,6 +495,24 @@ test("scaffolded web app depends on @seliseblocks/client and has no custom Block
   assert.doesNotMatch(combined, /oidc\/authorize/, "generated hosted login must not manually build the OIDC authorize URL");
   assert.doesNotMatch(combined, /createPkcePair|code_verifier|code_challenge/, "generated hosted login must rely on IAM IdP initiate instead of local PKCE construction");
   assert.doesNotMatch(combined, /VITE_BLOCKS_OIDC_CLIENT_SECRET/, "generated source must not reference a client secret env var");
+  assert.doesNotMatch(
+    combined,
+    /sessionStorage\.setItem\(REFRESH_TOKEN_KEY/,
+    "the refresh token must stay in memory; anything in web storage is readable by an XSS payload"
+  );
+  assert.doesNotMatch(
+    combined,
+    /localStorage\.setItem\((?:TOKEN_KEY|REFRESH_TOKEN_KEY)/,
+    "tokens must never reach localStorage"
+  );
+
+  const clientPackage = resolve(import.meta.dirname, "..", "..", "blocks-client", "package.json");
+  const clientVersion = JSON.parse(await readFile(clientPackage, "utf8")).version;
+  assert.equal(
+    pkg.dependencies["@seliseblocks/client"],
+    `^${clientVersion}`,
+    "the scaffold SDK pin must track the client package it ships beside, or new apps freeze on an old minor"
+  );
 
   const envExample = await readFile(join(appDir, ".env.example"), "utf8");
   const envFile = await readFile(join(appDir, ".env"), "utf8");
@@ -307,18 +521,160 @@ test("scaffolded web app depends on @seliseblocks/client and has no custom Block
   assert.match(envFile, /^VITE_BLOCKS_OIDC_URL=https:\/\/iam\.seliseblocks\.com$/m);
   assert.match(envFile, /^VITE_BLOCKS_DEV_HOST=demo\.example\.test$/m);
 
+  const gitignore = await readFile(join(appDir, ".gitignore"), "utf8");
+  assert.match(gitignore, /^\.env$/m);
+  assert.match(gitignore, /^env\.\*$/m);
+
+  const dockerfile = await readFile(join(appDir, "Dockerfile"), "utf8");
+  assert.match(dockerfile, /FROM node:22-alpine AS builder/);
+  assert.match(dockerfile, /if \[ -f package-lock\.json \]; then npm ci; else npm install; fi/);
+  assert.match(dockerfile, /ARG ci_build=dev/);
+  assert.match(dockerfile, /ARG VITE_BLOCKS_API_URL/);
+  assert.match(dockerfile, /ARG VITE_BLOCKS_X_BLOCKS_KEY/);
+  assert.match(dockerfile, /ARG VITE_BLOCKS_OIDC_CLIENT_ID/);
+  assert.match(dockerfile, /ENV VITE_BLOCKS_API_URL=\$\{VITE_BLOCKS_API_URL\}/);
+  assert.doesNotMatch(dockerfile, /cp \.env\.example \.env/);
+  assert.match(dockerfile, /npx vite build --mode "\$\{ci_build\}"/);
+  assert.match(dockerfile, /node scripts\/write-release-env\.mjs "\$\{ci_build\}"/);
+  assert.match(dockerfile, /nginxinc\/nginx-unprivileged:1\.29-alpine/);
+
+  const nginx = await readFile(join(appDir, "nginx.conf"), "utf8");
+  assert.match(nginx, /listen 8080;/);
+  assert.match(nginx, /try_files \$uri \$uri\/ \/index\.html;/);
+
+  const envWriter = runNodeScript(["scripts/write-release-env.mjs", "dev"], { cwd: appDir, env });
+  assert.equal(envWriter.status, 0, envWriter.stderr);
+  const releaseEnv = await readFile(join(appDir, "dist", "env.dev"), "utf8");
+  assert.match(releaseEnv, /^VITE_BLOCKS_API_URL=https:\/\/blocksapi\.example\.test$/m);
+  assert.match(releaseEnv, /^VITE_BLOCKS_PROJECT_KEY=test-tenant-key$/m);
+  assert.match(releaseEnv, /^VITE_BLOCKS_X_BLOCKS_KEY=test-tenant-key$/m);
+  assert.match(releaseEnv, /^VITE_BLOCKS_REDIRECT_URI=https:\/\/demo\.example\.test\/login\/callback$/m);
+  assert.match(releaseEnv, /^VITE_BLOCKS_HOSTED_LOGIN=true$/m);
+  assert.doesNotMatch(releaseEnv, /^VITE_.*(SECRET|PTOK|JWT|TOKEN)=/m);
+
+  const injectedEnvWriter = runNodeScript(["scripts/write-release-env.mjs", "prod"], {
+    cwd: appDir,
+    env: {
+      ...env,
+      VITE_BLOCKS_API_URL: "https://release-api.example.test",
+      VITE_BLOCKS_APP_DOMAIN: "https://release.example.test",
+      VITE_BLOCKS_OIDC_CLIENT_ID: "release-client-id",
+      VITE_BLOCKS_X_BLOCKS_KEY: "release-tenant-key"
+    }
+  });
+  assert.equal(injectedEnvWriter.status, 0, injectedEnvWriter.stderr);
+  const injectedReleaseEnv = await readFile(join(appDir, "dist", "env.prod"), "utf8");
+  assert.match(injectedReleaseEnv, /^VITE_BLOCKS_API_URL=https:\/\/release-api\.example\.test$/m);
+  assert.match(injectedReleaseEnv, /^VITE_BLOCKS_PROJECT_KEY=release-tenant-key$/m);
+  assert.match(injectedReleaseEnv, /^VITE_BLOCKS_OIDC_CLIENT_ID=release-client-id$/m);
+  assert.match(injectedReleaseEnv, /^VITE_BLOCKS_REDIRECT_URI=https:\/\/release\.example\.test\/login\/callback$/m);
+
   await assert.rejects(() => readFile(join(appDir, "src/lib/blocks/http.ts"), "utf8"), /ENOENT/, "the generic Blocks fetch wrapper file should not be generated");
 
-  assert.ok(files.some((file) => file.endsWith("AssetsPage.tsx")), "expected an Assets CRUD page");
-  assert.ok(files.some((file) => file.endsWith("DataTable.tsx")), "expected a reusable data table");
+  assert.ok(files.some((file) => file.endsWith("ProfilePage.tsx")), "expected a Profile page");
+  assert.ok(!files.some((file) => file.endsWith("DashboardPage.tsx")), "bootstrap should not scaffold a Dashboard page");
+  assert.ok(!files.some((file) => file.endsWith("AssetsPage.tsx")), "bootstrap should not scaffold an Assets page");
   assert.ok(files.some((file) => file.endsWith("LocalizationProvider.tsx")), "expected a localization provider");
+  assert.match(combined, /"\/":\s*ProfilePage/, "Profile should be the landing page ('/') on bootstrap");
+  const commonDictionary = JSON.parse(await readFile(join(appDir, "blocks", "localization", "common.en.json"), "utf8"));
+  assert.equal(commonDictionary.save, "Save");
+  assert.equal(commonDictionary["common.save"], undefined);
+  await assert.rejects(() => readFile(join(appDir, "blocks", "localization", "dashboard.en.json"), "utf8"), /ENOENT/, "bootstrap should not write a dashboard dictionary");
+  await assert.rejects(() => readFile(join(appDir, "blocks", "localization", "assets.en.json"), "utf8"), /ENOENT/, "bootstrap should not write an assets dictionary");
   // Each SDK module is exercised in context rather than in one dedicated demo
-  // panel: auth/data/localization are already covered above (idp login flow,
-  // Assets CRUD, LocalizationProvider); iam is covered through the shared
-  // profile/user-menu query.
+  // panel: auth/localization are already covered above (idp login flow,
+  // LocalizationProvider); iam is covered through the shared profile/user-menu query.
   assert.match(combined, /blocksClient\.iam\./, "expected an iam example");
 
   await assert.rejects(() => readFile(join(appDir, "src/lib/blocks/pkce.ts"), "utf8"), /ENOENT/, "the hosted IdP scaffold should not generate a local PKCE helper");
+});
+
+test("OIDC redirect URI defaults include production and local HTTPS callbacks", () => {
+  assert.deepEqual(oidcRedirectUrisFromAppDomain("https://demo.example.test"), [
+    "https://demo.example.test/login/callback",
+    "https://demo.example.test:5173/login/callback"
+  ]);
+  assert.deepEqual(oidcRedirectUrisFromAppDomain("demo.example.test"), [
+    "https://demo.example.test/login/callback",
+    "https://demo.example.test:5173/login/callback"
+  ]);
+  assert.deepEqual(oidcRedirectUrisFromAppDomain("https://demo.example.test", 4001), [
+    "https://demo.example.test/login/callback",
+    "https://demo.example.test:4001/login/callback"
+  ]);
+});
+
+test("isPortFree/findAvailablePort detect a bound port and skip past it", async () => {
+  const blocker = createTcpServer();
+  await new Promise((resolveListen) => blocker.listen(0, "0.0.0.0", resolveListen));
+  const port = blocker.address().port;
+
+  try {
+    assert.equal(await isPortFree(port), false);
+    const picked = await findAvailablePort(port);
+    assert.notEqual(picked, port);
+    assert.equal(await isPortFree(picked), true);
+  } finally {
+    await new Promise((resolveClose) => blocker.close(resolveClose));
+  }
+
+  assert.equal(await isPortFree(port), true);
+});
+
+test("device authorization reads only the requested account's client secret", async () => {
+  await withAuthLifecycleEnv(async ({ configDir }) => {
+    const alpha = { ...testAccountProfile("root-tenant"), clientId: "shared-client", oidcUrl: "https://iam.example.test" };
+    const beta = { ...alpha };
+    await writeConfigFile({ activeAccount: "alpha", accounts: { alpha, beta } });
+    await writeSecretStore(configDir, {
+      accounts: {
+        "client-secret:alpha": { clientSecret: "alpha-secret" },
+        "client-secret:beta": { clientSecret: "beta-secret" }
+      }
+    });
+
+    let submittedSecret;
+    globalThis.fetch = async (_url, init) => {
+      submittedSecret = init.body.get("client_secret");
+      return jsonResponse(deviceAuthorization());
+    };
+
+    await requestDeviceAuthorization(beta, "beta");
+    assert.equal(submittedSecret, "beta-secret");
+  });
+});
+
+test("impersonation invalid-client recovery does not recommend an unusable auth-config command", async () => {
+  const { cwd, configDir } = await makeWorkspace();
+  const server = await startJsonServer(() => rawResponse(400, { error: "invalid_client" }));
+  try {
+    await writeConfig(configDir, {
+      activeAccount: "alpha",
+      accounts: { alpha: { ...testAccountProfile("alpha-root"), apiUrl: server.url } }
+    });
+    await writeFile(join(configDir, "tokens.json"), `${JSON.stringify({
+      accounts: {
+        alpha: {
+          account: {
+            accessToken: "account-access",
+            accountTenant: "alpha-root",
+            expiresAt: new Date(Date.now() + 3_600_000).toISOString(),
+            refreshToken: "account-refresh"
+          }
+        }
+      }
+    })}\n`);
+
+    const result = await runAsync(["use", "target-project", "--account", "alpha", "--json"], {
+      cwd,
+      env: testEnv(configDir, { BLOCKS_SECRET_STORE: "file" })
+    });
+    assert.equal(result.status, 1);
+    assert.match(result.stderr, /register CLI client 'client-id'/);
+    assert.doesNotMatch(result.stderr, /auth config get/);
+  } finally {
+    await new Promise((resolveClose) => server.close(resolveClose));
+  }
 });
 
 test("fresh workspace dry-run commands do not require data files", async () => {
@@ -337,6 +693,599 @@ test("fresh workspace dry-run commands do not require data files", async () => {
   const rules = run(["data:rules:deploy", "--dry-run", "--json"], { cwd, env });
   assert.equal(rules.status, 0, rules.stderr);
   assert.deepEqual(JSON.parse(rules.stdout), { dryRun: true, policies: 0, security: 0 });
+});
+
+test("oidc client provider registration defaults the discovery endpoint", async () => {
+  const { cwd, configDir } = await makeWorkspace();
+  await writeConfig(configDir, {
+    accounts: {},
+    selectedProject: { tenantId: "project-tenant" }
+  });
+
+  const result = run([
+    "auth", "oidc-clients", "save",
+    "--client-display-name", "Web App",
+    "--client-type", "public",
+    "--redirect-uris", "https://app.example.test/login/callback",
+    "--scope", "openid profile",
+    "--register-as-identity-provider",
+    "--oidc-url", "https://iam.example.test",
+    "--dry-run",
+    "--json"
+  ], {
+    cwd,
+    env: testEnv(configDir, { BLOCKS_SECRET_STORE: "file" })
+  });
+
+  assert.equal(result.status, 0, result.stderr);
+  const output = JSON.parse(result.stdout);
+  assert.equal(output.request.registerAsIdentityProvider, true);
+  assert.equal(output.request.externalDiscoveryEndpoint, "https://iam.example.test/project-tenant/.well-known/openid-configuration");
+});
+
+test("auth config save drops null current fields and only forces OIDC related fields", async () => {
+  const { cwd, configDir } = await makeWorkspace();
+  await writeProjectAuth(configDir);
+
+  const requests = [];
+  const server = await startJsonServer((request, body) => {
+    const path = request.url.split("?")[0];
+    requests.push({ body, method: request.method, url: request.url });
+
+    if (path === "/iam/v4/auth/config" && request.method === "GET") {
+      return {
+        itemId: "507f1f77bcf86cd799439011",
+        refreshTokenValidForNumberMinutes: 1440,
+        absoluteRefreshTokenValidForNumberMinutes: null,
+        accessTokenValidForNumberMinutes: 60,
+        rememberMeRefreshTokenValidForNumberMinutes: null,
+        getNumberOfWrongAttemptsToLockTheAccount: 5,
+        accountLockDurationInMinutes: 30,
+        publicCertificatePath: null,
+        accountActivationPath: "activate/",
+        accountVerificationPath: "verify/",
+        recoverAccountPath: "recover/",
+        isOidcEnabled: false,
+        accountActionBaseUrl: "https://app.example.test",
+        useAccountActionBaseUrlAsDefault: true,
+        activationUrlLifetimeInMinutes: null,
+        recoverAccountUrlLifetimeInMinutes: null,
+        logoutOnPasswordChange: true,
+        passwordStrengthCheckerRegex: null
+      };
+    }
+
+    if (path === "/iam/v4/auth/config" && request.method === "POST") {
+      return { data: body, isSuccess: true };
+    }
+
+    return rawResponse(500, { errorMessage: `Unexpected ${request.method} ${path}` });
+  });
+
+  try {
+    const result = await runAsync(["auth", "config", "save", "--oidc-enabled", "--yes", "--api-url", server.url, "--json"], {
+      cwd,
+      env: testEnv(configDir, { BLOCKS_SECRET_STORE: "file" })
+    });
+
+    assert.equal(result.status, 0, result.stderr);
+    const saveRequest = requests.find((item) => item.method === "POST" && item.url === "/iam/v4/auth/config");
+    assert.ok(saveRequest, JSON.stringify(requests));
+    assert.deepEqual(saveRequest.body, {
+      itemId: "507f1f77bcf86cd799439011",
+      refreshTokenValidForNumberMinutes: 1440,
+      accessTokenValidForNumberMinutes: 60,
+      getNumberOfWrongAttemptsToLockTheAccount: 5,
+      accountLockDurationInMinutes: 30,
+      accountActivationPath: "oidc/activate/",
+      accountVerificationPath: "verify/",
+      recoverAccountPath: "recover/",
+      isOidcEnabled: true,
+      accountActionBaseUrl: "https://app.example.test",
+      useAccountActionBaseUrlAsDefault: true,
+      logoutOnPasswordChange: true
+    });
+  } finally {
+    await new Promise((resolveClose) => server.close(resolveClose));
+  }
+});
+
+test("auth config dry-run fails when enabling OIDC without an account action base URL", async () => {
+  const { cwd, configDir } = await makeWorkspace();
+  await writeProjectAuth(configDir);
+  const requests = [];
+  const server = await startJsonServer((request) => {
+    requests.push({ method: request.method, url: request.url });
+    return { isOidcEnabled: false };
+  });
+
+  try {
+    const result = await runAsync([
+      "auth", "config", "save", "--oidc-enabled", "--dry-run", "--api-url", server.url, "--json"
+    ], { cwd, env: testEnv(configDir, { BLOCKS_SECRET_STORE: "file" }) });
+    assert.equal(result.status, 1);
+    assert.match(result.stderr, /requires accountActionBaseUrl/);
+    assert.equal(requests.filter((item) => item.method === "POST").length, 0);
+  } finally {
+    await new Promise((resolveClose) => server.close(resolveClose));
+  }
+});
+
+test("auth config explicit false survives fetch-and-merge", async () => {
+  const { cwd, configDir } = await makeWorkspace();
+  await writeProjectAuth(configDir);
+  const server = await startJsonServer(() => ({ accountActionBaseUrl: "https://app.example.test", isOidcEnabled: true }));
+  try {
+    const result = await runAsync([
+      "auth", "config", "save", "--oidc-enabled=false", "--dry-run", "--api-url", server.url, "--json"
+    ], { cwd, env: testEnv(configDir, { BLOCKS_SECRET_STORE: "file" }) });
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(JSON.parse(result.stdout).request.isOidcEnabled, false);
+  } finally {
+    await new Promise((resolveClose) => server.close(resolveClose));
+  }
+});
+
+test("iam signup-settings save merges the current settings and renames the GET list fields", async () => {
+  const { cwd, configDir } = await makeWorkspace();
+  await writeProjectAuth(configDir);
+  const server = await startJsonServer((request) => {
+    const path = request.url.split("?")[0];
+    if (path === "/iam/v4/iam/signup-settings" && request.method === "GET") {
+      return {
+        isSignUpEnable: true,
+        isEmailPasswordSignUpEnabled: true,
+        isSSoSignUpEnabled: false,
+        defaultRolesForNewUser: ["member"],
+        defaultPermissionsForNewUser: ["profile::read"]
+      };
+    }
+    return rawResponse(500, { errorMessage: `Unexpected ${request.method} ${path}` });
+  });
+
+  try {
+    const env = testEnv(configDir, { BLOCKS_SECRET_STORE: "file" });
+    const rolesOnly = await runAsync(["iam", "signup-settings", "save", "--default-roles", "participant", "--dry-run", "--api-url", server.url, "--json"], { cwd, env });
+    assert.equal(rolesOnly.status, 0, rolesOnly.stderr);
+    // The POST binds `...OnSignUp`; the GET's spelling and its derived `isSignUpEnable` must not leak through.
+    assert.deepEqual(JSON.parse(rolesOnly.stdout).request, {
+      isEmailPasswordSignUpEnabled: true,
+      isSSoSignUpEnabled: false,
+      defaultRolesForNewUserOnSignUp: ["participant"],
+      defaultPermissionsForNewUserOnSignUp: ["profile::read"]
+    });
+
+    const explicitFalse = await runAsync(["iam", "signup-settings", "save", "--email-password-signup=false", "--dry-run", "--api-url", server.url, "--json"], { cwd, env });
+    assert.equal(explicitFalse.status, 0, explicitFalse.stderr);
+    const request = JSON.parse(explicitFalse.stdout).request;
+    assert.equal(request.isEmailPasswordSignUpEnabled, false);
+    assert.deepEqual(request.defaultRolesForNewUserOnSignUp, ["member"]);
+  } finally {
+    await new Promise((resolveClose) => server.close(resolveClose));
+  }
+});
+
+test("iam users update is a sparse patch: sends only the passed fields and refuses retired ones", async () => {
+  const { cwd, configDir } = await makeWorkspace();
+  await writeProjectAuth(configDir);
+  const urls = [];
+  // POST /users/{id} keeps omitted fields server-side, so the dry-run must not read the
+  // user first -- any request against this server is a failure.
+  const server = await startJsonServer((request) => {
+    urls.push(`${request.method} ${request.url}`);
+    return rawResponse(500, { errorMessage: `Unexpected ${request.method} ${request.url}` });
+  });
+
+  try {
+    const env = testEnv(configDir, { BLOCKS_SECRET_STORE: "file" });
+    const result = await runAsync([
+      "iam", "users", "update", "user-1", "--first-name", "Grace", "--organization-id", "org-7", "--dry-run", "--api-url", server.url, "--json"
+    ], { cwd, env });
+    assert.equal(result.status, 0, result.stderr);
+    assert.deepEqual(urls, [], "sparse update must not call the API on --dry-run");
+    assert.deepEqual(JSON.parse(result.stdout).request, {
+      itemId: "user-1",
+      firstName: "Grace",
+      organizationId: "org-7"
+    });
+
+    // Roles/permissions/MFA were retired from this endpoint: the server ignores them
+    // with only a log line, so the CLI turns that silence into a typed error.
+    const roles = await runAsync(["iam", "users", "update", "user-1", "--roles", "editor", "--dry-run", "--api-url", server.url, "--json"], { cwd, env });
+    assert.equal(roles.status, 1);
+    assert.match(roles.stderr, /access grant/);
+
+    const body = await runAsync([
+      "iam", "users", "update", "user-1", "--body", JSON.stringify({ firstName: "Grace", mfaEnabled: false }), "--dry-run", "--api-url", server.url, "--json"
+    ], { cwd, env });
+    assert.equal(body.status, 1);
+    assert.match(body.stderr, /mfaEnabled/);
+  } finally {
+    await new Promise((resolveClose) => server.close(resolveClose));
+  }
+});
+
+test("iam roles update keeps description, parent and canCreateOwn on a rename", async () => {
+  const { cwd, configDir } = await makeWorkspace();
+  await writeProjectAuth(configDir);
+  const server = await startJsonServer((request) => {
+    const path = request.url.split("?")[0];
+    if (path === "/iam/v4/iam/roles/role-1" && request.method === "GET") {
+      return {
+        data: {
+          itemId: "role-1",
+          name: "Content Editor",
+          slug: "content-editor",
+          description: "Edits published content",
+          parentRoleSlug: "editor",
+          canCreateOwn: false,
+          count: 12,
+          ancestorRoleSlugs: ["editor", "admin"]
+        }
+      };
+    }
+    return rawResponse(500, { errorMessage: `Unexpected ${request.method} ${path}` });
+  });
+
+  try {
+    const result = await runAsync(["iam", "roles", "update", "role-1", "--name", "Content Lead", "--dry-run", "--api-url", server.url, "--json"], {
+      cwd,
+      env: testEnv(configDir, { BLOCKS_SECRET_STORE: "file" })
+    });
+    assert.equal(result.status, 0, result.stderr);
+    assert.deepEqual(JSON.parse(result.stdout).request, {
+      itemId: "role-1",
+      name: "Content Lead",
+      description: "Edits published content",
+      parentRoleSlug: "editor",
+      canCreateOwn: false
+    });
+  } finally {
+    await new Promise((resolveClose) => server.close(resolveClose));
+  }
+});
+
+test("auth client-credentials save merges the stored credential and never carries its secret", async () => {
+  const { cwd, configDir } = await makeWorkspace();
+  await writeProjectAuth(configDir);
+  const server = await startJsonServer((request) => {
+    const path = request.url.split("?")[0];
+    if (path === "/iam/v4/auth/client-credentials" && request.method === "GET") {
+      return [
+        {
+          itemId: "cc-1",
+          name: "ci-deployer",
+          clientSecret: "blxsk_live_secret_value",
+          isActive: false,
+          accessTokenValidForNumberMinutes: 30,
+          roles: ["deployer"],
+          permissions: ["release::deploy"]
+        }
+      ];
+    }
+    return rawResponse(500, { errorMessage: `Unexpected ${request.method} ${path}` });
+  });
+
+  try {
+    const env = testEnv(configDir, { BLOCKS_SECRET_STORE: "file" });
+    const result = await runAsync([
+      "auth", "client-credentials", "save", "--item-id", "cc-1", "--roles", "deployer,reader", "--dry-run", "--api-url", server.url, "--json"
+    ], { cwd, env });
+    assert.equal(result.status, 0, result.stderr);
+    assert.deepEqual(JSON.parse(result.stdout).request, {
+      itemId: "cc-1",
+      name: "ci-deployer",
+      isActive: false,
+      accessTokenValidForNumberMinutes: 30,
+      roles: ["deployer", "reader"],
+      permissions: ["release::deploy"]
+    });
+    assert.ok(!result.stdout.includes("blxsk_live_secret_value"), "client secret leaked into the save body");
+
+    const missing = await runAsync(["auth", "client-credentials", "save", "--item-id", "cc-404", "--roles", "reader", "--dry-run", "--api-url", server.url, "--json"], { cwd, env });
+    assert.equal(missing.status, 1);
+    assert.match(missing.stderr, /cc-404.*was not found/);
+  } finally {
+    await new Promise((resolveClose) => server.close(resolveClose));
+  }
+});
+
+test("localization key save upserts one culture and keeps the other translations", async () => {
+  const { cwd, configDir } = await makeWorkspace();
+  await writeProjectAuth(configDir);
+  const lookups = [];
+  const server = await startJsonServer((request, body) => {
+    const path = request.url.split("?")[0];
+    if (path === "/localization/v4/Key/GetsByKeyNames" && request.method === "POST") {
+      lookups.push(body);
+      return {
+        keys: [
+          {
+            itemId: "key-1",
+            keyName: "greeting",
+            moduleId: "mod-1",
+            resources: [
+              { culture: "en-US", value: "Hello", characterLength: 5 },
+              { culture: "de-DE", value: "Hallo", characterLength: 5 }
+            ],
+            routes: ["/home"],
+            glossaryIds: ["g-1"],
+            context: "Landing page header",
+            isPartiallyTranslated: true
+          }
+        ]
+      };
+    }
+    return rawResponse(500, { errorMessage: `Unexpected ${request.method} ${path}` });
+  });
+
+  try {
+    const env = testEnv(configDir, { BLOCKS_SECRET_STORE: "file" });
+    const added = await runAsync([
+      "localization", "key", "save", "--key-name", "greeting", "--module-id", "mod-1", "--value", "Bonjour", "--culture", "fr-FR", "--dry-run", "--api-url", server.url, "--json"
+    ], { cwd, env });
+    assert.equal(added.status, 0, added.stderr);
+    assert.deepEqual(lookups[0], { keyNames: ["greeting"], moduleId: "mod-1" });
+    assert.deepEqual(JSON.parse(added.stdout).request, {
+      itemId: "key-1",
+      keyName: "greeting",
+      moduleId: "mod-1",
+      resources: [
+        { culture: "en-US", value: "Hello", characterLength: 5 },
+        { culture: "de-DE", value: "Hallo", characterLength: 5 },
+        { characterLength: 7, culture: "fr-FR", value: "Bonjour" }
+      ],
+      routes: ["/home"],
+      glossaryIds: ["g-1"],
+      context: "Landing page header",
+      isPartiallyTranslated: true,
+      shouldPublish: true
+    });
+
+    const optedOut = await runAsync([
+      "localization", "key", "save", "--key-name", "greeting", "--module-id", "mod-1", "--value", "Bonjour", "--culture", "fr-FR", "--should-publish=false", "--dry-run", "--api-url", server.url, "--json"
+    ], { cwd, env });
+    assert.equal(optedOut.status, 0, optedOut.stderr);
+    assert.equal(JSON.parse(optedOut.stdout).request.shouldPublish, false, "--should-publish=false must opt out of regenerating the UILM file");
+
+    const replaced = await runAsync([
+      "localization", "key", "save", "--key-name", "greeting", "--module-id", "mod-1", "--value", "Servus", "--culture", "de-de", "--dry-run", "--api-url", server.url, "--json"
+    ], { cwd, env });
+    assert.equal(replaced.status, 0, replaced.stderr);
+    assert.deepEqual(JSON.parse(replaced.stdout).request.resources, [
+      { culture: "en-US", value: "Hello", characterLength: 5 },
+      { culture: "de-DE", value: "Servus", characterLength: 6 }
+    ]);
+
+    const noCulture = await runAsync(["localization", "key", "save", "--key-name", "greeting", "--module-id", "mod-1", "--value", "Hola", "--dry-run", "--api-url", server.url, "--json"], { cwd, env });
+    assert.equal(noCulture.status, 1);
+    assert.match(noCulture.stderr, /--culture/);
+  } finally {
+    await new Promise((resolveClose) => server.close(resolveClose));
+  }
+});
+
+test("captcha save <id> merges the stored configuration so a secret rotation does not disable it", async () => {
+  const { cwd, configDir } = await makeWorkspace();
+  await writeProjectAuth(configDir);
+  const server = await startJsonServer((request) => {
+    const path = request.url.split("?")[0];
+    if (path === "/os/v4/captcha/get/cfg-1" && request.method === "GET") {
+      return { id: "cfg-1", isEnable: true, provider: "recaptcha", captchaKey: "site-1", captchaGenerator: "v3", secretId: "sec-1" };
+    }
+    return rawResponse(500, { errorMessage: `Unexpected ${request.method} ${path}` });
+  });
+
+  try {
+    const result = await runAsync(["captcha", "save", "cfg-1", "--captcha-secret", "rotated-secret-99", "--dry-run", "--api-url", server.url, "--json"], {
+      cwd,
+      env: testEnv(configDir, { BLOCKS_SECRET_STORE: "file" })
+    });
+    assert.equal(result.status, 0, result.stderr);
+    const planned = JSON.parse(result.stdout);
+    assert.deepEqual(planned.request, {
+      id: "cfg-1",
+      isEnable: true,
+      provider: "recaptcha",
+      captchaKey: "site-1",
+      captchaGenerator: "v3",
+      captchaSecret: "***"
+    });
+    assert.equal(planned.secretHandling, "rotate the linked secret");
+    assert.ok(!result.stdout.includes("rotated-secret-99"), "captcha secret leaked to dry-run output");
+  } finally {
+    await new Promise((resolveClose) => server.close(resolveClose));
+  }
+});
+
+test("iam users access grant shows the lists a non-empty grant will replace", async () => {
+  const { cwd, configDir } = await makeWorkspace();
+  await writeProjectAuth(configDir);
+  const server = await startJsonServer((request) => {
+    const path = request.url.split("?")[0];
+    if (path === "/iam/v4/iam/users/user-1" && request.method === "GET") {
+      return { data: { itemId: "user-1", roles: ["admin", "editor"], permissions: ["orders::export"] } };
+    }
+    return rawResponse(500, { errorMessage: `Unexpected ${request.method} ${path}` });
+  });
+
+  try {
+    const result = await runAsync(["iam", "users", "access", "grant", "user-1", "--roles", "editor", "--dry-run", "--api-url", server.url, "--json"], {
+      cwd,
+      env: testEnv(configDir, { BLOCKS_SECRET_STORE: "file" })
+    });
+    assert.equal(result.status, 0, result.stderr);
+    const planned = JSON.parse(result.stdout);
+    assert.deepEqual(planned.current, { permissions: ["orders::export"], roles: ["admin", "editor"] });
+    assert.deepEqual(planned.request, { roles: ["editor"], userId: "user-1" });
+  } finally {
+    await new Promise((resolveClose) => server.close(resolveClose));
+  }
+});
+
+test("mail config save --configuration-id merges the stored entity (itemId/name) and never carries the masked password", async () => {
+  const { cwd, configDir } = await makeWorkspace();
+  await writeProjectAuth(configDir);
+  const server = await startJsonServer((request) => {
+    const path = request.url.split("?")[0];
+    if (path === "/os/v4/Mail/Gets" && request.method === "GET") {
+      // Mail/Gets returns MailServerConfiguration entities, not the save DTO: `itemId` and
+      // `name` here are `configurationId` and `configurationName` on the request.
+      return [
+        {
+          itemId: "mail-1",
+          name: "primary",
+          host: "smtp.example.test",
+          port: 465,
+          enableSSL: true,
+          senderName: "Blocks",
+          senderAddress: "noreply@example.test",
+          senderUserName: "smtp-user",
+          accountPassword: "********",
+          isInbound: true,
+          provider: 2,
+          isEnableSnsConfiguration: true,
+          useDefaultCredentials: false,
+          isDefault: true
+        }
+      ];
+    }
+    return rawResponse(500, { errorMessage: `Unexpected ${request.method} ${path}` });
+  });
+
+  try {
+    const result = await runAsync([
+      "mail", "config", "save", "--configuration-id", "mail-1", "--host", "smtp2.example.test", "--account-password", "new-pass-1", "--dry-run", "--api-url", server.url, "--json"
+    ], { cwd, env: testEnv(configDir, { BLOCKS_SECRET_STORE: "file" }) });
+    assert.equal(result.status, 0, result.stderr);
+    assert.deepEqual(JSON.parse(result.stdout).request, {
+      configurationId: "mail-1",
+      configurationName: "primary",
+      host: "smtp2.example.test",
+      port: 465,
+      enableSSL: true,
+      senderName: "Blocks",
+      senderAddress: "noreply@example.test",
+      senderUserName: "smtp-user",
+      isInbound: true,
+      provider: 2,
+      isEnableSnsConfiguration: true,
+      accountPassword: "***"
+    });
+    assert.ok(!result.stdout.includes("new-pass-1"), "account password leaked to dry-run output");
+  } finally {
+    await new Promise((resolveClose) => server.close(resolveClose));
+  }
+});
+
+test("notification save merges by exact name and marks the save as an update", async () => {
+  const { cwd, configDir } = await makeWorkspace();
+  await writeProjectAuth(configDir);
+  const server = await startJsonServer((request) => {
+    const path = request.url.split("?")[0];
+    if (path === "/os/v4/Notification/Gets" && request.method === "GET") {
+      return {
+        configurations: [
+          { itemId: "n-1", name: "order-events", channelToNotify: 2, notificationType: 1, enablePersistence: true, notifyMethod: "signalr" }
+        ],
+        totalCount: 1,
+        isSuccess: true
+      };
+    }
+    return rawResponse(500, { errorMessage: `Unexpected ${request.method} ${path}` });
+  });
+
+  try {
+    const env = testEnv(configDir, { BLOCKS_SECRET_STORE: "file" });
+    const updated = await runAsync(["notification", "save", "--name", "order-events", "--channel", "1", "--dry-run", "--api-url", server.url, "--json"], { cwd, env });
+    assert.equal(updated.status, 0, updated.stderr);
+    // The save validator rejects an existing name unless IsUpdateRequest is set, so
+    // finding the record must set it -- and the other enums/bool must carry over.
+    assert.deepEqual(JSON.parse(updated.stdout).request, {
+      isUpdateRequest: true,
+      channelToNotify: 1,
+      notificationType: 1,
+      enablePersistence: true,
+      notifyMethod: "signalr",
+      name: "order-events"
+    });
+
+    // The server's name lookup is a case-sensitive Eq: a differently-cased name is a
+    // CREATE there, so nothing may be carried and isUpdateRequest must stay unset.
+    const cased = await runAsync(["notification", "save", "--name", "Order-Events", "--channel", "1", "--notify-method", "signalr", "--dry-run", "--api-url", server.url, "--json"], { cwd, env });
+    assert.equal(cased.status, 0, cased.stderr);
+    assert.deepEqual(JSON.parse(cased.stdout).request, {
+      channelToNotify: 1,
+      name: "Order-Events",
+      notifyMethod: "signalr"
+    });
+  } finally {
+    await new Promise((resolveClose) => server.close(resolveClose));
+  }
+});
+
+test("localization language save merges by exact name so a cased variant cannot inherit isDefault", async () => {
+  const { cwd, configDir } = await makeWorkspace();
+  await writeProjectAuth(configDir);
+  const server = await startJsonServer((request) => {
+    const path = request.url.split("?")[0];
+    if (path === "/localization/v4/Language/Gets" && request.method === "GET") {
+      return [{ itemId: "lang-1", languageName: "english", languageCode: "en-US", isDefault: true }];
+    }
+    return rawResponse(500, { errorMessage: `Unexpected ${request.method} ${path}` });
+  });
+
+  try {
+    const env = testEnv(configDir, { BLOCKS_SECRET_STORE: "file" });
+    const resaved = await runAsync(["localization", "language", "save", "--language-name", "english", "--language-code", "en-GB", "--dry-run", "--api-url", server.url, "--json"], { cwd, env });
+    assert.equal(resaved.status, 0, resaved.stderr);
+    assert.deepEqual(JSON.parse(resaved.stdout).request, {
+      itemId: "lang-1",
+      languageCode: "en-GB",
+      isDefault: true,
+      languageName: "english"
+    });
+
+    // Language/Save's lookup is a case-sensitive Eq: "English" would CREATE a second
+    // language, which must not be born holding this record's isDefault.
+    const cased = await runAsync(["localization", "language", "save", "--language-name", "English", "--language-code", "en-GB", "--dry-run", "--api-url", server.url, "--json"], { cwd, env });
+    assert.equal(cased.status, 0, cased.stderr);
+    assert.deepEqual(JSON.parse(cased.stdout).request, {
+      languageCode: "en-GB",
+      languageName: "English"
+    });
+  } finally {
+    await new Promise((resolveClose) => server.close(resolveClose));
+  }
+});
+
+test("iam me prefers project auth only when a project is resolved", async () => {
+  const { cwd, configDir } = await makeWorkspace();
+  const authorizations = [];
+  const server = await startJsonServer((request) => {
+    authorizations.push(request.headers.authorization);
+    return { itemId: "user-1" };
+  });
+
+  try {
+    await writeProjectAuth(configDir);
+    let result = await runAsync(["iam", "me", "--project", "project-tenant", "--api-url", server.url, "--json"], {
+      cwd,
+      env: testEnv(configDir, { BLOCKS_SECRET_STORE: "file" })
+    });
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(authorizations.at(-1), `Bearer ${fakeJwt({ tenant_id: "project-tenant" })}`);
+
+    await writeProjectAuth(configDir, { accountOnly: true });
+    result = await runAsync(["iam", "me", "--api-url", server.url, "--json"], {
+      cwd,
+      env: testEnv(configDir, { BLOCKS_SECRET_STORE: "file" })
+    });
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(authorizations.at(-1), `Bearer ${fakeJwt({ tenant_id: "root-tenant" })}`);
+  } finally {
+    await new Promise((resolveClose) => server.close(resolveClose));
+  }
 });
 
 test("space-separated complex command aliases resolve like colon commands", async () => {
@@ -360,6 +1309,228 @@ test("space-separated complex command aliases resolve like colon commands", asyn
     schemaId: "schema-1",
     validations: [{ type: 1, value: "^[0-9]{5}$", isActive: true }]
   });
+});
+test("a --body the shell stripped of its quotes is named as a shell problem, not a JSON one", async () => {
+  const { cwd, configDir } = await makeWorkspace();
+  const env = testEnv(configDir, { BLOCKS_SECRET_STORE: "file" });
+
+  // Exactly what PowerShell hands a native executable for --body '{"validations":[...]}'.
+  const stripped = run([
+    "data", "validation", "save",
+    "--schema-id", "schema-1",
+    "--field-name", "phone",
+    "--body", "{validations:[{type:1,value:^[0-9]+$}]}",
+    "--dry-run", "--json"
+  ], { cwd, env });
+
+  assert.equal(stripped.status, 1);
+  const strippedError = JSON.parse(stripped.stderr);
+  assert.equal(strippedError.code, "json_payload_shell_mangled");
+  assert.match(strippedError.message, /removed them before the CLI saw the payload/);
+  assert.match(strippedError.nextStep, /--file <path\.json>/);
+  // The payload can hold secrets on other commands, so it is described, never echoed.
+  assert.ok(!strippedError.message.includes("[0-9]"), strippedError.message);
+
+  // cmd.exe leaves the single quotes attached instead of removing the inner ones.
+  const wrapped = run([
+    "data", "validation", "save",
+    "--schema-id", "schema-1",
+    "--field-name", "phone",
+    "--body", "'{\"validations\":[{\"type\":1}]}'",
+    "--dry-run", "--json"
+  ], { cwd, env });
+
+  assert.equal(wrapped.status, 1);
+  const wrappedError = JSON.parse(wrapped.stderr);
+  assert.equal(wrappedError.code, "json_payload_shell_mangled");
+  assert.match(wrappedError.message, /still wrapped in the literal single quotes/);
+
+  // Genuinely malformed JSON still reports as malformed JSON.
+  const broken = run([
+    "data", "validation", "save",
+    "--schema-id", "schema-1",
+    "--field-name", "phone",
+    "--body", "{\"validations\": [",
+    "--dry-run", "--json"
+  ], { cwd, env });
+
+  assert.equal(broken.status, 1);
+  assert.equal(JSON.parse(broken.stderr).code, "command_failed");
+});
+
+test("--file reads a payload written with a UTF-8 BOM", async () => {
+  const { cwd, configDir } = await makeWorkspace();
+  const env = testEnv(configDir, { BLOCKS_SECRET_STORE: "file" });
+  const payload = { validations: [{ isActive: true, type: 1, value: "^[0-9]{5}$" }] };
+  // What PowerShell's Out-File -Encoding utf8, Set-Content and Notepad all produce.
+  await writeFile(join(cwd, "rules.json"), `﻿${JSON.stringify(payload)}`);
+
+  const result = run([
+    "data", "validation", "save",
+    "--schema-id", "schema-1",
+    "--field-name", "postalCode",
+    "--file", "rules.json",
+    "--dry-run", "--json"
+  ], { cwd, env });
+
+  assert.equal(result.status, 0, result.stderr);
+  assert.deepEqual(JSON.parse(result.stdout).request.validations, payload.validations);
+});
+
+test("data validation save builds one rule from scalar flags, naming the type instead of numbering it", async () => {
+  const { cwd, configDir } = await makeWorkspace();
+  const env = testEnv(configDir, { BLOCKS_SECRET_STORE: "file" });
+
+  const result = run([
+    "data", "validation", "save",
+    "--schema-id", "schema-1",
+    "--field-name", "phone",
+    "--type", "regex",
+    "--value", "^[0-9]+$",
+    "--error-message", "Digits only",
+    "--dry-run", "--json"
+  ], { cwd, env });
+
+  assert.equal(result.status, 0, result.stderr);
+  assert.deepEqual(JSON.parse(result.stdout).request.validations, [
+    { errorMessage: "Digits only", isActive: true, type: 1, value: "^[0-9]+$" }
+  ]);
+
+  // Names normalize, and the raw enum numbers still work for anything already scripted.
+  const byNumber = run([
+    "data", "validation", "save",
+    "--schema-id", "schema-1", "--field-name", "name",
+    "--type", "2", "--value", "3", "--dry-run", "--json"
+  ], { cwd, env });
+  assert.equal(byNumber.status, 0, byNumber.stderr);
+  // A length bound is sent as a number, the way the server reads it back.
+  assert.deepEqual(JSON.parse(byNumber.stdout).request.validations, [{ isActive: true, type: 2, value: 3 }]);
+
+  const byHyphenatedName = run([
+    "data", "validation", "save",
+    "--schema-id", "schema-1", "--field-name", "age",
+    "--type", "greater-than-or-equal", "--value", "18", "--dry-run", "--json"
+  ], { cwd, env });
+  assert.equal(byHyphenatedName.status, 0, byHyphenatedName.stderr);
+  assert.equal(JSON.parse(byHyphenatedName.stdout).request.validations[0].type, 9);
+
+  // An unknown type lists the real ones rather than sending a wrong number.
+  const wrongType = run([
+    "data", "validation", "save",
+    "--schema-id", "schema-1", "--field-name", "phone",
+    "--type", "pattern", "--value", "x", "--dry-run", "--json"
+  ], { cwd, env });
+  assert.equal(wrongType.status, 1);
+  const typeError = JSON.parse(wrongType.stderr);
+  assert.equal(typeError.code, "invalid_validation_type");
+  assert.match(typeError.nextStep, /regex/);
+
+  // A range needs both bounds before anything is sent.
+  const halfRange = run([
+    "data", "validation", "save",
+    "--schema-id", "schema-1", "--field-name", "score",
+    "--type", "range", "--value", "1", "--dry-run", "--json"
+  ], { cwd, env });
+  assert.equal(halfRange.status, 1);
+  assert.equal(JSON.parse(halfRange.stderr).code, "missing_validation_secondary_value");
+
+  // Two sources for the same list is a conflict, not a silent winner.
+  const conflict = run([
+    "data", "validation", "save",
+    "--schema-id", "schema-1", "--field-name", "phone",
+    "--type", "regex", "--value", "^x$",
+    "--body", JSON.stringify({ validations: [{ type: 0 }] }),
+    "--dry-run", "--json"
+  ], { cwd, env });
+  assert.equal(conflict.status, 1);
+  assert.equal(JSON.parse(conflict.stderr).code, "validation_rules_conflict");
+});
+
+test("data validation save updates the field's existing rule record instead of failing as a duplicate", async () => {
+  const { cwd, configDir } = await makeWorkspace();
+  await writeProjectAuth(configDir);
+  const requests = [];
+  const server = await startJsonServer((request, body) => {
+    const path = request.url.split("?")[0];
+    requests.push({ body, method: request.method, url: request.url });
+
+    if (path === "/data/v4/data-validations/by-schema-and-field" && request.method === "GET") {
+      return {
+        data: { fieldName: "phone", itemId: "validation-7", schemaId: "schema-1", validations: [{ type: 0 }, { type: 1 }] },
+        isSuccess: true
+      };
+    }
+    if (path === "/data/v4/data-validations") return { data: { acknowledged: true, itemId: "validation-7" }, isSuccess: true };
+    if (path === "/data/v4/schema-configurations/reload") return { data: true, isSuccess: true };
+    return rawResponse(500, { errorMessage: `Unexpected ${request.method} ${path}` });
+  });
+
+  try {
+    const context = ["--api-url", server.url, "--json"];
+    const env = testEnv(configDir, { BLOCKS_SECRET_STORE: "file" });
+
+    // The dry-run says it is an update and how many rules it replaces, before any write.
+    const preview = await runAsync([
+      "data", "validation", "save", "--schema-id", "schema-1", "--field-name", "phone",
+      "--type", "regex", "--value", "^[0-9]+$", "--dry-run", ...context
+    ], { cwd, env });
+    assert.equal(preview.status, 0, preview.stderr);
+    const previewOutput = JSON.parse(preview.stdout);
+    assert.equal(previewOutput.target, "update");
+    assert.equal(previewOutput.method, "PUT");
+    assert.equal(previewOutput.replacesExistingRules, 2);
+    assert.equal(previewOutput.request.itemId, "validation-7");
+
+    const applied = await runAsync([
+      "data", "validation", "save", "--schema-id", "schema-1", "--field-name", "phone",
+      "--type", "regex", "--value", "^[0-9]+$", "--yes", ...context
+    ], { cwd, env });
+    assert.equal(applied.status, 0, applied.stderr);
+
+    // The write is a PUT carrying the id the lookup found -- the POST that the server
+    // answers with "Validation already exists for this schema field" is never sent.
+    const write = requests.find((item) => item.url.split("?")[0] === "/data/v4/data-validations" && item.method !== "GET");
+    assert.equal(write.method, "PUT");
+    assert.equal(write.body.itemId, "validation-7");
+    assert.equal(write.body.validations.length, 1);
+  } finally {
+    await new Promise((resolveClose) => server.close(resolveClose));
+  }
+});
+
+test("a failed gateway reload reports the write as applied rather than failing the command", async () => {
+  const { cwd, configDir } = await makeWorkspace();
+  await writeProjectAuth(configDir);
+  let writes = 0;
+  const server = await startJsonServer((request) => {
+    const path = request.url.split("?")[0];
+    if (path === "/data/v4/data-validations/by-schema-and-field") return { data: null, isSuccess: false, message: "Data validation not found for this schema field" };
+    if (path === "/data/v4/data-validations" && request.method === "POST") {
+      writes += 1;
+      return { data: { acknowledged: true, itemId: "validation-9" }, isSuccess: true };
+    }
+    if (path === "/data/v4/schema-configurations/reload") return rawResponse(500, { errorMessage: "reload unavailable" });
+    return rawResponse(500, { errorMessage: `Unexpected ${request.method} ${path}` });
+  });
+
+  try {
+    const result = await runAsync([
+      "data", "validation", "save", "--schema-id", "schema-1", "--field-name", "phone",
+      "--type", "notempty", "--yes", "--api-url", server.url, "--json"
+    ], { cwd, env: testEnv(configDir, { BLOCKS_SECRET_STORE: "file" }) });
+
+    // The write landed, so the command succeeds and stdout stays one JSON document.
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(writes, 1);
+    const output = JSON.parse(result.stdout);
+    assert.equal(output.gatewayReload.ok, false);
+    assert.equal(output.gatewayReload.writeApplied, true);
+    assert.equal(output.gatewayReload.nextStep, "blocks data reload --yes");
+    // And the warning that says not to re-run the write goes to stderr.
+    assert.match(result.stderr, /do not re-run the write/i);
+  } finally {
+    await new Promise((resolveClose) => server.close(resolveClose));
+  }
 });
 
 test("rich JSON payload commands let scalar flags override body fields without dropping arrays", async () => {
@@ -387,6 +1558,652 @@ test("rich JSON payload commands let scalar flags override body fields without d
   assert.equal(output.request.fieldName, "email");
   assert.equal(output.request.itemId, "validation-1");
   assert.equal(output.request.validations.length, 2);
+});
+
+test("iam roles list sends zero-based backend page and omits empty sort", async () => {
+  const { cwd, configDir } = await makeWorkspace();
+  await writeProjectAuth(configDir);
+  const requests = [];
+  const server = await startJsonServer((request, body) => {
+    requests.push({ body, method: request.method, url: request.url });
+    return { data: [], totalCount: 0 };
+  });
+
+  try {
+    const result = await runAsync([
+      "iam:roles:list",
+      "--page", "1",
+      "--page-size", "10",
+      "--api-url", server.url,
+      "--json"
+    ], { cwd, env: testEnv(configDir, { BLOCKS_SECRET_STORE: "file" }) });
+
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(requests[0].url, "/iam/v4/iam/roles");
+    assert.equal(requests[0].body.page, 0);
+    assert.equal(requests[0].body.pageSize, 10);
+    assert.ok(!("sort" in requests[0].body));
+  } finally {
+    await new Promise((resolveClose) => server.close(resolveClose));
+  }
+});
+
+test("iam permissions list sends sort only with a property", async () => {
+  const { cwd, configDir } = await makeWorkspace();
+  await writeProjectAuth(configDir);
+  const requests = [];
+  const server = await startJsonServer((request, body) => {
+    requests.push({ body, method: request.method, url: request.url });
+    return { data: [], totalCount: 0 };
+  });
+
+  try {
+    const result = await runAsync([
+      "iam:permissions:list",
+      "--sort-by", "Name",
+      "--sort-desc",
+      "--api-url", server.url,
+      "--json"
+    ], { cwd, env: testEnv(configDir, { BLOCKS_SECRET_STORE: "file" }) });
+
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(requests[0].url, "/iam/v4/iam/permissions");
+    assert.equal(requests[0].body.page, 0);
+    assert.deepEqual(requests[0].body.sort, { isDescending: true, property: "Name" });
+  } finally {
+    await new Promise((resolveClose) => server.close(resolveClose));
+  }
+});
+
+test("iam roles assign-permissions resolves resource strings and sends organizationId", async () => {
+  const { cwd, configDir } = await makeWorkspace();
+  await writeProjectAuth(configDir);
+  const requests = [];
+  const server = await startJsonServer((request, body) => {
+    requests.push({ body, method: request.method, url: request.url });
+    if (request.url === "/iam/v4/iam/permissions") {
+      return {
+        data: [
+          { itemId: "perm-add-id", resource: "orders::read" },
+          { itemId: "perm-remove-id", resource: "orders::delete" }
+        ]
+      };
+    }
+    return { isSuccess: true, success: true };
+  });
+
+  try {
+    const result = await runAsync([
+      "iam:roles:assign-permissions",
+      "manager",
+      "--add-permissions", "orders::read,existing-id",
+      "--remove-permissions", "orders::delete",
+      "--organization-id", "org-1",
+      "--api-url", server.url,
+      "--yes",
+      "--json"
+    ], { cwd, env: testEnv(configDir, { BLOCKS_SECRET_STORE: "file" }) });
+
+    assert.equal(result.status, 0, result.stderr);
+    assert.deepEqual(requests.map((item) => item.url), [
+      "/iam/v4/iam/permissions",
+      "/iam/v4/iam/permissions",
+      "/iam/v4/iam/roles/assign-permissions"
+    ]);
+    assert.deepEqual(requests[2].body, {
+      addPermissions: ["perm-add-id", "existing-id"],
+      organizationId: "org-1",
+      removePermissions: ["perm-remove-id"],
+      slug: "manager"
+    });
+  } finally {
+    await new Promise((resolveClose) => server.close(resolveClose));
+  }
+});
+
+test("data schema aggregation rejects page zero before network calls", async () => {
+  const { cwd, configDir } = await makeWorkspace();
+  await writeProjectAuth(configDir);
+  const requests = [];
+  const server = await startJsonServer((request, body) => {
+    requests.push({ body, method: request.method, url: request.url });
+    return { data: {} };
+  });
+
+  try {
+    const result = run([
+      "data:schema:aggregation",
+      "--page", "0",
+      "--api-url", server.url,
+      "--json"
+    ], { cwd, env: testEnv(configDir, { BLOCKS_SECRET_STORE: "file" }) });
+
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /--page must be greater than or equal to 1/);
+    assert.deepEqual(requests, []);
+  } finally {
+    await new Promise((resolveClose) => server.close(resolveClose));
+  }
+});
+
+test("schema push ignores a foreign local id and creates via POST when no destination schema exists", async () => {
+  const { cwd, configDir } = await makeWorkspace();
+  await writeProjectAuth(configDir);
+  await mkdir(join(cwd, "blocks", "data", "schemas"), { recursive: true });
+  await writeFile(join(cwd, "blocks", "data", "schemas", "Company.json"), `${JSON.stringify({
+    collectionName: "sb_Companys",
+    fields: [{ name: "Name", type: "String" }],
+    itemId: "foreign-project-id",
+    schemaName: "Company",
+    schemaType: 1
+  }, null, 2)}\n`);
+
+  const requests = [];
+  const server = await startJsonServer((request, body) => {
+    const path = request.url.split("?")[0];
+    requests.push({ body, method: request.method, url: request.url });
+    if (path === "/data/v4/schemas" && request.method === "GET") {
+      return { data: { items: [], totalCount: 0 }, isSuccess: true };
+    }
+    if (path === "/data/v4/schemas/define" && request.method === "POST") {
+      return { data: { acknowledged: true, itemId: "new-id" }, isSuccess: true };
+    }
+    // Every mutating data command reloads the gateway so the write goes live.
+    if (path === "/data/v4/schema-configurations/reload" && request.method === "POST") {
+      return { data: false, isSuccess: true, message: "Schema evicted successfully." };
+    }
+    // New schemas are granted Public access on create (four operations).
+    if (path === "/data/v4/data-access/security/change" && request.method === "POST") {
+      return { isSuccess: true, message: "CONFIGURATION_SAVED" };
+    }
+    return rawResponse(500, { errorMessage: `Unexpected ${request.method} ${path}` });
+  });
+
+  try {
+    const result = await runAsync(["data:schema:push", "--yes", "--api-url", server.url, "--json"], {
+      cwd,
+      env: testEnv(configDir, { BLOCKS_SECRET_STORE: "file" })
+    });
+
+    assert.equal(result.status, 0, result.stderr);
+    const output = JSON.parse(result.stdout);
+    assert.equal(output.results.length, 1);
+    assert.ok(output.warnings?.[0]?.includes("ignoring local id"), JSON.stringify(output));
+
+    const defineRequest = requests.find((item) => item.url.startsWith("/data/v4/schemas/define"));
+    assert.equal(defineRequest.method, "POST");
+    assert.equal(defineRequest.body.itemId, undefined);
+    assert.equal(defineRequest.body.id, undefined);
+    assert.equal(defineRequest.body.schemaName, "Company");
+  } finally {
+    await new Promise((resolveClose) => server.close(resolveClose));
+  }
+});
+
+test("schema push uses the destination project's own id and PUT when a schema with that name already exists", async () => {
+  const { cwd, configDir } = await makeWorkspace();
+  await writeProjectAuth(configDir);
+  await mkdir(join(cwd, "blocks", "data", "schemas"), { recursive: true });
+  await writeFile(join(cwd, "blocks", "data", "schemas", "Company.json"), `${JSON.stringify({
+    collectionName: "sb_Companys",
+    fields: [{ name: "Name", type: "String" }],
+    itemId: "foreign-project-id",
+    schemaName: "Company",
+    schemaType: 1
+  }, null, 2)}\n`);
+
+  const requests = [];
+  const server = await startJsonServer((request, body) => {
+    const path = request.url.split("?")[0];
+    requests.push({ body, method: request.method, url: request.url });
+    if (path === "/data/v4/schemas" && request.method === "GET") {
+      return { data: { items: [{ id: "destination-id", schemaName: "Company" }], totalCount: 1 }, isSuccess: true };
+    }
+    if (path === "/data/v4/schemas/define" && request.method === "PUT") {
+      return { data: { acknowledged: true, itemId: "destination-id" }, isSuccess: true };
+    }
+    // Every mutating data command reloads the gateway so the write goes live.
+    if (path === "/data/v4/schema-configurations/reload" && request.method === "POST") {
+      return { data: false, isSuccess: true, message: "Schema evicted successfully." };
+    }
+    // New schemas are granted Public access on create (four operations).
+    if (path === "/data/v4/data-access/security/change" && request.method === "POST") {
+      return { isSuccess: true, message: "CONFIGURATION_SAVED" };
+    }
+    return rawResponse(500, { errorMessage: `Unexpected ${request.method} ${path}` });
+  });
+
+  try {
+    const result = await runAsync(["data:schema:push", "--yes", "--api-url", server.url, "--json"], {
+      cwd,
+      env: testEnv(configDir, { BLOCKS_SECRET_STORE: "file" })
+    });
+
+    assert.equal(result.status, 0, result.stderr);
+    const output = JSON.parse(result.stdout);
+    assert.equal(output.warnings, undefined);
+
+    const defineRequest = requests.find((item) => item.url.startsWith("/data/v4/schemas/define"));
+    assert.equal(defineRequest.method, "PUT");
+    assert.equal(defineRequest.body.itemId, "destination-id");
+  } finally {
+    await new Promise((resolveClose) => server.close(resolveClose));
+  }
+});
+
+test("schema push fails clearly instead of treating a 204 empty response as success", async () => {
+  const { cwd, configDir } = await makeWorkspace();
+  await writeProjectAuth(configDir);
+  await mkdir(join(cwd, "blocks", "data", "schemas"), { recursive: true });
+  await writeFile(join(cwd, "blocks", "data", "schemas", "Company.json"), `${JSON.stringify({
+    collectionName: "sb_Companys",
+    fields: [{ name: "Name", type: "String" }],
+    schemaName: "Company",
+    schemaType: 1
+  }, null, 2)}\n`);
+
+  const server = await startJsonServer((request) => {
+    const path = request.url.split("?")[0];
+    if (path === "/data/v4/schemas" && request.method === "GET") {
+      return { data: { items: [{ id: "destination-id", schemaName: "Company" }], totalCount: 1 }, isSuccess: true };
+    }
+    if (path === "/data/v4/schemas/define" && request.method === "PUT") {
+      return rawResponse(204);
+    }
+    return rawResponse(500);
+  });
+
+  try {
+    const result = await runAsync(["data:schema:push", "--yes", "--api-url", server.url, "--json"], {
+      cwd,
+      env: testEnv(configDir, { BLOCKS_SECRET_STORE: "file" })
+    });
+
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /Company/);
+    assert.match(result.stderr, /empty response/);
+    assert.ok(!result.stdout.includes("null"), result.stdout);
+  } finally {
+    await new Promise((resolveClose) => server.close(resolveClose));
+  }
+});
+
+test("schema pull writes a canonical portable file with no server id or system-managed fields", async () => {
+  const { cwd, configDir } = await makeWorkspace();
+  await writeProjectAuth(configDir);
+  // data:validate also requires a rules file to exist; write an empty one so this test
+  // isolates schema-file validation (the point of the pull-to-validate-to-push check).
+  await mkdir(join(cwd, "blocks", "data"), { recursive: true });
+  await writeFile(join(cwd, "blocks", "data", "rules.json"), `${JSON.stringify({ policies: [], security: [] }, null, 2)}\n`);
+
+  const server = await startJsonServer((request) => {
+    const path = request.url.split("?")[0];
+    if (path === "/data/v4/schemas" && request.method === "GET") {
+      return {
+        data: {
+          items: [{
+            collectionName: "sb_Companys",
+            fields: [
+              { isArray: false, isPIIData: false, isUniqueData: false, name: "Name", type: "String" },
+              { name: "ItemId", type: "String" },
+              { name: "CreatedDate", type: "DateTime" }
+            ],
+            id: "server-id",
+            mutationSchemas: ["insertCompany", "updateCompany", "deleteCompany"],
+            projectKey: "project-tenant",
+            querySchema: "Companys",
+            readAccessLevel: 0,
+            schemaName: "Company",
+            schemaType: 1,
+            totalReadPolicies: 0
+          }],
+          totalCount: 1
+        },
+        isSuccess: true
+      };
+    }
+    return rawResponse(500);
+  });
+
+  try {
+    const result = await runAsync(["data:schema:pull", "--api-url", server.url, "--json"], {
+      cwd,
+      env: testEnv(configDir, { BLOCKS_SECRET_STORE: "file" })
+    });
+
+    assert.equal(result.status, 0, result.stderr);
+    const written = JSON.parse(await readFile(join(cwd, "blocks", "data", "schemas", "Company.json"), "utf8"));
+    assert.deepEqual(written, {
+      collectionName: "sb_Companys",
+      fields: [{ isArray: false, isPIIData: false, isUniqueData: false, name: "Name", type: "String" }],
+      schemaName: "Company",
+      schemaType: 1
+    });
+
+    const validate = run(["data:validate", "--json"], { cwd, env: testEnv(configDir, { BLOCKS_SECRET_STORE: "file" }) });
+    assert.equal(validate.status, 0, validate.stderr);
+  } finally {
+    await new Promise((resolveClose) => server.close(resolveClose));
+  }
+});
+
+test("schema pull tolerates a nested legacy response wrapper", async () => {
+  const { cwd, configDir } = await makeWorkspace();
+  await writeProjectAuth(configDir);
+
+  const server = await startJsonServer((request) => {
+    const path = request.url.split("?")[0];
+    if (path === "/data/v4/schemas" && request.method === "GET") {
+      return {
+        data: {
+          data: { items: [{ collectionName: "sb_Companys", id: "server-id", schemaName: "Company", schemaType: 1 }], totalCount: 1 },
+          isSuccess: true
+        },
+        isSuccess: true
+      };
+    }
+    return rawResponse(500);
+  });
+
+  try {
+    const result = await runAsync(["data:schema:pull", "--api-url", server.url, "--json"], {
+      cwd,
+      env: testEnv(configDir, { BLOCKS_SECRET_STORE: "file" })
+    });
+
+    assert.equal(result.status, 0, result.stderr);
+    const output = JSON.parse(result.stdout);
+    assert.equal(output.count, 1);
+    const written = JSON.parse(await readFile(join(cwd, "blocks", "data", "schemas", "Company.json"), "utf8"));
+    assert.equal(written.id, undefined);
+    assert.equal(written.schemaName, "Company");
+  } finally {
+    await new Promise((resolveClose) => server.close(resolveClose));
+  }
+});
+
+test("schema pull fetches every page when more schemas exist than one page returns", async () => {
+  const { cwd, configDir } = await makeWorkspace();
+  await writeProjectAuth(configDir);
+
+  const pageRequests = [];
+  const server = await startJsonServer((request) => {
+    const path = request.url.split("?")[0];
+    if (path === "/data/v4/schemas" && request.method === "GET") {
+      const params = new URL(request.url, "http://x").searchParams;
+      const pageNo = params.get("PageNo");
+      pageRequests.push(pageNo);
+      if (pageNo === "1") {
+        return { data: { items: [{ collectionName: "sb_Companys", id: "id-1", schemaName: "Company", schemaType: 1 }], totalCount: 2 }, isSuccess: true };
+      }
+      return { data: { items: [{ collectionName: "sb_Contacts", id: "id-2", schemaName: "Contact", schemaType: 1 }], totalCount: 2 }, isSuccess: true };
+    }
+    return rawResponse(500);
+  });
+
+  try {
+    const result = await runAsync(["data:schema:pull", "--api-url", server.url, "--json"], {
+      cwd,
+      env: testEnv(configDir, { BLOCKS_SECRET_STORE: "file" })
+    });
+
+    assert.equal(result.status, 0, result.stderr);
+    assert.deepEqual(pageRequests, ["1", "2"]);
+    const output = JSON.parse(result.stdout);
+    assert.equal(output.count, 2);
+  } finally {
+    await new Promise((resolveClose) => server.close(resolveClose));
+  }
+});
+
+test("schema list validates the response envelope and rejects a malformed shape instead of treating it as empty", async () => {
+  const { cwd, configDir } = await makeWorkspace();
+  await writeProjectAuth(configDir);
+
+  const goodServer = await startJsonServer(() => ({ data: { items: [], totalCount: 0 }, isSuccess: true }));
+  try {
+    const good = await runAsync(["data:schema:list", "--page", "1", "--page-size", "50", "--api-url", goodServer.url, "--json"], {
+      cwd,
+      env: testEnv(configDir, { BLOCKS_SECRET_STORE: "file" })
+    });
+    assert.equal(good.status, 0, good.stderr);
+    assert.deepEqual(JSON.parse(good.stdout), { data: { items: [], totalCount: 0 }, isSuccess: true });
+  } finally {
+    await new Promise((resolveClose) => goodServer.close(resolveClose));
+  }
+
+  const malformedServer = await startJsonServer(() => ({ isSuccess: false, message: "boom" }));
+  try {
+    const malformed = await runAsync(["data:schema:list", "--api-url", malformedServer.url, "--json"], {
+      cwd,
+      env: testEnv(configDir, { BLOCKS_SECRET_STORE: "file" })
+    });
+    assert.notEqual(malformed.status, 0);
+    assert.match(malformed.stderr, /Blocks API returned an unsuccessful response: boom/);
+  } finally {
+    await new Promise((resolveClose) => malformedServer.close(resolveClose));
+  }
+});
+
+test("rules pull stores the policy list from response.data in the CLI's portable schemaName-based format", async () => {
+  const { cwd, configDir } = await makeWorkspace();
+  await writeProjectAuth(configDir);
+
+  const server = await startJsonServer((request) => {
+    const path = request.url.split("?")[0];
+    if (path === "/data/v4/schemas" && request.method === "GET") {
+      return { data: { items: [{ collectionName: "sb_Companys", id: "schema-id", schemaName: "Company", schemaType: 1 }], totalCount: 1 }, isSuccess: true };
+    }
+    if (path === "/data/v4/data-access/policy/get" && request.method === "GET") {
+      return {
+        data: [{
+          entityName: "Company",
+          fieldNames: [],
+          isAllowPolicy: true,
+          itemId: "policy-1",
+          operation: 0,
+          policyDescription: "",
+          policyName: "OwnerOnly",
+          policyType: 0,
+          priority: 0,
+          ruleGroup: { logicalOperator: 0, nestedGroups: [], rules: [] },
+          schemaId: "schema-id"
+        }],
+        isSuccess: true
+      };
+    }
+    return rawResponse(500);
+  });
+
+  try {
+    const result = await runAsync(["data:rules:pull", "--api-url", server.url, "--json"], {
+      cwd,
+      env: testEnv(configDir, { BLOCKS_SECRET_STORE: "file" })
+    });
+
+    assert.equal(result.status, 0, result.stderr);
+    const written = JSON.parse(await readFile(join(cwd, "blocks", "data", "rules.json"), "utf8"));
+    assert.equal(written.policies.length, 1);
+    assert.equal(written.policies[0].schemaName, "Company");
+    assert.equal(written.policies[0].policyName, "OwnerOnly");
+    assert.equal(written.policies[0].itemId, undefined);
+    assert.equal(written.policies[0].schemaId, undefined);
+    assert.equal(written.policies[0].entityName, undefined);
+    assert.equal(written.isSuccess, undefined, "must not store the raw service envelope");
+  } finally {
+    await new Promise((resolveClose) => server.close(resolveClose));
+  }
+});
+
+test("rules pull falls back to the queried schema name when the API's entityName comes back empty", async () => {
+  // Observed against a live project: policy/get returns entityName: "" instead of
+  // the schema name, so pull must not silently drop the schema association.
+  const { cwd, configDir } = await makeWorkspace();
+  await writeProjectAuth(configDir);
+
+  const server = await startJsonServer((request) => {
+    const path = request.url.split("?")[0];
+    if (path === "/data/v4/schemas" && request.method === "GET") {
+      return { data: { items: [{ collectionName: "sb_AcceptanceTests", id: "schema-id", schemaName: "AcceptanceTest", schemaType: 1 }], totalCount: 1 }, isSuccess: true };
+    }
+    if (path === "/data/v4/data-access/policy/get" && request.method === "GET") {
+      return {
+        data: [{
+          entityName: "",
+          fieldNames: [],
+          isAllowPolicy: true,
+          itemId: "policy-1",
+          operation: 0,
+          policyDescription: "",
+          policyName: "OwnerOnlyRead",
+          policyType: 0,
+          priority: 0,
+          ruleGroup: { logicalOperator: 0, nestedGroups: [], rules: [] },
+          schemaId: "schema-id"
+        }],
+        isSuccess: true
+      };
+    }
+    return rawResponse(500);
+  });
+
+  try {
+    const result = await runAsync(["data:rules:pull", "--api-url", server.url, "--json"], {
+      cwd,
+      env: testEnv(configDir, { BLOCKS_SECRET_STORE: "file" })
+    });
+
+    assert.equal(result.status, 0, result.stderr);
+    const written = JSON.parse(await readFile(join(cwd, "blocks", "data", "rules.json"), "utf8"));
+    assert.equal(written.policies[0].schemaName, "AcceptanceTest");
+  } finally {
+    await new Promise((resolveClose) => server.close(resolveClose));
+  }
+});
+
+test("rules deploy resolves the destination schema id by name instead of reusing a source-project id", async () => {
+  const { cwd, configDir } = await makeWorkspace();
+  await writeProjectAuth(configDir);
+  await mkdir(join(cwd, "blocks", "data"), { recursive: true });
+  await writeFile(join(cwd, "blocks", "data", "rules.json"), `${JSON.stringify({
+    policies: [{
+      fieldNames: [],
+      isAllowPolicy: true,
+      operation: 0,
+      policyDescription: "",
+      policyName: "OwnerOnly",
+      policyType: 0,
+      priority: 0,
+      ruleGroup: { logicalOperator: 0, nestedGroups: [], rules: [] },
+      schemaName: "Company"
+    }],
+    security: []
+  }, null, 2)}\n`);
+
+  const requests = [];
+  const server = await startJsonServer((request, body) => {
+    const path = request.url.split("?")[0];
+    requests.push({ body, method: request.method, url: request.url });
+    if (path === "/data/v4/schemas" && request.method === "GET") {
+      return { data: { items: [{ collectionName: "sb_Companys", id: "destination-schema-id", schemaName: "Company", schemaType: 1 }], totalCount: 1 }, isSuccess: true };
+    }
+    if (path === "/data/v4/data-access/policy/get" && request.method === "GET") {
+      return { data: [], isSuccess: true };
+    }
+    if (path === "/data/v4/data-access/policy/create" && request.method === "POST") {
+      return { data: { acknowledged: true, itemId: "new-policy-id" }, isSuccess: true };
+    }
+    // Every mutating data command reloads the gateway so the write goes live.
+    if (path === "/data/v4/schema-configurations/reload" && request.method === "POST") {
+      return { data: false, isSuccess: true, message: "Schema evicted successfully." };
+    }
+    return rawResponse(500, { errorMessage: `Unexpected ${request.method} ${path}` });
+  });
+
+  try {
+    const result = await runAsync(["data:rules:deploy", "--yes", "--api-url", server.url, "--json"], {
+      cwd,
+      env: testEnv(configDir, { BLOCKS_SECRET_STORE: "file" })
+    });
+
+    assert.equal(result.status, 0, result.stderr);
+    const createRequest = requests.find((item) => item.url.startsWith("/data/v4/data-access/policy/create"));
+    assert.ok(createRequest, JSON.stringify(requests));
+    assert.equal(createRequest.body.schemaId, "destination-schema-id");
+    assert.equal(createRequest.body.schemaName, "Company");
+    assert.equal(createRequest.body.policyName, "OwnerOnly");
+  } finally {
+    await new Promise((resolveClose) => server.close(resolveClose));
+  }
+});
+
+test("rules deploy fails clearly when a policy targets a schema missing from the destination project", async () => {
+  const { cwd, configDir } = await makeWorkspace();
+  await writeProjectAuth(configDir);
+  await mkdir(join(cwd, "blocks", "data"), { recursive: true });
+  await writeFile(join(cwd, "blocks", "data", "rules.json"), `${JSON.stringify({
+    policies: [{ policyName: "OwnerOnly", schemaName: "Ghost" }],
+    security: []
+  }, null, 2)}\n`);
+
+  const server = await startJsonServer((request) => {
+    const path = request.url.split("?")[0];
+    if (path === "/data/v4/schemas" && request.method === "GET") return { data: { items: [], totalCount: 0 }, isSuccess: true };
+    if (path === "/data/v4/data-access/policy/get" && request.method === "GET") return { data: [], isSuccess: true };
+    return rawResponse(500);
+  });
+
+  try {
+    const result = await runAsync(["data:rules:deploy", "--yes", "--api-url", server.url, "--json"], {
+      cwd,
+      env: testEnv(configDir, { BLOCKS_SECRET_STORE: "file" })
+    });
+
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /Ghost/);
+  } finally {
+    await new Promise((resolveClose) => server.close(resolveClose));
+  }
+});
+
+test("schema get prints exact GraphQL operation names in human output while leaving --json untouched", async () => {
+  const { cwd, configDir } = await makeWorkspace();
+  await writeProjectAuth(configDir);
+
+  const schemaResponse = {
+    data: {
+      collectionName: "sb_Companys",
+      id: "server-id",
+      mutationSchemas: ["insertCompany", "updateCompany", "deleteCompany"],
+      querySchema: "Companys",
+      schemaName: "Company",
+      schemaType: 1
+    },
+    isSuccess: true
+  };
+  const server = await startJsonServer(() => schemaResponse);
+
+  try {
+    const jsonResult = await runAsync(["data:schema:get", "server-id", "--api-url", server.url, "--json"], {
+      cwd,
+      env: testEnv(configDir, { BLOCKS_SECRET_STORE: "file" })
+    });
+    assert.equal(jsonResult.status, 0, jsonResult.stderr);
+    assert.deepEqual(JSON.parse(jsonResult.stdout), schemaResponse);
+
+    const humanResult = await runAsync(["data:schema:get", "server-id", "--api-url", server.url], {
+      cwd,
+      env: testEnv(configDir, { BLOCKS_SECRET_STORE: "file" })
+    });
+    assert.equal(humanResult.status, 0, humanResult.stderr);
+    assert.match(humanResult.stdout, /getCompanys/);
+    assert.match(humanResult.stdout, /insertManyCompany/);
+    assert.match(humanResult.stdout, /updateManyCompany/);
+    assert.match(humanResult.stdout, /deleteManyCompany/);
+    assert.match(humanResult.stdout, /insertCompany/);
+  } finally {
+    await new Promise((resolveClose) => server.close(resolveClose));
+  }
 });
 
 test("notifier notify dry-run parses comma lists and JSON array flags", async () => {
@@ -446,7 +2263,301 @@ test("secret-bearing command dry-runs redact secrets while preserving typed fiel
   assert.doesNotMatch(result.stdout, /super-secret/);
 });
 
-test("composed data file upload dry-run plans presign, provider PUT, and DMS registration", async () => {
+test("user and identity-provider dry-runs recursively redact secrets", async () => {
+  const { cwd, configDir } = await makeWorkspace();
+  const env = testEnv(configDir, { BLOCKS_SECRET_STORE: "file" });
+
+  const user = run([
+    "iam", "users", "create", "--email", "user@example.test", "--password", "user-secret", "--dry-run", "--json"
+  ], { cwd, env });
+  assert.equal(user.status, 0, user.stderr);
+  assert.equal(JSON.parse(user.stdout).request.password, "***");
+  assert.doesNotMatch(user.stdout, /user-secret/);
+
+  for (const command of ["create", "update"]) {
+    const args = ["auth", "idp", command];
+    if (command === "update") args.push("provider-1");
+    args.push(
+      "--body", JSON.stringify({
+        clientId: "public-client",
+        clientSecret: "client-secret-value",
+        privateKey: "private-key-value",
+        protocol: "oidc",
+        provider: "apple",
+        providerType: "apple"
+      }),
+      "--dry-run", "--json"
+    );
+    const result = run(args, { cwd, env });
+    assert.equal(result.status, 0, result.stderr);
+    const request = JSON.parse(result.stdout).request;
+    assert.equal(request.clientSecret, "***");
+    assert.equal(request.privateKey, "***");
+    assert.doesNotMatch(result.stdout, /client-secret-value|private-key-value/);
+  }
+});
+
+test("configuration boolean flags preserve explicit false values", async () => {
+  const { cwd, configDir } = await makeWorkspace();
+  const env = testEnv(configDir, { BLOCKS_SECRET_STORE: "file" });
+  const cases = [
+    [["mfa", "config", "save", "--enable=false", "--dry-run", "--json"], "enableMfa"],
+    [["mail", "config", "save", "--enable-ssl=false", "--dry-run", "--json"], "enableSSL"]
+  ];
+
+  for (const [args, field] of cases) {
+    const result = run(args, { cwd, env });
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(JSON.parse(result.stdout).request[field], false);
+  }
+});
+
+test("mfa method set supports guarded dry-run", async () => {
+  const { cwd, configDir } = await makeWorkspace();
+  const result = run(["mfa", "method", "set", "1", "--dry-run", "--json"], {
+    cwd,
+    env: testEnv(configDir, { BLOCKS_SECRET_STORE: "file" })
+  });
+  assert.equal(result.status, 0, result.stderr);
+  assert.deepEqual(JSON.parse(result.stdout), {
+    dryRun: true,
+    endpoint: "/iam/v4/mfa/method",
+    request: { mfaType: 1 }
+  });
+});
+
+test("composed commands forward explicit account project and API context", async () => {
+  const { cwd, configDir } = await makeWorkspace();
+  const requests = [];
+  const server = await startJsonServer((request, body) => {
+    requests.push({ authorization: request.headers.authorization, body, url: request.url });
+    return { ok: true };
+  });
+
+  try {
+    await writeTwoAccountProjectAuth(configDir, server.url);
+    const env = testEnv(configDir, { BLOCKS_SECRET_STORE: "file" });
+    const context = ["--account", "alpha", "--project", "target-project", "--api-url", server.url, "--yes"];
+
+    const mfa = await runAsync(["mfa", "totp", "enable", "--mfa-type", "1", "--code", "123456", ...context], { cwd, env });
+    assert.equal(mfa.status, 0, mfa.stderr);
+    assert.deepEqual(requests.map((item) => item.url.split("?")[0]), [
+      "/iam/v4/mfa/totp/setup",
+      "/iam/v4/mfa/totp/verify-setup",
+      "/iam/v4/mfa/method",
+      "/iam/v4/mfa/backup-codes/generate"
+    ]);
+    assert.ok(requests.every((item) => item.authorization === "Bearer alpha-target-token"));
+
+    requests.length = 0;
+    const localization = await runAsync([
+      "localization", "key", "translate-and-export", "--module-id", "module-1", "--output-type", "1", ...context
+    ], { cwd, env });
+    assert.equal(localization.status, 0, localization.stderr);
+    assert.deepEqual(requests.map((item) => item.url.split("?")[0]), [
+      "/localization/v4/Key/TranslateAll",
+      "/localization/v4/Key/GenerateUilmFile",
+      "/localization/v4/Key/UilmExport"
+    ]);
+    assert.ok(requests.every((item) => item.authorization === "Bearer alpha-target-token"));
+  } finally {
+    await new Promise((resolveClose) => server.close(resolveClose));
+  }
+});
+
+test("release deploy wait polls with the explicitly deployed project session", async () => {
+  const { cwd, configDir } = await makeWorkspace();
+  const requests = [];
+  const server = await startJsonServer((request) => {
+    requests.push({ authorization: request.headers.authorization, method: request.method, url: request.url });
+    const path = request.url.split("?")[0];
+    if (path === "/os/v4/Project/Gets") {
+      return [{ tenantGroupId: "group-1", projects: [{ environment: "dev", tenantId: "target-project" }] }];
+    }
+    if (path === "/os/v4/Project/GetAsset") {
+      return { assets: { resources: [{ name: "dev", resourceId: "repo-1" }] } };
+    }
+    if (path === "/release/v4/Build/repo-details") {
+      return { data: { repo: { branch: "dev", repoUrl: "https://example.test/repo.git" } } };
+    }
+    if (path === "/release/v4/Build/manual") return { buildId: "build-1" };
+    if (path === "/release/v4/Build") return { status: "completed" };
+    return rawResponse(500, { error: `Unexpected ${request.method} ${path}` });
+  });
+
+  try {
+    await writeTwoAccountProjectAuth(configDir, server.url);
+    const result = await runAsync([
+      "release", "deploy", "--account", "alpha", "--project", "target-project", "--api-url", server.url,
+      "--yes", "--wait", "--poll-interval", "0", "--json"
+    ], { cwd, env: testEnv(configDir, { BLOCKS_SECRET_STORE: "file" }) });
+    assert.equal(result.status, 0, result.stderr);
+    const poll = requests.find((item) => item.url.startsWith("/release/v4/Build?buildId="));
+    assert.ok(poll, JSON.stringify(requests));
+    assert.equal(poll.authorization, "Bearer alpha-target-token");
+  } finally {
+    await new Promise((resolveClose) => server.close(resolveClose));
+  }
+});
+
+test("oidc-clients save merges the client nested in the GET envelope and never echoes its secret", async () => {
+  const { cwd, configDir } = await makeWorkspace();
+  await writeProjectAuth(configDir);
+  const server = await startJsonServer((request) => {
+    const path = request.url.split("?")[0];
+    if (path === "/iam/v4/oidc-clients/client-404" && request.method === "GET") {
+      return rawResponse(404, { error: "oidc_client_not_found", message: "OIDC client 'client-404' not found." });
+    }
+    if (path === "/iam/v4/oidc-clients/client-1" && request.method === "GET") {
+      // The server wraps the client: spreading this envelope used to carry NOTHING
+      // (resetting isAutoRedirect/requirePkce to DTO defaults) while echoing junk.
+      return {
+        isSuccess: true,
+        oIDCClientCredential: {
+          itemId: "client-1",
+          clientId: "client-1",
+          clientSecret: "blxoidc_live_secret",
+          clientDisplayName: "Web App",
+          clientType: "public",
+          redirectUris: ["https://dev.example.test:5173/login/callback"],
+          postLogoutRedirectUris: ["https://dev.example.test:5173/"],
+          allowedScopes: ["openid", "profile", "offline_access"],
+          allowedResponseTypes: ["code"],
+          requirePkce: true,
+          requireConsent: false,
+          isAutoRedirect: true,
+          isActive: true,
+          useTokensCookie: true,
+          requireMfa: false,
+          registerAsIdentityProvider: true,
+          isDeviceFlowClient: false,
+          externalDiscoveryEndpoint: "https://iam.example.test/project-tenant/.well-known/openid-configuration"
+        }
+      };
+    }
+    return rawResponse(500, { errorMessage: `Unexpected ${request.method} ${path}` });
+  });
+
+  try {
+    const env = testEnv(configDir, { BLOCKS_SECRET_STORE: "file" });
+    const result = await runAsync([
+      "auth", "oidc-clients", "save", "--item-id", "client-1",
+      "--redirect-uris", "https://dev.example.test:5173/login/callback,https://app-abcde.example.test/login/callback",
+      "--dry-run", "--api-url", server.url, "--json"
+    ], { cwd, env });
+    assert.equal(result.status, 0, result.stderr);
+    const request = JSON.parse(result.stdout).request;
+    // Unmentioned fields carry from the stored client; a uris-only save must not reset them.
+    assert.equal(request.isAutoRedirect, true);
+    assert.equal(request.requirePkce, true);
+    assert.equal(request.registerAsIdentityProvider, true);
+    assert.equal(request.clientType, "public");
+    assert.deepEqual(request.allowedScopes, ["openid", "profile", "offline_access"]);
+    assert.deepEqual(request.redirectUris, [
+      "https://dev.example.test:5173/login/callback",
+      "https://app-abcde.example.test/login/callback"
+    ]);
+    // Envelope keys and the stored secret must never reach the save body.
+    assert.equal(request.isSuccess, undefined);
+    assert.equal(request.oIDCClientCredential, undefined);
+    assert.ok(!result.stdout.includes("blxoidc_live_secret"), "stored client secret leaked into the save body");
+
+    const missing = await runAsync([
+      "auth", "oidc-clients", "save", "--item-id", "client-404", "--redirect-uris", "https://x.test/cb", "--dry-run", "--api-url", server.url, "--json"
+    ], { cwd, env });
+    assert.equal(missing.status, 1);
+    assert.match(missing.stderr, /oidc_client_not_found|client-404/);
+  } finally {
+    await new Promise((resolveClose) => server.close(resolveClose));
+  }
+});
+
+test("release deploy flags an unregistered deployed /login/callback and --register-callback fixes it", async () => {
+  const { cwd, configDir } = await makeWorkspace();
+  const oidcSaves = [];
+  let secretValueReads = 0;
+  let registered = false;
+  const clientRecord = () => ({
+    itemId: "client-1",
+    clientType: "public",
+    redirectUris: registered
+      ? ["https://tbumke.slsblx.test:5173/login/callback", "https://tbumke-ekeca.slsblx.test/login/callback"]
+      : ["https://tbumke.slsblx.test:5173/login/callback"],
+    allowedScopes: ["openid", "profile", "offline_access"],
+    isAutoRedirect: true,
+    requirePkce: true,
+    registerAsIdentityProvider: true
+  });
+  const server = await startJsonServer((request, body) => {
+    const path = request.url.split("?")[0];
+    if (path === "/os/v4/Project/Gets") {
+      return [{ tenantGroupId: "group-1", projects: [{ environment: "dev", tenantId: "target-project" }] }];
+    }
+    if (path === "/os/v4/Project/GetAsset") {
+      return { assets: { resources: [{ name: "dev", resourceId: "repo-1" }] } };
+    }
+    if (path === "/release/v4/Build/repo-details") {
+      return { data: { repo: { branch: "dev", repoUrl: "https://example.test/repo.git" } } };
+    }
+    if (path === "/release/v4/Build/repos-list") {
+      return { data: [{ itemId: "repo-1", repoName: "web", defaultDeploymentUrl: "https://tbumke-ekeca.slsblx.test" }] };
+    }
+    if (path === "/release/v4/RepoSecret/value") {
+      secretValueReads += 1;
+      return { data: { repoId: "repo-1", secrets: { VITE_BLOCKS_OIDC_CLIENT_ID: "client-1", VITE_OTHER: "x" } } };
+    }
+    if (path === "/iam/v4/oidc-clients" && request.method === "GET") {
+      return { isSuccess: true, oIDCClientCredentials: [clientRecord()] };
+    }
+    if (path === "/iam/v4/oidc-clients/client-1" && request.method === "GET") {
+      return { isSuccess: true, oIDCClientCredential: clientRecord() };
+    }
+    if (path === "/iam/v4/oidc-clients" && request.method === "POST") {
+      oidcSaves.push(body);
+      registered = true;
+      return { isSuccess: true };
+    }
+    if (path === "/release/v4/Build/manual") return { buildId: "build-1" };
+    return rawResponse(500, { errorMessage: `Unexpected ${request.method} ${path}` });
+  });
+
+  try {
+    await writeTwoAccountProjectAuth(configDir, server.url);
+    const runDeploy = (extra) => runAsync([
+      "release", "deploy", "--account", "alpha", "--project", "target-project", "--api-url", server.url, "--yes", "--json", ...extra
+    ], { cwd, env: testEnv(configDir, { BLOCKS_SECRET_STORE: "file" }) });
+
+    const warned = await runDeploy([]);
+    assert.equal(warned.status, 0, warned.stderr);
+    assert.match(warned.stderr, /tbumke-ekeca\.slsblx\.test\/login\/callback' is not among OIDC client 'client-1'/);
+    assert.match(warned.stderr, /--register-callback/);
+    assert.equal(oidcSaves.length, 0, "a plain deploy must not mutate the OIDC client");
+
+    const fixed = await runDeploy(["--register-callback"]);
+    assert.equal(fixed.status, 0, fixed.stderr);
+    assert.equal(oidcSaves.length, 1);
+    assert.deepEqual(oidcSaves[0].redirectUris, [
+      "https://tbumke.slsblx.test:5173/login/callback",
+      "https://tbumke-ekeca.slsblx.test/login/callback"
+    ]);
+    // The merged save carries the client's other settings and never its secret.
+    assert.equal(oidcSaves[0].isAutoRedirect, true);
+    assert.equal(oidcSaves[0].requirePkce, true);
+    assert.equal(oidcSaves[0].clientSecret, undefined);
+    assert.match(fixed.stderr, /Registered .*verified by re-reading/);
+
+    const quiet = await runDeploy([]);
+    assert.equal(quiet.status, 0, quiet.stderr);
+    assert.ok(!/not among OIDC client/.test(quiet.stderr), "registered callback must not warn again");
+    // The check reads the client LIST; the audited plaintext-secret endpoint is only
+    // for disambiguating several clients, which this single-client project never needs.
+    assert.equal(secretValueReads, 0, "deploy must not read RepoSecret/value for a single-client project");
+  } finally {
+    await new Promise((resolveClose) => server.close(resolveClose));
+  }
+});
+
+test("composed data file upload dry-run plans metadata creation and provider PUT", async () => {
   const { cwd, configDir } = await makeWorkspace();
   const env = testEnv(configDir, { BLOCKS_SECRET_STORE: "file" });
 
@@ -465,18 +2576,251 @@ test("composed data file upload dry-run plans presign, provider PUT, and DMS reg
   const output = JSON.parse(result.stdout);
   assert.equal(output.dryRun, true);
   assert.deepEqual(output.steps.map((step) => step.endpoint), [
-    "/data/v4/Files/GetPreSignedUrlForUpload",
+    "/data/v4/files/get-pre-signed-url-for-upload",
     "PUT <uploadUrl>",
-    "/data/v4/Files/UploadFile"
+    "/data/v4/files/complete-upload"
   ]);
   assert.deepEqual(output.steps[0].body, {
     accessModifier: "Public",
+    contentType: "application/pdf",
     moduleName: 3,
     name: "invoice.pdf",
     parentDirectoryId: "folder-1",
     tags: "finance,2026"
   });
   assert.equal(output.steps[1].contentType, "application/pdf");
+});
+
+test("data files upload completes a quarantined upload with the server's required headers", async () => {
+  const { cwd, configDir } = await makeWorkspace();
+  await writeProjectAuth(configDir);
+  // The fake server parses every body as JSON, so the uploaded bytes are JSON too.
+  await writeFile(join(cwd, "note.json"), '{"a":1}');
+
+  const requests = [];
+  const server = await startJsonServer((request, body) => {
+    const path = request.url.split("?")[0];
+    requests.push({ body, headers: request.headers, method: request.method, url: path });
+    if (path === "/data/v4/files/get-pre-signed-url-for-upload") {
+      return {
+        fileId: "file-1",
+        fileVersionId: "version-1",
+        isSuccess: true,
+        requiredHeaders: { "Content-Type": "application/json", "x-amz-server-side-encryption": "AES256" },
+        uploadCompletionRequired: true,
+        uploadUrl: `${server.url}/bucket/quarantine/file-1`,
+        verificationStatus: 1
+      };
+    }
+    if (path === "/bucket/quarantine/file-1" && request.method === "PUT") return {};
+    if (path === "/data/v4/files/complete-upload") {
+      return { fileId: body.fileId, fileVersionId: body.fileVersionId, isSuccess: true, verificationStatus: 2 };
+    }
+    return rawResponse(500, { errorMessage: `Unexpected ${request.method} ${path}` });
+  });
+
+  try {
+    const result = await runAsync(
+      ["data", "files", "upload", "--file", "note.json", "--object-access-level", "Creator", "--yes", "--api-url", server.url, "--json"],
+      { cwd, env: testEnv(configDir, { BLOCKS_SECRET_STORE: "file" }) }
+    );
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(JSON.parse(result.stdout).verificationStatus, "Verified");
+
+    const presign = requests.find((item) => item.url === "/data/v4/files/get-pre-signed-url-for-upload");
+    assert.equal(presign.body.sizeInBytes, 7);
+    assert.equal(presign.body.contentType, "application/json");
+    assert.equal(presign.body.checksumAlgorithm, "SHA256");
+    assert.match(presign.body.checksum, /^[0-9A-F]{64}$/);
+    assert.equal(presign.body.objectAccessLevel, "Creator");
+
+    const put = requests.find((item) => item.method === "PUT");
+    assert.equal(put.headers["x-amz-server-side-encryption"], "AES256");
+    assert.equal(put.headers["x-ms-blob-type"], undefined);
+
+    const complete = requests.find((item) => item.url === "/data/v4/files/complete-upload");
+    assert.deepEqual(complete.body, { fileId: "file-1", fileVersionId: "version-1" });
+  } finally {
+    await new Promise((resolveClose) => server.close(resolveClose));
+  }
+});
+
+test("data files upload fails when completion rejects the upload", async () => {
+  const { cwd, configDir } = await makeWorkspace();
+  await writeProjectAuth(configDir);
+  await writeFile(join(cwd, "note.json"), '{"a":1}');
+
+  const server = await startJsonServer((request, body) => {
+    const path = request.url.split("?")[0];
+    if (path === "/data/v4/files/get-pre-signed-url-for-upload") {
+      return { fileId: "file-1", fileVersionId: "version-1", isSuccess: true, uploadCompletionRequired: true, uploadUrl: `${server.url}/bucket/q` };
+    }
+    if (path === "/bucket/q") return {};
+    if (path === "/data/v4/files/complete-upload") {
+      return { ...body, isSuccess: true, rejectionReason: "real_file_type_does_not_match_extension", verificationStatus: 3 };
+    }
+    return rawResponse(500, { errorMessage: `Unexpected ${request.method} ${path}` });
+  });
+
+  try {
+    const result = await runAsync(["data", "files", "upload", "--file", "note.json", "--yes", "--api-url", server.url, "--json"], {
+      cwd,
+      env: testEnv(configDir, { BLOCKS_SECRET_STORE: "file" })
+    });
+    assert.notEqual(result.status, 0);
+    assert.match(result.stdout + result.stderr, /Rejected: real_file_type_does_not_match_extension/);
+  } finally {
+    await new Promise((resolveClose) => server.close(resolveClose));
+  }
+});
+
+test("storage config save --update carries upload settings and refuses provider fields", async () => {
+  const { cwd, configDir } = await makeWorkspace();
+  await writeProjectAuth(configDir);
+  const server = await startJsonServer((request) => {
+    const path = request.url.split("?")[0];
+    if (path === "/os/v4/Storage/Gets") {
+      return [{
+        itemId: "cfg-1",
+        name: "primary",
+        storageStrategy: "S3",
+        uploadUrlExpirySeconds: 900,
+        downloadUrlExpirySeconds: 120,
+        maxFileSizeInBytes: 1048576,
+        uploadCompletionRequiredFor: ["Private"]
+      }];
+    }
+    return rawResponse(500, { errorMessage: `Unexpected ${request.method} ${path}` });
+  });
+
+  try {
+    const env = testEnv(configDir, { BLOCKS_SECRET_STORE: "file" });
+    const merged = await runAsync(
+      ["storage", "config", "save", "--update", "--item-id", "cfg-1", "--max-file-size-bytes", "2097152", "--dry-run", "--api-url", server.url, "--json"],
+      { cwd, env }
+    );
+    assert.equal(merged.status, 0, merged.stderr);
+    const output = JSON.parse(merged.stdout);
+    assert.equal(output.target, "update");
+    assert.deepEqual(output.request, {
+      itemId: "cfg-1",
+      updateRequest: true,
+      uploadUrlExpirySeconds: 900,
+      downloadUrlExpirySeconds: 120,
+      maxFileSizeInBytes: 2097152,
+      uploadCompletionRequiredFor: ["Private"]
+    });
+
+    const refused = await runAsync(
+      ["storage", "config", "save", "--update", "--item-id", "cfg-1", "--connection-string", "x", "--dry-run", "--api-url", server.url, "--json"],
+      { cwd, env }
+    );
+    assert.notEqual(refused.status, 0);
+    assert.match(refused.stdout + refused.stderr, /provider and credentials are fixed/);
+  } finally {
+    await new Promise((resolveClose) => server.close(resolveClose));
+  }
+});
+
+test("iam organizations config save merges over the stored policy", async () => {
+  const { cwd, configDir } = await makeWorkspace();
+  await writeProjectAuth(configDir);
+  const server = await startJsonServer((request) => {
+    const path = request.url.split("?")[0];
+    if (path === "/iam/v4/iam/organizations/config" && request.method === "GET") {
+      return {
+        allowOrgCreationFromCloud: true,
+        allowOrgCreationFromConstruct: false,
+        allowOrgCreationFromSignup: true,
+        allowOrgCreationFromPortal: true,
+        isMultiOrgEnabled: true,
+        consentForMultiOrgEnable: true,
+        isOrgNameUniquenessEnabled: false,
+        itemId: "cfg"
+      };
+    }
+    return rawResponse(500, { errorMessage: `Unexpected ${request.method} ${path}` });
+  });
+
+  try {
+    const result = await runAsync(
+      ["iam", "organizations", "config", "save", "--allow-org-creation-from-signup=false", "--org-name-uniqueness", "--dry-run", "--api-url", server.url, "--json"],
+      { cwd, env: testEnv(configDir, { BLOCKS_SECRET_STORE: "file" }) }
+    );
+    assert.equal(result.status, 0, result.stderr);
+    assert.deepEqual(JSON.parse(result.stdout).request, {
+      allowOrgCreationFromCloud: true,
+      allowOrgCreationFromConstruct: false,
+      allowOrgCreationFromSignup: false,
+      allowOrgCreationFromPortal: true,
+      isMultiOrgEnabled: true,
+      consentForMultiOrgEnable: true,
+      isOrgNameUniquenessEnabled: true
+    });
+  } finally {
+    await new Promise((resolveClose) => server.close(resolveClose));
+  }
+});
+
+test("mail config save builds an Office 365 configuration and redacts its client secret", async () => {
+  const { cwd, configDir } = await makeWorkspace();
+  const result = run([
+    "mail", "config", "save", "--name", "o365", "--provider", "office365-smtp",
+    "--entra-tenant-id", "entra-tenant", "--client-id", "app-id", "--client-secret", "s3cret",
+    "--mailbox-address", "noreply@example.test", "--sender-name", "Example", "--sender-address", "noreply@example.test",
+    "--dry-run", "--json"
+  ], { cwd, env: testEnv(configDir, { BLOCKS_SECRET_STORE: "file" }) });
+  assert.equal(result.status, 0, result.stderr);
+  const request = JSON.parse(result.stdout).request;
+  assert.equal(request.provider, 2);
+  assert.equal(request.tenantId, "entra-tenant");
+  assert.equal(request.clientId, "app-id");
+  assert.equal(request.mailboxAddress, "noreply@example.test");
+  assert.equal(request.clientSecret, "***");
+  assert.equal(result.stdout.includes("s3cret"), false);
+
+  const unknown = run(["mail", "config", "save", "--provider", "gmail", "--dry-run", "--json"], {
+    cwd,
+    env: testEnv(configDir, { BLOCKS_SECRET_STORE: "file" })
+  });
+  assert.notEqual(unknown.status, 0);
+});
+
+test("current storage commands dry-run object-tree mutations with safe delete defaults", async () => {
+  const { cwd, configDir } = await makeWorkspace();
+  const env = testEnv(configDir, { BLOCKS_SECRET_STORE: "file" });
+
+  const softDelete = run(["data", "files", "delete", "file-1", "--dry-run", "--json"], { cwd, env });
+  assert.equal(softDelete.status, 0, softDelete.stderr);
+  assert.deepEqual(JSON.parse(softDelete.stdout), {
+    dryRun: true,
+    endpoint: "/data/v4/files/delete-file",
+    request: { fileId: "file-1", permanent: false }
+  });
+
+  const directory = run([
+    "data", "files", "directory-create", "Contracts",
+    "--parent-id", "dir-1",
+    "--allowed-extensions", "pdf,docx",
+    "--dry-run", "--json"
+  ], { cwd, env });
+  assert.equal(directory.status, 0, directory.stderr);
+  assert.deepEqual(JSON.parse(directory.stdout).request, {
+    allowedFileExtensions: ["pdf", "docx"],
+    name: "Contracts",
+    parentDirectoryId: "dir-1"
+  });
+
+  const access = run([
+    "data", "files", "access-grant", "dir-1",
+    "--resource-type", "Directory",
+    "--principal-type", "Role",
+    "--principal-id", "editors",
+    "--permission", "Edit",
+    "--dry-run", "--json"
+  ], { cwd, env });
+  assert.equal(access.status, 0, access.stderr);
+  assert.equal(JSON.parse(access.stdout).endpoint, "/data/v4/objects/grant-access");
 });
 
 test("localization validate accepts nested i18n JSON and reports flattened key count", async () => {
@@ -497,6 +2841,23 @@ test("localization validate accepts nested i18n JSON and reports flattened key c
   assert.equal(output.file, join("blocks", "localization", "common.en.json"));
   assert.equal(output.keys, 2);
   assert.equal(output.valid, true);
+});
+
+test("localization validate rejects keys redundantly prefixed with the module name", async () => {
+  const { cwd, configDir } = await makeWorkspace();
+  await mkdir(join(cwd, "blocks", "localization"), { recursive: true });
+  await writeFile(join(cwd, "blocks", "localization", "dashboard.en.json"), `${JSON.stringify({
+    "dashboard.title": "Dashboard"
+  }, null, 2)}\n`);
+
+  const result = run(["localization:validate", "--module", "dashboard", "--language", "en", "--json"], {
+    cwd,
+    env: testEnv(configDir, { BLOCKS_SECRET_STORE: "file" })
+  });
+
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /Redundant module prefix in key 'dashboard\.title'/);
+  assert.match(result.stderr, /use 'title'/);
 });
 
 test("localization push uses v4 gateway paths without api segment", async () => {
@@ -549,6 +2910,19 @@ test("localization push uses v4 gateway paths without api segment", async () => 
   const server = await startJsonServer((request, body) => {
     requests.push({ body, method: request.method, url: request.url });
     if (request.url === "/localization/v4/Module/Gets") return [{ itemId: "module-1", moduleName: "common" }];
+    if (request.url === "/localization/v4/Key/GetsByKeyNames") {
+      return {
+        keys: [
+          {
+            itemId: "key-1",
+            keyName: "dashboard.title",
+            moduleId: "module-1",
+            resources: [{ characterLength: 9, culture: "de-DE", value: "Ubersicht" }],
+            routes: ["/dashboard"]
+          }
+        ]
+      };
+    }
     if (request.url === "/localization/v4/Key/SaveKeys") return { success: true };
     return { success: false, errorMessage: `Unexpected ${request.method} ${request.url}` };
   });
@@ -570,10 +2944,35 @@ test("localization push uses v4 gateway paths without api segment", async () => 
       stderr: result.stderr,
       stdout: result.stdout
     }, null, 2));
-    assert.deepEqual(requests.map((item) => item.url), ["/localization/v4/Module/Gets", "/localization/v4/Key/SaveKeys"]);
-    assert.equal(requests[1].body.length, 2);
-    assert.equal(requests[1].body[0].moduleId, "module-1");
-    assert.equal(requests[1].body[0].resources[0].culture, "en");
+    assert.deepEqual(requests.map((item) => item.url), [
+      "/localization/v4/Module/Gets",
+      "/localization/v4/Key/GetsByKeyNames",
+      "/localization/v4/Key/SaveKeys"
+    ]);
+    assert.deepEqual(requests[1].body, { keyNames: ["dashboard.title", "products.title"], moduleId: "module-1" });
+
+    const saved = requests[2].body;
+    assert.equal(saved.length, 2);
+    assert.equal(saved[0].moduleId, "module-1");
+    // The stored de-DE translation survives an en push -- SaveKeys replaces the whole
+    // resource list, so a push that sent only its own culture wiped every other one.
+    assert.deepEqual(saved[0], {
+      itemId: "key-1",
+      keyName: "dashboard.title",
+      moduleId: "module-1",
+      resources: [
+        { characterLength: 9, culture: "de-DE", value: "Ubersicht" },
+        { characterLength: 9, culture: "en", value: "Dashboard" }
+      ],
+      routes: ["/dashboard"],
+      shouldPublish: true
+    });
+    assert.deepEqual(saved[1].resources, [{ characterLength: 8, culture: "en", value: "Products" }]);
+    assert.equal(saved[1].itemId, undefined, "a key the module does not store yet must not borrow another key's itemId");
+
+    const summary = JSON.parse(result.stdout);
+    assert.equal(summary.created, 1);
+    assert.equal(summary.updated, 1);
     assert.ok(!requests.some((item) => item.url.includes("/api/")), "gateway v4 paths must not include /api");
   } finally {
     await new Promise((resolveClose) => server.close(resolveClose));
@@ -587,6 +2986,305 @@ test("prints package version", async () => {
   const result = run(["--version"], { cwd, env: testEnv(configDir, { BLOCKS_SECRET_STORE: "file" }) });
   assert.equal(result.status, 0, result.stderr);
   assert.equal(result.stdout.trim(), pkg.version);
+});
+
+test("explicit account uses only the requested account", async () => {
+  const { cwd, configDir } = await makeWorkspace();
+  await writeConfig(configDir, {
+    activeAccount: "alpha",
+    accounts: {
+      alpha: testAccountProfile("alpha-root"),
+      beta: testAccountProfile("beta-root")
+    }
+  });
+  await writeFile(join(configDir, "tokens.json"), `${JSON.stringify({
+    accounts: {
+      alpha: {
+        account: {
+          accessToken: fakeJwt({ exp: Math.floor(Date.now() / 1000) + 3600, tenant_id: "alpha-root" }),
+          accountTenant: "alpha-root",
+          expiresAt: new Date(Date.now() + 3_600_000).toISOString()
+        }
+      },
+      beta: {
+        account: {
+          accessToken: fakeJwt({ exp: Math.floor(Date.now() / 1000) - 3600, tenant_id: "beta-root" }),
+          accountTenant: "beta-root",
+          expiresAt: new Date(Date.now() - 3_600_000).toISOString()
+        }
+      }
+    }
+  }, null, 2)}\n`);
+
+  const result = run(["auth:status", "--account", "beta", "--json"], {
+    cwd,
+    env: testEnv(configDir, { BLOCKS_SECRET_STORE: "file" })
+  });
+
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(JSON.parse(result.stdout).accountAccessToken, "expired");
+});
+
+test("missing account flag uses active account from the resolved config store", async () => {
+  const { cwd, configDir } = await makeWorkspace();
+  await writeConfig(configDir, {
+    activeAccount: "beta",
+    accounts: {
+      alpha: testAccountProfile("alpha-root"),
+      beta: testAccountProfile("beta-root")
+    }
+  });
+  await writeFile(join(configDir, "tokens.json"), `${JSON.stringify({
+    accounts: {
+      alpha: {},
+      beta: {
+        account: {
+          accessToken: fakeJwt({ exp: Math.floor(Date.now() / 1000) + 3600, tenant_id: "beta-root" }),
+          accountTenant: "beta-root",
+          expiresAt: new Date(Date.now() + 3_600_000).toISOString()
+        }
+      }
+    }
+  }, null, 2)}\n`);
+
+  const result = run(["auth:status", "--json"], {
+    cwd,
+    env: testEnv(configDir, { BLOCKS_SECRET_STORE: "file" })
+  });
+
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(JSON.parse(result.stdout).accountAccessToken, "valid");
+});
+
+test("requested missing account never falls back to active account", async () => {
+  const { cwd, configDir } = await makeWorkspace();
+  await writeConfig(configDir, {
+    activeAccount: "alpha",
+    accounts: { alpha: testAccountProfile("alpha-root") }
+  });
+
+  const result = run(["auth:status", "--account", "missing", "--json"], {
+    cwd,
+    env: testEnv(configDir, { BLOCKS_SECRET_STORE: "file" })
+  });
+
+  assert.equal(result.status, 1);
+  const error = JSON.parse(result.stderr);
+  assert.equal(error.code, "account_not_configured");
+  assert.match(error.message, /current config store/);
+});
+
+test("project flag overrides workspace and stored project without changing either selection", async () => {
+  const { cwd, configDir } = await makeWorkspace();
+  await writeFile(join(cwd, "blocks.json"), `${JSON.stringify({ project: { tenantId: "workspace-project" } }, null, 2)}\n`);
+  await writeAuthContext(configDir, "alpha", "stored-project", {
+    "override-project": fakeJwt({ exp: Math.floor(Date.now() / 1000) + 3600, tenant_id: "override-project" })
+  });
+  const requests = [];
+  const server = await startJsonServer((request) => {
+    requests.push(request);
+    return [{
+      name: "Override",
+      projects: [{ environment: "dev", name: "Override", tenantId: "override-project" }],
+      tenantGroupId: "group-1"
+    }];
+  });
+
+  try {
+    const result = await runAsync([
+      "projects:get", "--project", "override-project", "--api-url", server.url, "--json"
+    ], { cwd, env: testEnv(configDir, { BLOCKS_SECRET_STORE: "file" }) });
+
+    assert.equal(result.status, 0, result.stderr);
+    assert.match(requests[0].headers.authorization, /^Bearer /);
+    assert.equal(JSON.parse(await readFile(join(configDir, "config.json"), "utf8")).accounts.alpha.selectedProject.tenantId, "stored-project");
+    assert.equal(JSON.parse(await readFile(join(cwd, "blocks.json"), "utf8")).project.tenantId, "workspace-project");
+  } finally {
+    await new Promise((resolveClose) => server.close(resolveClose));
+  }
+});
+
+test("accounts in the same config store keep independent selected projects", async () => {
+  const { cwd, configDir } = await makeWorkspace();
+  const alphaToken = fakeJwt({ exp: Math.floor(Date.now() / 1000) + 3600, sub: "alpha", tenant_id: "alpha-project" });
+  const betaToken = fakeJwt({ exp: Math.floor(Date.now() / 1000) + 3600, sub: "beta", tenant_id: "beta-project" });
+  await writeConfig(configDir, {
+    activeAccount: "alpha",
+    accounts: {
+      alpha: { ...testAccountProfile("alpha-root"), selectedProject: { tenantId: "alpha-project" } },
+      beta: { ...testAccountProfile("beta-root"), selectedProject: { tenantId: "beta-project" } }
+    }
+  });
+  await writeFile(join(configDir, "tokens.json"), `${JSON.stringify({
+    accounts: {
+      alpha: {
+        account: { accountTenant: "alpha-root" },
+        projects: { "alpha-project": { accessToken: alphaToken, expiresAt: new Date(Date.now() + 3_600_000).toISOString() } }
+      },
+      beta: {
+        account: { accountTenant: "beta-root" },
+        projects: { "beta-project": { accessToken: betaToken, expiresAt: new Date(Date.now() + 3_600_000).toISOString() } }
+      }
+    }
+  }, null, 2)}\n`);
+  const authorizations = [];
+  const server = await startJsonServer((request) => {
+    authorizations.push(request.headers.authorization);
+    return [];
+  });
+
+  try {
+    const alpha = await runAsync(["projects:list", "--account", "alpha", "--api-url", server.url, "--json"], {
+      cwd,
+      env: testEnv(configDir, { BLOCKS_SECRET_STORE: "file" })
+    });
+    const beta = await runAsync(["projects:list", "--account", "beta", "--api-url", server.url, "--json"], {
+      cwd,
+      env: testEnv(configDir, { BLOCKS_SECRET_STORE: "file" })
+    });
+
+    assert.equal(alpha.status, 0, alpha.stderr);
+    assert.equal(beta.status, 0, beta.stderr);
+    assert.deepEqual(authorizations, [`Bearer ${alphaToken}`, `Bearer ${betaToken}`]);
+  } finally {
+    await new Promise((resolveClose) => server.close(resolveClose));
+  }
+});
+
+test("use and deselect operate on the account selected by login without account flags", async () => {
+  const { cwd, configDir } = await makeWorkspace();
+  const server = await startJsonServer((request) => {
+    if (request.url === "/iam/v4/auth/impersonate") {
+      return {
+        access_token: fakeJwt({ exp: Math.floor(Date.now() / 1000) + 3600, tenant_id: "active-project" }),
+        expires_in: 3600,
+        refresh_token: "active-project-refresh"
+      };
+    }
+    if (request.url === "/iam/v4/auth/impersonation/stop") {
+      return {
+        access_token: fakeJwt({ exp: Math.floor(Date.now() / 1000) + 3600, tenant_id: "active-account-root" }),
+        expires_in: 3600,
+        refresh_token: "restored-account-refresh"
+      };
+    }
+    return rawResponse(404, { error: `Unexpected ${request.url}` });
+  });
+  await writeConfig(configDir, {
+    activeAccount: "active-account",
+    accounts: {
+      "active-account": {
+        ...testAccountProfile("active-account-root"),
+        apiUrl: server.url
+      }
+    }
+  });
+  await writeFile(join(configDir, "tokens.json"), `${JSON.stringify({
+    accounts: {
+      "active-account": {
+        account: {
+          accessToken: fakeJwt({ exp: Math.floor(Date.now() / 1000) + 3600, tenant_id: "active-account-root" }),
+          accountTenant: "active-account-root",
+          expiresAt: new Date(Date.now() + 3_600_000).toISOString(),
+          refreshToken: "active-account-refresh"
+        }
+      }
+    }
+  }, null, 2)}\n`);
+  const env = testEnv(configDir, { BLOCKS_SECRET_STORE: "file" });
+  try {
+    const useResult = await runAsync(["use", "active-project"], { cwd, env });
+    assert.equal(useResult.status, 0, useResult.stderr);
+    let config = JSON.parse(await readFile(join(configDir, "config.json"), "utf8"));
+    assert.equal(config.activeAccount, "active-account");
+    assert.equal(config.accounts["active-account"].selectedProject.tenantId, "active-project");
+
+    const deselectResult = await runAsync(["deselect"], { cwd, env });
+    assert.equal(deselectResult.status, 0, deselectResult.stderr);
+    config = JSON.parse(await readFile(join(configDir, "config.json"), "utf8"));
+    assert.equal(config.activeAccount, "active-account");
+    assert.equal(config.accounts["active-account"].selectedProject, undefined);
+  } finally {
+    await new Promise((resolveClose) => server.close(resolveClose));
+  }
+});
+
+test("BLOCKS_CONFIG_DIR isolates active account and token state", async () => {
+  const first = await makeWorkspace();
+  const second = await makeWorkspace();
+  await writeAuthContext(first.configDir, "alpha");
+  await writeConfig(second.configDir, {
+    activeAccount: "beta",
+    accounts: { beta: testAccountProfile("beta-root") }
+  });
+
+  const firstStatus = run(["auth:status", "--json"], {
+    cwd: first.cwd,
+    env: testEnv(first.configDir, { BLOCKS_SECRET_STORE: "file" })
+  });
+  const secondStatus = run(["auth:status", "--json"], {
+    cwd: second.cwd,
+    env: testEnv(second.configDir, { BLOCKS_SECRET_STORE: "file" })
+  });
+
+  assert.equal(firstStatus.status, 0, firstStatus.stderr);
+  assert.equal(secondStatus.status, 0, secondStatus.stderr);
+  assert.equal(JSON.parse(firstStatus.stdout).accountAccessToken, "valid");
+  assert.equal(JSON.parse(secondStatus.stdout).accountAccessToken, "missing");
+});
+
+test("two config directories can use the same project with different accounts", async () => {
+  const first = await makeWorkspace();
+  const second = await makeWorkspace();
+  const firstProjectToken = fakeJwt({ exp: Math.floor(Date.now() / 1000) + 3600, sub: "alpha-user", tenant_id: "shared-project" });
+  const secondProjectToken = fakeJwt({ exp: Math.floor(Date.now() / 1000) + 3600, sub: "beta-user", tenant_id: "shared-project" });
+  await writeAuthContext(first.configDir, "alpha", "shared-project", { "shared-project": firstProjectToken });
+  await writeAuthContext(second.configDir, "beta", "shared-project", { "shared-project": secondProjectToken });
+  const authorizations = [];
+  const server = await startJsonServer((request) => {
+    authorizations.push(request.headers.authorization);
+    return [];
+  });
+
+  try {
+    const firstResult = await runAsync(["projects:list", "--api-url", server.url, "--json"], {
+      cwd: first.cwd,
+      env: testEnv(first.configDir, { BLOCKS_SECRET_STORE: "file" })
+    });
+    const secondResult = await runAsync(["projects:list", "--api-url", server.url, "--json"], {
+      cwd: second.cwd,
+      env: testEnv(second.configDir, { BLOCKS_SECRET_STORE: "file" })
+    });
+
+    assert.equal(firstResult.status, 0, firstResult.stderr);
+    assert.equal(secondResult.status, 0, secondResult.stderr);
+    assert.deepEqual(authorizations, [`Bearer ${firstProjectToken}`, `Bearer ${secondProjectToken}`]);
+  } finally {
+    await new Promise((resolveClose) => server.close(resolveClose));
+  }
+});
+
+test("non-interactive missing context fails clearly without prompting", async () => {
+  const missingAccount = await makeWorkspace();
+  await writeConfig(missingAccount.configDir, {
+    activeAccount: "removed",
+    accounts: { available: testAccountProfile("available-root") }
+  });
+  const accountResult = run(["projects:list", "--json"], {
+    cwd: missingAccount.cwd,
+    env: testEnv(missingAccount.configDir, { BLOCKS_SECRET_STORE: "file" })
+  });
+  assert.equal(accountResult.status, 1);
+  assert.equal(JSON.parse(accountResult.stderr).code, "account_not_selected");
+
+  const missingProject = await makeWorkspace();
+  await writeAuthContext(missingProject.configDir, "alpha");
+  const projectResult = run(["data:config:get", "--json"], {
+    cwd: missingProject.cwd,
+    env: testEnv(missingProject.configDir, { BLOCKS_SECRET_STORE: "file" })
+  });
+  assert.equal(projectResult.status, 1);
+  assert.equal(JSON.parse(projectResult.stderr).code, "project_not_selected");
 });
 
 test("fresh auth status hides packaged account defaults", async () => {
@@ -766,23 +3464,228 @@ test("init uses centralized default API URL", async () => {
   assert.match(envExample, /^VITE_BLOCKS_API_URL=https:\/\/api\.seliseblocks\.com$/m);
 });
 
-test("new web uses centralized default URLs when no API/OIDC overrides are passed", async () => {
+test("new web derives the default API URL from the app domain when no API override is passed", async () => {
   const { cwd, configDir } = await makeWorkspace();
+  const server = await startJsonServer(() => ({ isOidcEnabled: true }));
+  try {
+    await writeProjectModeAuth(configDir, server.url);
+    const result = await runAsync([
+      "new", "web", "dev-app",
+      "--x-blocks-key", "project-tenant",
+      "--app-domain", "https://dqrsf.slsblx.com",
+      "--client-id", "dev-client-id",
+      "--account", "studio",
+      "--project", "project-tenant",
+      "--api-url", server.url
+    ], { cwd, env: testEnv(configDir, { BLOCKS_SECRET_STORE: "file" }) });
 
-  const result = run([
-    "new", "web", "dev-app",
-    "--x-blocks-key", "dev-project-key",
-    "--app-domain", "https://dev-app.example.test",
-    "--client-id", "dev-client-id"
-  ], {
-    cwd,
-    env: testEnv(configDir, { BLOCKS_SECRET_STORE: "file" })
+    assert.equal(result.status, 0, result.stderr);
+    const envFile = await readFile(join(cwd, "dev-app", ".env"), "utf8");
+    assert.match(envFile, /^VITE_BLOCKS_API_URL=https:\/\/blocksapi\.slsblx\.com$/m);
+    assert.match(envFile, /^VITE_BLOCKS_OIDC_URL=https:\/\/iam\.seliseblocks\.com$/m);
+  } finally {
+    await new Promise((resolveClose) => server.close(resolveClose));
+  }
+});
+
+test("new web preserves an explicit blocks API URL override", async () => {
+  const { cwd, configDir } = await makeWorkspace();
+  const server = await startJsonServer(() => ({ isOidcEnabled: true }));
+  try {
+    await writeProjectModeAuth(configDir, server.url);
+    const result = await runAsync([
+      "new", "web", "override-app",
+      "--x-blocks-key", "project-tenant",
+      "--app-domain", "https://dqrsf.slsblx.com",
+      "--blocks-api-url", "https://api.override.example.test",
+      "--client-id", "dev-client-id",
+      "--account", "studio",
+      "--project", "project-tenant",
+      "--api-url", server.url
+    ], { cwd, env: testEnv(configDir, { BLOCKS_SECRET_STORE: "file" }) });
+
+    assert.equal(result.status, 0, result.stderr);
+    const envFile = await readFile(join(cwd, "override-app", ".env"), "utf8");
+    assert.match(envFile, /^VITE_BLOCKS_API_URL=https:\/\/api\.override\.example\.test$/m);
+  } finally {
+    await new Promise((resolveClose) => server.close(resolveClose));
+  }
+});
+
+test("new web keeps .env and vite.config.ts on the explicit --dev-port", async () => {
+  const { cwd, configDir } = await makeWorkspace();
+  const server = await startJsonServer(() => ({ isOidcEnabled: true }));
+  try {
+    await writeProjectModeAuth(configDir, server.url);
+    const result = await runAsync([
+      "new", "web", "custom-port-app",
+      "--x-blocks-key", "project-tenant",
+      "--app-domain", "https://app.example.test",
+      "--client-id", "dev-client-id",
+      "--dev-port", "4321",
+      "--account", "studio",
+      "--project", "project-tenant",
+      "--api-url", server.url,
+      "--json"
+    ], { cwd, env: testEnv(configDir, { BLOCKS_SECRET_STORE: "file" }) });
+
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(JSON.parse(result.stdout).devPort, 4321);
+
+    const envFile = await readFile(join(cwd, "custom-port-app", ".env"), "utf8");
+    assert.match(envFile, /^VITE_BLOCKS_DEV_PORT=4321$/m);
+
+    const viteConfig = await readFile(join(cwd, "custom-port-app", "vite.config.ts"), "utf8");
+    assert.match(viteConfig, /VITE_BLOCKS_DEV_PORT \|\| 4321/);
+  } finally {
+    await new Promise((resolveClose) => server.close(resolveClose));
+  }
+});
+
+test("new web rejects an explicit --dev-port that is already bound", async () => {
+  const { cwd, configDir } = await makeWorkspace();
+  const server = await startJsonServer(() => ({ isOidcEnabled: true }));
+  const blocker = createTcpServer();
+  await new Promise((resolveListen) => blocker.listen(0, "0.0.0.0", resolveListen));
+  const busyPort = blocker.address().port;
+
+  try {
+    await writeProjectModeAuth(configDir, server.url);
+    const result = await runAsync([
+      "new", "web", "busy-port-app",
+      "--x-blocks-key", "project-tenant",
+      "--app-domain", "https://app.example.test",
+      "--client-id", "dev-client-id",
+      "--dev-port", String(busyPort),
+      "--account", "studio",
+      "--project", "project-tenant",
+      "--api-url", server.url,
+      "--json"
+    ], { cwd, env: testEnv(configDir, { BLOCKS_SECRET_STORE: "file" }) });
+
+    assert.equal(result.status, 1);
+    assert.equal(JSON.parse(result.stderr).code, "dev_port_in_use");
+    await assert.rejects(readFile(join(cwd, "busy-port-app", ".env"), "utf8"), /ENOENT/);
+  } finally {
+    await new Promise((resolveClose) => blocker.close(resolveClose));
+    await new Promise((resolveClose) => server.close(resolveClose));
+  }
+});
+
+test("new web auto-picks the next free port when the Vite default is already bound by another app", async () => {
+  const { cwd, configDir } = await makeWorkspace();
+  const server = await startJsonServer(() => ({ isOidcEnabled: true }));
+  const blocker = createTcpServer();
+  await new Promise((resolveListen) => blocker.listen(5173, "0.0.0.0", resolveListen));
+
+  try {
+    await writeProjectModeAuth(configDir, server.url);
+    const result = await runAsync([
+      "new", "web", "collision-app",
+      "--x-blocks-key", "project-tenant",
+      "--app-domain", "https://app.example.test",
+      "--client-id", "dev-client-id",
+      "--account", "studio",
+      "--project", "project-tenant",
+      "--api-url", server.url,
+      "--json"
+    ], { cwd, env: testEnv(configDir, { BLOCKS_SECRET_STORE: "file" }) });
+
+    assert.equal(result.status, 0, result.stderr);
+    assert.match(result.stderr, /default dev port 5173 is already in use/);
+
+    const devPort = JSON.parse(result.stdout).devPort;
+    assert.notEqual(devPort, 5173);
+
+    const envFile = await readFile(join(cwd, "collision-app", ".env"), "utf8");
+    assert.match(envFile, new RegExp(`^VITE_BLOCKS_DEV_PORT=${devPort}$`, "m"));
+
+    const viteConfig = await readFile(join(cwd, "collision-app", "vite.config.ts"), "utf8");
+    assert.match(viteConfig, new RegExp(`VITE_BLOCKS_DEV_PORT \\|\\| ${devPort}`));
+  } finally {
+    await new Promise((resolveClose) => blocker.close(resolveClose));
+    await new Promise((resolveClose) => server.close(resolveClose));
+  }
+});
+
+test("new web fails closed non-interactively unless OIDC enablement is approved", async () => {
+  const { cwd, configDir } = await makeWorkspace();
+  const requests = [];
+  const server = await startJsonServer((request, body) => {
+    requests.push({ body, method: request.method, url: request.url });
+    if (request.method === "GET") return { accountActionBaseUrl: "", isOidcEnabled: false };
+    return { data: body, isSuccess: true };
   });
 
-  assert.equal(result.status, 0, result.stderr);
-  const envFile = await readFile(join(cwd, "dev-app", ".env"), "utf8");
-  assert.match(envFile, /^VITE_BLOCKS_API_URL=https:\/\/api\.seliseblocks\.com$/m);
-  assert.match(envFile, /^VITE_BLOCKS_OIDC_URL=https:\/\/iam\.seliseblocks\.com$/m);
+  try {
+    await writeProjectModeAuth(configDir, server.url);
+    const baseArgs = [
+      "new", "web", "guarded-app", "--x-blocks-key", "project-tenant",
+      "--app-domain", "https://app.example.test", "--client-id", "dev-client-id",
+      "--account", "studio", "--project", "project-tenant", "--api-url", server.url
+    ];
+    const env = testEnv(configDir, { BLOCKS_SECRET_STORE: "file" });
+    const rejected = await runAsync(baseArgs, { cwd, env });
+    assert.equal(rejected.status, 1);
+    assert.match(rejected.stderr, /Confirmation required in non-interactive mode/);
+    await assert.rejects(readFile(join(cwd, "guarded-app", ".env"), "utf8"), /ENOENT/);
+    assert.equal(requests.filter((item) => item.method === "POST").length, 0);
+
+    const approved = await runAsync([...baseArgs, "--yes"], { cwd, env });
+    assert.equal(approved.status, 0, approved.stderr);
+    const save = requests.find((item) => item.method === "POST");
+    assert.ok(save);
+    assert.equal(save.body.isOidcEnabled, true);
+    assert.equal(save.body.accountActionBaseUrl, "https://iam.seliseblocks.com");
+    await readFile(join(cwd, "guarded-app", ".env"), "utf8");
+  } finally {
+    await new Promise((resolveClose) => server.close(resolveClose));
+  }
+});
+
+test("new web fails fast when non-interactive input is missing", async () => {
+  const { cwd, configDir } = await makeWorkspace();
+  const server = await startJsonServer(() => []);
+
+  try {
+    await writeProjectModeAuth(configDir, server.url);
+    const result = await runAsync([
+      "new", "web", "prompted-app",
+      "--x-blocks-key", "project-tenant",
+      "--app-domain", "https://app.example.test",
+      "--account", "studio",
+      "--project", "project-tenant",
+      "--api-url", server.url,
+      "--json"
+    ], { cwd, env: testEnv(configDir, { BLOCKS_SECRET_STORE: "file" }) });
+
+    assert.equal(result.status, 1);
+    assert.equal(JSON.parse(result.stderr).code, "interactive_input_required");
+    await assert.rejects(readFile(join(cwd, "prompted-app", ".env"), "utf8"), /ENOENT/);
+  } finally {
+    await new Promise((resolveClose) => server.close(resolveClose));
+  }
+});
+
+test("service failure envelopes exit nonzero even when HTTP status is 200", async () => {
+  const { cwd, configDir } = await makeWorkspace();
+  const server = await startJsonServer(() => ({ isSuccess: false, message: "mutation rejected" }));
+
+  try {
+    await writeProjectModeAuth(configDir, server.url);
+    const result = await runAsync([
+      "notification", "list",
+      "--account", "studio",
+      "--project", "project-tenant",
+      "--api-url", server.url,
+      "--json"
+    ], { cwd, env: testEnv(configDir, { BLOCKS_SECRET_STORE: "file" }) });
+
+    assert.equal(result.status, 1);
+    assert.match(JSON.parse(result.stderr).message, /unsuccessful response: mutation rejected/);
+  } finally {
+    await new Promise((resolveClose) => server.close(resolveClose));
+  }
 });
 
 test("json mode emits structured auth errors", async () => {
@@ -885,95 +3788,776 @@ test("linux ignores empty XDG_CONFIG_HOME and uses home config fallback", { skip
   assert.ok(data.checks.some((check) => check.detail.includes(join(homeDir, ".config", "seliseblocks", "cli", "tokens.json"))));
 });
 
-test("parseFrontmatter extracts name and description from SKILL.md frontmatter", () => {
-  const raw = [
-    "---",
-    "name: example-skill",
-    "description: \"Line one with a colon: still one field.\"",
-    "---",
-    "",
-    "# Body heading",
-    "Body text."
-  ].join("\n");
+test("removed skill and sdk helper commands are not exposed", async () => {
+  const { cwd, configDir } = await makeWorkspace();
+  const env = testEnv(configDir, { BLOCKS_SECRET_STORE: "file" });
 
-  const parsed = parseFrontmatter(raw);
-  assert.equal(parsed.name, "example-skill");
-  assert.equal(parsed.description, "Line one with a colon: still one field.");
-  assert.match(parsed.body, /# Body heading/);
-});
-
-test("parseFrontmatter returns the raw text as body when there is no frontmatter block", () => {
-  const parsed = parseFrontmatter("# Just a heading\nNo frontmatter here.");
-  assert.equal(parsed.name, undefined);
-  assert.equal(parsed.description, undefined);
-  assert.match(parsed.body, /Just a heading/);
-});
-
-test("listSkills reads every bundled blocks-skills entry with a name and description", async () => {
-  const skills = await listSkills();
-  assert.ok(skills.length > 0, "expected at least one bundled skill");
-  assert.ok(skills.some((skill) => skill.name === "blocks-onboarding"));
-  for (const skill of skills) {
-    assert.ok(skill.name, `skill at ${skill.path} is missing a name`);
-    assert.ok(skill.description, `skill '${skill.name}' is missing a description`);
+  for (const command of [["skill", "list"], ["skill:list"], ["sdk", "client"], ["sdk:client"]]) {
+    const result = run(command, { cwd, env });
+    assert.equal(result.status, 1);
+    assert.match(result.stderr, /Unknown command/);
   }
 });
 
-test("readSkill returns full content for a known skill and throws a helpful error for an unknown one", async () => {
-  const skill = await readSkill("blocks-onboarding");
-  assert.equal(skill.name, "blocks-onboarding");
-  assert.match(skill.content, /^---/);
-
-  await assert.rejects(() => readSkill("does-not-exist"), /Unknown skill 'does-not-exist'/);
-});
-
-test("skill:list and skill:add expose bundled blocks-skills content", async () => {
+test("projects create dry-runs a single dev application with the terms accepted", async () => {
   const { cwd, configDir } = await makeWorkspace();
   const env = testEnv(configDir, { BLOCKS_SECRET_STORE: "file" });
 
-  const list = run(["skill:list", "--json"], { cwd, env });
-  assert.equal(list.status, 0, list.stderr);
-  assert.ok(JSON.parse(list.stdout).some((skill) => skill.name === "blocks-onboarding"));
+  const result = run(["projects", "create", "Acme Shop", "--dry-run", "--json"], { cwd, env });
 
-  const add = run(["skill:add", "blocks-onboarding"], { cwd, env });
-  assert.equal(add.status, 0, add.stderr);
-  const added = await readFile(join(cwd, "blocks-skills", "blocks-onboarding", "SKILL.md"), "utf8");
-  assert.match(added, /^---/);
-
-  const show = run(["skill:show", "does-not-exist"], { cwd, env });
-  assert.equal(show.status, 1);
-  assert.match(show.stderr, /Unknown skill 'does-not-exist'/);
+  assert.equal(result.status, 0, result.stderr);
+  const output = JSON.parse(result.stdout);
+  assert.equal(output.endpoint, "/os/v4/Project/Create");
+  assert.equal(output.request.name, "Acme Shop");
+  assert.equal(output.request.isAcceptBlocksTerms, true);
+  assert.equal(output.request.isUseBlocksExclusively, true);
+  assert.equal(output.request.isProduction, false);
+  assert.deepEqual(output.request.resources, []);
+  assert.ok(!("tenantGroupId" in output.request));
+  assert.equal(output.request.applicationContexts.length, 1);
+  assert.equal(output.request.applicationContexts[0].environment, "dev");
+  assert.equal(output.request.applicationContexts[0].cookieDomain, "slsblx.com");
+  assert.match(output.request.applicationContexts[0].domain, /^https:\/\/d[a-z]{5}\.slsblx\.com$/);
 });
 
-test("sdk:client prints the resolved config and snippet without writing any files, when app-domain and client-id are both explicit", async () => {
+test("projects create cannot be widened past one dev environment", async () => {
   const { cwd, configDir } = await makeWorkspace();
   const env = testEnv(configDir, { BLOCKS_SECRET_STORE: "file" });
-  const flags = [
-    "--x-blocks-key", "sdk-test-tenant",
-    "--app-domain", "https://sdk-test.example.test",
-    "--client-id", "sdk-test-client",
-    "--blocks-api-url", "https://api.seliseblocks.com",
-    "--oidc-url", "https://iam.seliseblocks.com"
-  ];
 
-  const jsonResult = run(["sdk:client", ...flags, "--json"], { cwd, env });
-  assert.equal(jsonResult.status, 0, jsonResult.stderr);
-  assert.deepEqual(JSON.parse(jsonResult.stdout), {
-    apiUrl: "https://api.seliseblocks.com",
-    appDomain: "https://sdk-test.example.test",
-    notes: [],
-    oidcClientId: "sdk-test-client",
-    oidcUrl: "https://iam.seliseblocks.com",
-    xBlocksKey: "sdk-test-tenant"
+  const result = run([
+    "projects", "create", "Acme Shop",
+    "--env", "prod",
+    "--production",
+    "--domain", "https://custom.example.test",
+    "--cookie-domain", "example.test",
+    "--tenant-group-id", "existing-group",
+    "--dry-run",
+    "--json"
+  ], { cwd, env });
+
+  assert.equal(result.status, 0, result.stderr);
+  const output = JSON.parse(result.stdout);
+  assert.equal(output.request.isProduction, false);
+  assert.ok(!("tenantGroupId" in output.request));
+  assert.deepEqual(output.request.applicationContexts.map((context) => context.environment), ["dev"]);
+  assert.notEqual(output.request.applicationContexts[0].domain, "https://custom.example.test");
+  assert.equal(output.request.applicationContexts[0].cookieDomain, "slsblx.com");
+});
+
+test("projects create rejects a name the backend validator would reject", async () => {
+  const { cwd, configDir } = await makeWorkspace();
+  const env = testEnv(configDir, { BLOCKS_SECRET_STORE: "file" });
+
+  const result = run(["projects", "create", "ab", "--yes", "--json"], { cwd, env });
+
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /between 3 and 100 characters/);
+});
+
+test("projects create fails loudly on a 200 response carrying isSuccess false", async () => {
+  const { cwd, configDir } = await makeWorkspace();
+  await writeProjectAuth(configDir, { accountOnly: true });
+  const server = await startJsonServer((request) => {
+    if (request.url?.startsWith("/os/v4/Project/Gets")) return [];
+    return { errors: { Name: "Project Name must be between 3 and 100 characters." }, isSuccess: false };
   });
 
-  const snippetResult = run(["sdk:client", ...flags], { cwd, env });
-  assert.equal(snippetResult.status, 0, snippetResult.stderr);
-  assert.match(snippetResult.stdout, /createBlocksClient/);
-  assert.match(snippetResult.stdout, /xBlocksKey: "sdk-test-tenant"/);
+  try {
+    const result = await runAsync([
+      "projects", "create", "Acme Shop",
+      "--api-url", server.url,
+      "--yes",
+      "--json"
+    ], { cwd, env: testEnv(configDir, { BLOCKS_SECRET_STORE: "file" }) });
 
-  const entries = await readdir(cwd);
-  assert.deepEqual(entries, [], "sdk:client must not write any files");
+    assert.equal(result.status, 1, result.stdout);
+    assert.match(result.stderr, /Project\/Create rejected 'Acme Shop'/);
+    assert.match(result.stderr, /Name: Project Name must be between 3 and 100 characters./);
+  } finally {
+    await new Promise((resolveClose) => server.close(resolveClose));
+  }
+});
+
+test("projects create refuses a duplicate project name unless allowed", async () => {
+  const { cwd, configDir } = await makeWorkspace();
+  await writeProjectAuth(configDir, { accountOnly: true });
+  const requests = [];
+  const server = await startJsonServer((request) => {
+    requests.push(request.url);
+    if (request.url?.startsWith("/os/v4/Project/Gets")) {
+      return [{ name: "Acme Shop", projects: [{ environment: "dev", tenantId: "Dgroup-1" }], tenantGroupId: "group-1" }];
+    }
+    return { isSuccess: true, tenantGroupId: "group-2" };
+  });
+
+  try {
+    const result = await runAsync([
+      "projects", "create", "acme shop",
+      "--api-url", server.url,
+      "--yes",
+      "--json"
+    ], { cwd, env: testEnv(configDir, { BLOCKS_SECRET_STORE: "file" }) });
+
+    assert.equal(result.status, 1, result.stdout);
+    assert.match(result.stderr, /already exists on this account/);
+    assert.ok(!requests.some((url) => url === "/os/v4/Project/Create"));
+  } finally {
+    await new Promise((resolveClose) => server.close(resolveClose));
+  }
+});
+
+test("projects create names the positional form when no name is given", async () => {
+  const { cwd, configDir } = await makeWorkspace();
+  const env = testEnv(configDir, { BLOCKS_SECRET_STORE: "file" });
+
+  const result = run(["projects", "create", "--dry-run", "--json"], { cwd, env });
+
+  assert.equal(result.status, 1);
+  const error = JSON.parse(result.stderr);
+  assert.equal(error.code, "missing_project_name");
+  assert.equal(error.nextStep, 'blocks projects create "<name>"');
+});
+
+test("projects create --allow-duplicate-name skips the name lookup entirely", async () => {
+  const { cwd, configDir } = await makeWorkspace();
+  await writeProjectAuth(configDir, { accountOnly: true });
+  const urls = [];
+  const server = await startJsonServer((request) => {
+    urls.push(request.url);
+    if (request.url?.startsWith("/os/v4/Project/Gets")) {
+      return [{
+        name: "Acme Shop",
+        projects: [{ applications: [{ domain: "https://dzzzzz.slsblx.com" }], environment: "dev", name: "Acme Shop", tenantId: "Dgroup-2" }],
+        tenantGroupId: "group-2"
+      }];
+    }
+    return { errors: null, isSuccess: true, tenantGroupId: "group-2" };
+  });
+
+  try {
+    const result = await runAsync([
+      "projects", "create", "Acme Shop",
+      "--allow-duplicate-name",
+      "--api-url", server.url,
+      "--yes",
+      "--json"
+    ], { cwd, env: testEnv(configDir, { BLOCKS_SECRET_STORE: "file" }) });
+
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(JSON.parse(result.stdout).tenantId, "Dgroup-2");
+    // The only Project/Gets calls are the post-create verification ones.
+    assert.equal(urls[0], "/os/v4/Project/Create");
+  } finally {
+    await new Promise((resolveClose) => server.close(resolveClose));
+  }
+});
+
+test("projects create verifies the new dev tenant against Project/Gets", async () => {
+  const { cwd, configDir } = await makeWorkspace();
+  await writeProjectAuth(configDir, { accountOnly: true });
+  const created = [];
+  const server = await startJsonServer((request, body) => {
+    if (request.url?.startsWith("/os/v4/Project/Gets")) {
+      if (created.length === 0) return [];
+      return [{
+        name: "Acme Shop",
+        projects: [{
+          applications: [{ domain: "https://dabcde.slsblx.com" }],
+          environment: "dev",
+          name: "Acme Shop",
+          tenantId: "Dgroup-1"
+        }],
+        tenantGroupId: "group-1"
+      }];
+    }
+
+    created.push(body);
+    return { errors: null, isSuccess: true, tenantGroupId: "group-1" };
+  });
+
+  try {
+    const result = await runAsync([
+      "projects", "create", "Acme Shop",
+      "--api-url", server.url,
+      "--yes",
+      "--json"
+    ], { cwd, env: testEnv(configDir, { BLOCKS_SECRET_STORE: "file" }) });
+
+    assert.equal(result.status, 0, result.stderr);
+    assert.deepEqual(JSON.parse(result.stdout), {
+      domain: "https://dabcde.slsblx.com",
+      environment: "dev",
+      name: "Acme Shop",
+      tenantGroupId: "group-1",
+      tenantId: "Dgroup-1",
+      verified: true
+    });
+    assert.equal(created.length, 1);
+    assert.equal(created[0].applicationContexts.length, 1);
+    assert.equal(created[0].applicationContexts[0].environment, "dev");
+  } finally {
+    await new Promise((resolveClose) => server.close(resolveClose));
+  }
+});
+
+test("doctor inspects cached auth state without refreshing or rewriting it", async () => {
+  const { cwd, configDir } = await makeWorkspace();
+  let networkCalls = 0;
+  const server = await startJsonServer(() => {
+    networkCalls++;
+    return { access_token: "unexpected-refresh" };
+  });
+
+  try {
+    await writeConfig(configDir, {
+      activeAccount: "default",
+      accounts: {
+        default: {
+          ...testAccountProfile("root-tenant"),
+          oidcUrl: server.url,
+          selectedProject: { tenantId: "project-tenant" }
+        }
+      }
+    });
+    await writeFile(join(configDir, "tokens.json"), `${JSON.stringify({
+      accounts: {
+        default: {
+          account: {
+            accessToken: "expired-account-token",
+            accountTenant: "root-tenant",
+            expiresAt: new Date(Date.now() - 60_000).toISOString(),
+            refreshToken: "account-refresh"
+          },
+          projects: {
+            "project-tenant": {
+              accessToken: "valid-project-token",
+              expiresAt: new Date(Date.now() + 3_600_000).toISOString(),
+              refreshToken: "project-refresh"
+            }
+          }
+        }
+      }
+    })}\n`);
+    await writeSecretStore(configDir, { accounts: {} });
+
+    const result = await runAsync(["doctor", "--account", "default", "--json"], {
+      cwd,
+      env: testEnv(configDir, { BLOCKS_SECRET_STORE: "file" })
+    });
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(networkCalls, 0);
+    assert.equal(JSON.parse(result.stdout).ok, true);
+  } finally {
+    await new Promise((resolveClose) => server.close(resolveClose));
+  }
+});
+
+test("doctor accepts a healthy account-only session without a selected project", async () => {
+  const { cwd, configDir } = await makeWorkspace();
+  await writeConfig(configDir, {
+    activeAccount: "default",
+    accounts: { default: testAccountProfile("root-tenant") }
+  });
+  await writeFile(join(configDir, "tokens.json"), `${JSON.stringify({
+    accounts: {
+      default: {
+        account: {
+          accessToken: fakeJwt({ exp: Math.floor(Date.now() / 1000) + 3600, tenant_id: "root-tenant" }),
+          accountTenant: "root-tenant",
+          expiresAt: new Date(Date.now() + 3_600_000).toISOString(),
+          refreshToken: "account-refresh"
+        }
+      }
+    }
+  })}\n`);
+  await writeSecretStore(configDir, { accounts: {} });
+
+  const result = run(["doctor", "--account", "default", "--json"], {
+    cwd,
+    env: testEnv(configDir, { BLOCKS_SECRET_STORE: "file" })
+  });
+  assert.equal(result.status, 0, result.stderr);
+  const output = JSON.parse(result.stdout);
+  assert.equal(output.ok, true);
+  assert.ok(output.checks.some((check) => check.label === "Project context" && /account-only mode/.test(check.detail)));
+});
+
+test("doctor reports an available CLI update from the cached check without failing", async () => {
+  const { cwd, configDir } = await makeWorkspace();
+  await writeConfig(configDir, {
+    activeAccount: "default",
+    accounts: { default: testAccountProfile("root-tenant") }
+  });
+  await writeFile(join(configDir, "tokens.json"), `${JSON.stringify({
+    accounts: {
+      default: {
+        account: {
+          accessToken: fakeJwt({ exp: Math.floor(Date.now() / 1000) + 3600, tenant_id: "root-tenant" }),
+          accountTenant: "root-tenant",
+          expiresAt: new Date(Date.now() + 3_600_000).toISOString(),
+          refreshToken: "account-refresh"
+        }
+      }
+    }
+  })}\n`);
+  await writeSecretStore(configDir, { accounts: {} });
+  await writeFile(join(configDir, "update-check.json"), `${JSON.stringify({
+    checkedAt: new Date().toISOString(),
+    latest: "99.0.0"
+  })}\n`);
+
+  const result = run(["doctor", "--account", "default", "--json"], {
+    cwd,
+    env: testEnv(configDir, { BLOCKS_SECRET_STORE: "file" })
+  });
+  assert.equal(result.status, 0, result.stderr);
+  const output = JSON.parse(result.stdout);
+  assert.equal(output.ok, true, "an outdated CLI must not fail an otherwise healthy doctor run");
+  assert.equal(output.cliUpdateAvailable, true);
+  assert.equal(output.latestCliVersion, "99.0.0");
+  const versionCheck = output.checks.find((check) => check.label === "CLI up to date");
+  assert.equal(versionCheck.ok, false);
+  assert.match(versionCheck.detail, /ask the user/);
+});
+
+test("update notice prints on stderr when the cached latest version is newer", async () => {
+  const { cwd, configDir } = await makeWorkspace();
+  await writeFile(join(configDir, "update-check.json"), `${JSON.stringify({
+    checkedAt: new Date().toISOString(),
+    latest: "99.0.0"
+  })}\n`);
+
+  // A fresh cache is served without a registry call, so clearing the opt-out
+  // here still keeps the test offline.
+  const result = run(["--version"], {
+    cwd,
+    env: testEnv(configDir, { BLOCKS_NO_UPDATE_CHECK: "" })
+  });
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stdout.trim(), /^\d+\.\d+\.\d+/, "stdout stays a bare version for parsers");
+  assert.match(result.stderr, /Update available: @seliseblocks\/cli-os .* -> 99\.0\.0/);
+  assert.match(result.stderr, /ask for their confirmation before updating/i);
+
+  const silenced = run(["--version"], {
+    cwd,
+    env: testEnv(configDir, { BLOCKS_NO_UPDATE_CHECK: "1" })
+  });
+  assert.equal(silenced.status, 0, silenced.stderr);
+  assert.ok(!silenced.stderr.includes("Update available"), "BLOCKS_NO_UPDATE_CHECK must silence the notice");
+});
+
+test("projects create stops and restores an active project session", async () => {
+  const { cwd, configDir } = await makeWorkspace();
+  const calls = [];
+  const server = await startJsonServer((request) => {
+    const path = request.url?.split("?")[0];
+    calls.push(path);
+    if (path === "/iam/v4/auth/impersonation/stop") {
+      return {
+        access_token: fakeJwt({ exp: Math.floor(Date.now() / 1000) + 3600, tenant_id: "root-tenant" }),
+        expires_in: 3600,
+        refresh_token: "account-after-stop"
+      };
+    }
+    if (path === "/os/v4/Project/Create") return { errors: null, isSuccess: true, tenantGroupId: "new-group" };
+    if (path === "/os/v4/Project/Gets") {
+      return [{
+        name: "New Project",
+        projects: [{ environment: "dev", name: "New Project", tenantId: "Dnew-group" }],
+        tenantGroupId: "new-group"
+      }];
+    }
+    if (path === "/iam/v4/auth/impersonate") {
+      return {
+        access_token: fakeJwt({ exp: Math.floor(Date.now() / 1000) + 3600, tenant_id: "project-tenant" }),
+        expires_in: 3600,
+        refresh_token: "restored-project-refresh"
+      };
+    }
+    return rawResponse(404, { error: `Unexpected ${path}` });
+  });
+  await writeProjectModeAuth(configDir, server.url);
+
+  try {
+    const result = await runAsync([
+      "projects", "create", "New Project",
+      "--allow-duplicate-name",
+      "--api-url", server.url,
+      "--yes",
+      "--json"
+    ], { cwd, env: testEnv(configDir, { BLOCKS_SECRET_STORE: "file" }) });
+
+    assert.equal(result.status, 0, `${result.stderr}\nCalls: ${calls.join(", ")}`);
+    assert.deepEqual(calls, [
+      "/iam/v4/auth/impersonation/stop",
+      "/os/v4/Project/Create",
+      "/os/v4/Project/Gets",
+      "/iam/v4/auth/impersonate"
+    ]);
+  } finally {
+    await new Promise((resolveClose) => server.close(resolveClose));
+  }
+});
+
+test("projects create reports restoration failure without retrying a successful create", async () => {
+  const { cwd, configDir } = await makeWorkspace();
+  let creates = 0;
+  const server = await startJsonServer((request) => {
+    const path = request.url?.split("?")[0];
+    if (path === "/iam/v4/auth/impersonation/stop") {
+      return {
+        access_token: fakeJwt({ exp: Math.floor(Date.now() / 1000) + 3600, tenant_id: "root-tenant" }),
+        expires_in: 3600,
+        refresh_token: "account-after-stop"
+      };
+    }
+    if (path === "/os/v4/Project/Create") {
+      creates += 1;
+      return { errors: null, isSuccess: true, tenantGroupId: "new-group" };
+    }
+    if (path === "/os/v4/Project/Gets") {
+      return [{
+        name: "New Project",
+        projects: [{ environment: "dev", name: "New Project", tenantId: "Dnew-group" }],
+        tenantGroupId: "new-group"
+      }];
+    }
+    if (path === "/iam/v4/auth/impersonate") return rawResponse(500, { error: "restore failed" });
+    return rawResponse(404, { error: `Unexpected ${path}` });
+  });
+  await writeProjectModeAuth(configDir, server.url);
+
+  try {
+    const result = await runAsync([
+      "projects", "create", "New Project",
+      "--allow-duplicate-name",
+      "--api-url", server.url,
+      "--yes",
+      "--json"
+    ], { cwd, env: testEnv(configDir, { BLOCKS_SECRET_STORE: "file" }) });
+
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(creates, 1);
+    assert.match(result.stderr, /was created, but project session 'project-tenant' could not be restored/);
+  } finally {
+    await new Promise((resolveClose) => server.close(resolveClose));
+  }
+});
+
+test("a command flag the command never reads is reported instead of silently dropped", async () => {
+  const { cwd, configDir } = await makeWorkspace();
+  const env = testEnv(configDir, { BLOCKS_SECRET_STORE: "file" });
+
+  // --hostt is a typo for --host. It used to vanish: the dry-run looked clean,
+  // the field was simply absent, and the mutation went out missing a value
+  // after a human approved what they saw.
+  const warned = run([
+    "mail:config:save", "--name", "primary", "--hostt", "smtp.example.test", "--dry-run", "--json"
+  ], { cwd, env });
+
+  assert.equal(warned.status, 0, warned.stderr);
+  assert.match(warned.stderr, /--hostt is not a flag 'blocks mail config save' reads/);
+  assert.match(warned.stderr, /blocks help mail config save/);
+  // The warning goes to stderr so a --json document stays parseable.
+  assert.equal(JSON.parse(warned.stdout).request.host, undefined);
+
+  const strict = run([
+    "mail:config:save", "--name", "primary", "--hostt", "smtp.example.test", "--dry-run", "--json"
+  ], { cwd, env: { ...env, BLOCKS_STRICT_FLAGS: "1" } });
+
+  assert.equal(strict.status, 1);
+  assert.equal(JSON.parse(strict.stdout || strict.stderr).code, "unknown_flag");
+
+  // A real flag, and every global, must stay silent.
+  const quiet = run([
+    "mail:config:save", "--name", "primary", "--host", "smtp.example.test", "--port", "587",
+    "--dry-run", "--json", "--account", "studio", "--project", "tenant-1"
+  ], { cwd, env });
+  assert.doesNotMatch(quiet.stderr, /is not a flag/);
+});
+
+test("every catalog command accepts its own documented flags without warning", async () => {
+  const { commandCatalog } = await import("../dist/lib/command-catalog.js");
+  const { unknownFlags } = await import("../dist/lib/help.js");
+
+  // Guards the derivation itself: if a command reads a flag in a way the
+  // catalog generator cannot see, the CLI would warn on correct usage.
+  const globals = ["--json", "--dry-run", "--yes", "--account", "--project", "--api-url"];
+  for (const entry of commandCatalog) {
+    const argv = [...entry.flags.map((flag) => `--${flag}`), ...globals];
+    assert.deepEqual(
+      unknownFlags(entry, argv),
+      [],
+      `blocks ${entry.name} would warn about its own flags`
+    );
+  }
+
+  assert.ok(commandCatalog.length > 0);
+});
+
+test("a command's own --help prints help instead of running the command", async () => {
+  const { cwd, configDir } = await makeWorkspace();
+  const env = testEnv(configDir, { BLOCKS_SECRET_STORE: "file" });
+
+  // 'login --help' used to perform an actual login: most handlers treat --help
+  // as an ordinary argument. This workspace has no auth state, so a handler
+  // that actually ran would fail rather than print usage.
+  for (const args of [["login", "--help"], ["data", "schema", "list", "--help"], ["iam", "users", "list", "-h"]]) {
+    const label = args.join(" ");
+    const result = run(args, { cwd, env });
+    assert.equal(result.status, 0, `${label} -> ${result.stderr}`);
+    assert.match(result.stdout, /^blocks /, `${label} should print a usage line`);
+    assert.doesNotMatch(result.stdout, /isSuccess/, `${label} must not have reached the API`);
+  }
+
+  const asJson = run(["data", "schema", "list", "--help", "--json"], { cwd, env });
+  assert.equal(asJson.status, 0, asJson.stderr);
+  assert.equal(JSON.parse(asJson.stdout).name, "data schema list");
+});
+
+test("iam users list treats a bare --sort-desc as a descending sort", async () => {
+  const { cwd, configDir } = await makeWorkspace();
+  await writeProjectAuth(configDir);
+  const env = testEnv(configDir, { BLOCKS_SECRET_STORE: "file" });
+  const requests = [];
+  const server = await startJsonServer((_request, body) => {
+    requests.push(body);
+    return { data: [], totalCount: 0 };
+  });
+
+  try {
+    // Bare --sort-desc parses to boolean true; reading it as a string silently
+    // meant "not descending", so the documented spelling did nothing at all.
+    for (const args of [["--sort-desc"], ["--sort-desc", "true"], []]) {
+      const result = await runAsync(
+        ["iam:users:list", ...args, "--json", "--api-url", server.url],
+        { cwd, env }
+      );
+      assert.equal(result.status, 0, result.stderr);
+    }
+  } finally {
+    await new Promise((resolveClose) => server.close(resolveClose));
+  }
+
+  assert.equal(requests.length, 3);
+  assert.equal(requests[0].sort.isDescending, true, "bare --sort-desc must mean descending");
+  assert.equal(requests[1].sort.isDescending, true, "--sort-desc true must mean descending");
+  assert.equal(requests[2].sort.isDescending, false, "omitting the flag must not sort descending");
+});
+
+test("a pre-signed upload URL is not reprinted in dry-run output", async () => {
+  const { cwd, configDir } = await makeWorkspace();
+  const env = testEnv(configDir, { BLOCKS_SECRET_STORE: "file" });
+  await writeFile(join(cwd, "payload.bin"), "x");
+
+  // The URL's query string IS the credential (an Azure SAS token, an S3
+  // X-Amz-Signature), and a dry-run is the output most likely to reach a log.
+  const signed = "https://storage.example/container/blob?sig=SECRET-SIGNATURE&se=2030-01-01";
+  const result = run([
+    "data:files:upload-to-url", "--url", signed, "--file", "payload.bin",
+    "--content-type", "application/octet-stream", "--dry-run", "--json"
+  ], { cwd, env });
+
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(JSON.parse(result.stdout).url, "https://storage.example/container/blob?***");
+  assert.doesNotMatch(result.stdout, /SECRET-SIGNATURE/);
+});
+
+test("secret-bearing dry-runs all route through the shared redaction helper", async () => {
+  const { cwd, configDir } = await makeWorkspace();
+  const env = testEnv(configDir, { BLOCKS_SECRET_STORE: "file" });
+
+  const cases = [
+    {
+      args: ["data:config:create", "--name", "primary", "--connection-string", "Server=db;Password=leak-me", "--dry-run", "--json"],
+      redacted: (request) => request.connectionString,
+      leak: /leak-me/
+    },
+    {
+      args: [
+        "storage:config:save", "--name", "primary",
+        "--body", JSON.stringify({ accessKey: "leak-access", secretKey: "leak-secret" }),
+        "--dry-run", "--json"
+      ],
+      redacted: (request) => request.secretKey,
+      leak: /leak-access|leak-secret/
+    },
+    {
+      args: [
+        "auth:client-credentials:save", "--name", "svc",
+        "--body", JSON.stringify({ clientSecret: "leak-me" }),
+        "--dry-run", "--json"
+      ],
+      redacted: (request) => request.clientSecret,
+      leak: /leak-me/
+    }
+  ];
+
+  for (const { args, redacted, leak, stillReadable } of cases) {
+    const result = run(args, { cwd, env });
+    assert.equal(result.status, 0, `${args[0]}: ${result.stderr}`);
+    const { request } = JSON.parse(result.stdout);
+    assert.equal(redacted(request), "***", `${args[0]} should redact its credential`);
+    assert.doesNotMatch(result.stdout, leak, `${args[0]} leaked a secret into dry-run output`);
+    if (stillReadable) stillReadable(request);
+  }
+});
+
+// --- Native secret-store write verification ---------------------------------
+// Regression tests for the macOS incident where `security add-generic-password`
+// exited 0 without persisting the tokens: the CLI deleted tokens.json, reported
+// "Login done.", and every later command saw a logged-out machine. The store
+// must fail closed: a native write only counts once it reads back, and the
+// file copy survives until then.
+
+const requiresPosixShell = process.platform === "win32" && "requires a POSIX fake `security` on PATH";
+
+function sampleTokenStore() {
+  return {
+    accounts: {
+      default: {
+        account: {
+          accessToken: "access-token",
+          accountTenant: "root-tenant",
+          expiresAt: "2030-01-01T00:00:00.000Z",
+          refreshToken: "refresh-token",
+          tokenType: "Bearer"
+        }
+      }
+    }
+  };
+}
+
+async function withSecretStoreSandbox(run) {
+  const { configDir } = await makeWorkspace();
+  const original = {
+    configDir: process.env.BLOCKS_CONFIG_DIR,
+    path: process.env.PATH,
+    secretStore: process.env.BLOCKS_SECRET_STORE
+  };
+  process.env.BLOCKS_CONFIG_DIR = configDir;
+
+  try {
+    await run(configDir);
+  } finally {
+    restoreEnv("BLOCKS_CONFIG_DIR", original.configDir);
+    restoreEnv("PATH", original.path);
+    restoreEnv("BLOCKS_SECRET_STORE", original.secretStore);
+  }
+}
+
+function restoreEnv(name, value) {
+  if (value === undefined) delete process.env[name];
+  else process.env[name] = value;
+}
+
+async function writeFakeSecurity(configDir, script) {
+  const fakeBin = join(configDir, "fake-bin");
+  await mkdir(fakeBin, { recursive: true });
+  await writeFile(join(fakeBin, "security"), script, { mode: 0o755 });
+  process.env.PATH = `${fakeBin}${delimiter}${process.env.PATH}`;
+}
+
+test("a native credential write that cannot persist fails loudly and leaves tokens.json untouched", async () => {
+  await withSecretStoreSandbox(async (configDir) => {
+    process.env.BLOCKS_SECRET_STORE = "file";
+    await writeTokenStore(sampleTokenStore());
+
+    // No `security` anywhere on this PATH, so the forced Keychain backend
+    // cannot persist anything -- the write must throw, not pretend.
+    const emptyDir = join(configDir, "empty-path");
+    await mkdir(emptyDir, { recursive: true });
+    process.env.BLOCKS_SECRET_STORE = "macos-keychain";
+    process.env.PATH = emptyDir;
+
+    await assert.rejects(() => writeTokenStore(sampleTokenStore()), (error) => {
+      assert.ok(error instanceof CliActionableError);
+      assert.equal(error.code, "secret_store_write_failed");
+      return true;
+    });
+
+    const kept = JSON.parse(await readFile(join(configDir, "tokens.json"), "utf8"));
+    assert.equal(kept.accounts.default.account.accessToken, "access-token");
+
+    // Reads survive too: migration into the broken store is best-effort and
+    // keeps serving the file copy.
+    const read = await readTokenStore();
+    assert.equal(read.accounts.default.account.refreshToken, "refresh-token");
+  });
+});
+
+test("a Keychain write that exits 0 but stores nothing fails instead of deleting tokens.json", { skip: requiresPosixShell }, async () => {
+  await withSecretStoreSandbox(async (configDir) => {
+    process.env.BLOCKS_SECRET_STORE = "file";
+    await writeTokenStore(sampleTokenStore());
+
+    // The incident's exact shape: every `security` call reports success, no
+    // data lands, so only the read-back can catch it.
+    await writeFakeSecurity(configDir, "#!/bin/sh\nexit 0\n");
+    process.env.BLOCKS_SECRET_STORE = "macos-keychain";
+
+    await assert.rejects(() => writeTokenStore(sampleTokenStore()), (error) => {
+      assert.ok(error instanceof CliActionableError);
+      assert.equal(error.code, "secret_store_write_failed");
+      return true;
+    });
+
+    const kept = JSON.parse(await readFile(join(configDir, "tokens.json"), "utf8"));
+    assert.equal(kept.accounts.default.account.refreshToken, "refresh-token");
+  });
+});
+
+test("a Keychain write that round-trips replaces tokens.json as before", { skip: requiresPosixShell }, async () => {
+  await withSecretStoreSandbox(async (configDir) => {
+    process.env.BLOCKS_SECRET_STORE = "file";
+    await writeTokenStore(sampleTokenStore());
+
+    // A working keychain, faked with a file: add stores the last argument,
+    // find prints it back. Verification must pass and behavior must match the
+    // pre-fix contract (tokens.json handed over to the native store).
+    process.env.FAKE_SECURITY_STORE = join(configDir, "fake-keychain-item");
+    await writeFakeSecurity(configDir, [
+      "#!/bin/sh",
+      "case \"$1\" in",
+      "  add-generic-password) for last; do :; done; printf '%s' \"$last\" > \"$FAKE_SECURITY_STORE\";;",
+      "  find-generic-password) cat \"$FAKE_SECURITY_STORE\" 2>/dev/null;;",
+      "esac",
+      "exit 0",
+      ""
+    ].join("\n"));
+    process.env.BLOCKS_SECRET_STORE = "macos-keychain";
+
+    try {
+      await writeTokenStore(sampleTokenStore());
+      await assert.rejects(() => readFile(join(configDir, "tokens.json"), "utf8"), { code: "ENOENT" });
+
+      const read = await readTokenStore();
+      assert.equal(read.accounts.default.account.accessToken, "access-token");
+    } finally {
+      delete process.env.FAKE_SECURITY_STORE;
+    }
+  });
+});
+
+test("garbage occupying the CLI's credential-store slot surfaces an actionable error, not a crash", { skip: requiresPosixShell }, async () => {
+  await withSecretStoreSandbox(async (configDir) => {
+    // A manually created keychain entry (the incident had a stray password in
+    // the CLI's slot) must not take every command down with a SyntaxError.
+    await writeFakeSecurity(configDir, [
+      "#!/bin/sh",
+      "if [ \"$1\" = \"find-generic-password\" ]; then echo \"Parsa2000\"; fi",
+      "exit 0",
+      ""
+    ].join("\n"));
+    process.env.BLOCKS_SECRET_STORE = "macos-keychain";
+
+    await assert.rejects(() => readTokenStore(), (error) => {
+      assert.ok(error instanceof CliActionableError);
+      assert.equal(error.code, "token_store_unreadable");
+      assert.match(error.nextStep, /BLOCKS_SECRET_STORE=file/);
+      return true;
+    });
+  });
 });
 
 async function makeWorkspace() {
@@ -989,8 +4573,259 @@ async function writeConfig(configDir, config) {
   await writeFile(join(configDir, "config.json"), `${JSON.stringify(config, null, 2)}\n`);
 }
 
+function testAccountProfile(rootTenantId) {
+  return {
+    apiUrl: "https://api.example.test",
+    clientId: "client-id",
+    createdAt: "2026-01-01T00:00:00.000Z",
+    oidcUrl: "https://iam.example.test",
+    osUrl: "https://api.example.test",
+    rootTenantId,
+    scope: "openid profile offline_access",
+    updatedAt: "2026-01-01T00:00:00.000Z"
+  };
+}
+
+async function writeAuthContext(configDir, accountName, selectedProject, projectTokens = {}) {
+  const rootTenantId = `${accountName}-root`;
+  await writeConfig(configDir, {
+    activeAccount: accountName,
+    accounts: {
+      [accountName]: {
+        ...testAccountProfile(rootTenantId),
+        selectedProject: selectedProject ? { tenantId: selectedProject } : undefined
+      }
+    }
+  });
+  await writeFile(join(configDir, "tokens.json"), `${JSON.stringify({
+    accounts: {
+      [accountName]: {
+        account: {
+          accessToken: fakeJwt({ exp: Math.floor(Date.now() / 1000) + 3600, tenant_id: rootTenantId }),
+          accountTenant: rootTenantId,
+          expiresAt: new Date(Date.now() + 3_600_000).toISOString()
+        },
+        projects: Object.fromEntries(Object.entries(projectTokens).map(([tenantId, accessToken]) => [tenantId, {
+          accessToken,
+          expiresAt: new Date(Date.now() + 3_600_000).toISOString()
+        }]))
+      }
+    }
+  }, null, 2)}\n`);
+}
+
+async function writeProjectAuth(configDir, { accountOnly = false } = {}) {
+  await writeConfig(configDir, {
+    accounts: {
+      default: {
+        apiUrl: "https://api.example.test",
+        clientId: "client-id",
+        oidcUrl: "https://iam.example.test",
+        rootTenantId: "root-tenant"
+      }
+    },
+    selectedProject: accountOnly ? undefined : { tenantId: "project-tenant" }
+  });
+  await writeFile(join(configDir, "tokens.json"), `${JSON.stringify({
+    accounts: {
+      default: {
+        account: {
+          accessToken: fakeJwt({ tenant_id: "root-tenant" }),
+          accountTenant: "root-tenant",
+          expiresAt: new Date(Date.now() + 3_600_000).toISOString(),
+          refreshToken: "account-refresh-token",
+          tokenType: "Bearer"
+        },
+        projects: accountOnly ? undefined : {
+          "project-tenant": {
+            accessToken: fakeJwt({ tenant_id: "project-tenant" }),
+            accountTenant: "root-tenant",
+            expiresAt: new Date(Date.now() + 3_600_000).toISOString(),
+            refreshToken: "project-refresh-token",
+            tokenType: "Bearer"
+          }
+        }
+      }
+    }
+  }, null, 2)}\n`);
+}
+
 async function writeSecretStore(configDir, store) {
   await writeFile(join(configDir, "secrets.json"), `${JSON.stringify(store, null, 2)}\n`);
+}
+
+async function writeProjectModeAuth(configDir, apiUrl, tenantId = "project-tenant") {
+  await writeConfig(configDir, {
+    activeAccount: "studio",
+    accounts: {
+      studio: {
+        ...testAccountProfile("root-tenant"),
+        apiUrl,
+        selectedProject: { tenantId }
+      }
+    }
+  });
+  await writeFile(join(configDir, "tokens.json"), `${JSON.stringify({
+    accounts: {
+      studio: {
+        projects: {
+          [tenantId]: {
+            accessToken: fakeJwt({ exp: Math.floor(Date.now() / 1000) + 3600, tenant_id: tenantId }),
+            expiresAt: new Date(Date.now() + 3_600_000).toISOString(),
+            refreshToken: "project-refresh"
+          }
+        }
+      }
+    }
+  }, null, 2)}\n`);
+}
+
+async function writeTwoAccountProjectAuth(configDir, apiUrl) {
+  await writeConfig(configDir, {
+    activeAccount: "beta",
+    accounts: {
+      alpha: {
+        ...testAccountProfile("alpha-root"),
+        apiUrl,
+        selectedProject: { tenantId: "stored-project" }
+      },
+      beta: {
+        ...testAccountProfile("beta-root"),
+        apiUrl,
+        selectedProject: { tenantId: "beta-project" }
+      }
+    }
+  });
+  await writeFile(join(configDir, "tokens.json"), `${JSON.stringify({
+    accounts: {
+      alpha: {
+        projects: {
+          "stored-project": { accessToken: "alpha-stored-token", expiresAt: new Date(Date.now() + 3_600_000).toISOString() },
+          "target-project": { accessToken: "alpha-target-token", expiresAt: new Date(Date.now() + 3_600_000).toISOString() }
+        }
+      },
+      beta: {
+        projects: {
+          "beta-project": { accessToken: "beta-project-token", expiresAt: new Date(Date.now() + 3_600_000).toISOString() }
+        }
+      }
+    }
+  }, null, 2)}\n`);
+}
+
+test("a rejected account refresh token is dropped from the store so auth status stops calling it available", async () => {
+  await withAuthLifecycleEnv(async ({ configDir }) => {
+    await writeLifecycleAccount(configDir);
+    globalThis.fetch = async () => new Response(JSON.stringify({ error: "invalid_grant", error_description: "Refresh token is invalid or expired" }), {
+      headers: { "content-type": "application/json" },
+      status: 400
+    });
+
+    await assert.rejects(
+      () => getAccountSession(undefined, { forceRefresh: true }),
+      (error) => error instanceof CliActionableError && error.code === "refresh_token_rejected"
+    );
+
+    const store = await readTokenStore();
+    assert.equal(store.accounts.default.account.refreshToken, undefined, "the dead refresh token must not survive");
+    assert.ok(store.accounts.default.account.accessToken, "the access token stays; it reports expired on its own");
+  });
+});
+
+test("a rejected project refresh token is dropped from the store, leaving the account untouched", async () => {
+  await withAuthLifecycleEnv(async ({ configDir }) => {
+    await writeLifecycleConfig(configDir);
+    await writeTokenStore({
+      accounts: {
+        default: {
+          account: { accessToken: "acct", accountTenant: "root-tenant", expiresAt: new Date(Date.now() + 3_600_000).toISOString(), refreshToken: "account-refresh", tokenType: "Bearer" },
+          projects: {
+            "project-tenant": { accessToken: "proj", expiresAt: new Date(Date.now() - 60_000).toISOString(), refreshToken: "project-refresh" }
+          }
+        }
+      }
+    });
+    globalThis.fetch = async () => new Response(JSON.stringify({ error: "invalid_grant" }), { headers: { "content-type": "application/json" }, status: 400 });
+
+    await assert.rejects(
+      () => getImpersonatedProjectSession("default", "project-tenant"),
+      (error) => error instanceof CliActionableError && error.code === "refresh_token_rejected"
+    );
+
+    const store = await readTokenStore();
+    assert.equal(store.accounts.default.projects["project-tenant"].refreshToken, undefined);
+    assert.equal(store.accounts.default.account.refreshToken, "account-refresh", "only the rejected token goes");
+  });
+});
+
+async function withAuthLifecycleEnv(operation) {
+  const { configDir } = await makeWorkspace();
+  const originalConfigDir = process.env.BLOCKS_CONFIG_DIR;
+  const originalSecretStore = process.env.BLOCKS_SECRET_STORE;
+  const originalFetch = globalThis.fetch;
+  process.env.BLOCKS_CONFIG_DIR = configDir;
+  process.env.BLOCKS_SECRET_STORE = "file";
+
+  try {
+    await operation({ configDir });
+  } finally {
+    globalThis.fetch = originalFetch;
+    if (originalConfigDir === undefined) delete process.env.BLOCKS_CONFIG_DIR;
+    else process.env.BLOCKS_CONFIG_DIR = originalConfigDir;
+    if (originalSecretStore === undefined) delete process.env.BLOCKS_SECRET_STORE;
+    else process.env.BLOCKS_SECRET_STORE = originalSecretStore;
+  }
+}
+
+async function writeLifecycleAccount(configDir) {
+  await writeLifecycleConfig(configDir);
+  await writeTokenStore({
+    accounts: {
+      default: {
+        account: {
+          accessToken: fakeJwt({ exp: Math.floor(Date.now() / 1000) + 3600, tenant_id: "root-tenant" }),
+          accountTenant: "root-tenant",
+          expiresAt: new Date(Date.now() + 3_600_000).toISOString(),
+          refreshToken: "account-refresh",
+          tokenType: "Bearer"
+        }
+      }
+    }
+  });
+}
+
+async function writeLifecycleProject(configDir) {
+  await writeLifecycleConfig(configDir);
+  await writeTokenStore({
+    accounts: {
+      default: {
+        projects: {
+          "project-tenant": {
+            accessToken: fakeJwt({ exp: Math.floor(Date.now() / 1000) + 3600, tenant_id: "project-tenant" }),
+            expiresAt: new Date(Date.now() + 3_600_000).toISOString(),
+            refreshToken: "project-refresh",
+            tokenType: "Bearer"
+          }
+        }
+      }
+    }
+  });
+}
+
+async function writeLifecycleConfig(configDir) {
+  await writeConfigFile({
+    activeAccount: "default",
+    accounts: {
+      default: {
+        apiUrl: "https://api.example.test",
+        clientId: "client-id",
+        oidcUrl: "https://iam.example.test",
+        rootTenantId: "root-tenant",
+        selectedProject: { tenantId: "project-tenant" },
+        scope: "openid profile offline_access"
+      }
+    }
+  });
 }
 
 async function collectFiles(dir) {
@@ -1042,6 +4877,11 @@ function jsonResponse(body, status = 200) {
   });
 }
 
+/** For use as a startJsonServer handler return value: a non-200 status, optionally with a JSON body. */
+function rawResponse(status, body) {
+  return body === undefined ? { __httpStatus: status } : { __httpBody: body, __httpStatus: status };
+}
+
 function fakeJwt(payload) {
   const header = Buffer.from(JSON.stringify({ alg: "none", typ: "JWT" })).toString("base64url");
   const body = Buffer.from(JSON.stringify(payload)).toString("base64url");
@@ -1050,6 +4890,15 @@ function fakeJwt(payload) {
 
 function run(args, { cwd, env }) {
   return spawnSync(process.execPath, [bin, ...args], {
+    cwd,
+    encoding: "utf8",
+    env,
+    timeout: 20_000
+  });
+}
+
+function runNodeScript(args, { cwd, env }) {
+  return spawnSync(process.execPath, args, {
     cwd,
     encoding: "utf8",
     env,
@@ -1100,8 +4949,22 @@ async function startJsonServer(handler) {
     const text = Buffer.concat(chunks).toString("utf8");
     const body = text ? JSON.parse(text) : undefined;
     const result = handler(request, body);
-    response.setHeader("content-type", "application/json");
     response.setHeader("connection", "close");
+
+    // A handler can return `rawResponse(status[, body])` to simulate a non-200
+    // status and/or an empty body (e.g. the backend's HTTP 204 "not found").
+    if (result && typeof result === "object" && "__httpStatus" in result) {
+      response.statusCode = result.__httpStatus;
+      if ("__httpBody" in result) {
+        response.setHeader("content-type", "application/json");
+        response.end(JSON.stringify(result.__httpBody));
+      } else {
+        response.end();
+      }
+      return;
+    }
+
+    response.setHeader("content-type", "application/json");
     response.end(JSON.stringify(result));
   });
 
@@ -1116,3 +4979,606 @@ async function startJsonServer(handler) {
     url: `http://127.0.0.1:${address.port}`
   };
 }
+
+test("help index lists every registered command without the full text help", async () => {
+  const { cwd, configDir } = await makeWorkspace();
+  const env = testEnv(configDir, { BLOCKS_SECRET_STORE: "file" });
+
+  const index = run(["--help", "--json"], { cwd, env });
+  assert.equal(index.status, 0, index.stderr);
+  const parsed = JSON.parse(index.stdout);
+  const listed = Object.values(parsed.families).flat();
+  assert.equal(parsed.commandCount, listed.length);
+
+  const full = run(["--help"], { cwd, env });
+  assert.ok(
+    index.stdout.length * 3 < full.stdout.length,
+    `index (${index.stdout.length}B) should be far smaller than the text help (${full.stdout.length}B)`
+  );
+});
+
+test("help resolves one command's flags without running it", async () => {
+  const { cwd, configDir } = await makeWorkspace();
+  const env = testEnv(configDir, { BLOCKS_SECRET_STORE: "file" });
+
+  const result = run(["help", "mail", "mailbox", "list", "--json"], { cwd, env });
+  assert.equal(result.status, 0, result.stderr);
+  const entry = JSON.parse(result.stdout);
+  assert.equal(entry.name, "mail mailbox list");
+  assert.equal(entry.scope, "project");
+  assert.equal(entry.mutating, false);
+  // the flag list is derived from source, so a stale doc example cannot survive here
+  assert.ok(entry.flags.includes("page-number"));
+  assert.ok(!entry.flags.includes("configuration-id"));
+});
+
+test("help never executes the command it describes", async () => {
+  const { cwd, configDir } = await makeWorkspace();
+  const env = testEnv(configDir, { BLOCKS_SECRET_STORE: "file" });
+
+  // 'login --help' would perform a real device login; 'help login' must not.
+  const result = run(["help", "login"], { cwd, env });
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stdout, /blocks login/);
+  assert.doesNotMatch(result.stdout, /Authorize this device|Waiting for approval/);
+});
+
+test("help reports scope and mutation from source, not prose", async () => {
+  const { cwd, configDir } = await makeWorkspace();
+  const env = testEnv(configDir, { BLOCKS_SECRET_STORE: "file" });
+
+  const me = JSON.parse(run(["help", "iam", "me", "--json"], { cwd, env }).stdout);
+  assert.equal(me.scope, "project-or-account");
+
+  const create = JSON.parse(run(["help", "projects", "create", "--json"], { cwd, env }).stdout);
+  assert.equal(create.scope, "account");
+  assert.equal(create.mutating, true);
+
+  // object-tree.ts exports 23 handlers from one file; scoping must be per-handler
+  const resolve = JSON.parse(run(["help", "data", "files", "access-resolve", "--json"], { cwd, env }).stdout);
+  assert.equal(resolve.mutating, false);
+  assert.ok(resolve.flags.length < 5, `expected a narrow flag list, got ${resolve.flags.length}`);
+});
+
+test("help falls back to a family and fails clearly on an unknown target", async () => {
+  const { cwd, configDir } = await makeWorkspace();
+  const env = testEnv(configDir, { BLOCKS_SECRET_STORE: "file" });
+
+  const family = JSON.parse(run(["help", "mfa", "backup-codes", "--json"], { cwd, env }).stdout);
+  assert.equal(family.family, "mfa backup-codes");
+  assert.equal(family.commands.length, 3);
+
+  const unknown = run(["help", "nope", "--json"], { cwd, env });
+  assert.equal(unknown.status, 1);
+  assert.match(unknown.stderr, /unknown_help_target/);
+});
+
+test("release deploy --wait reads the status field, not keywords in other strings", async () => {
+  const { cwd, configDir } = await makeWorkspace();
+  let buildPolls = 0;
+  const server = await startJsonServer((request) => {
+    const path = request.url.split("?")[0];
+    if (path === "/os/v4/Project/Gets") {
+      return [{ tenantGroupId: "group-1", projects: [{ environment: "dev", tenantId: "target-project" }] }];
+    }
+    if (path === "/os/v4/Project/GetAsset") {
+      return { assets: { resources: [{ name: "dev", resourceId: "repo-1" }] } };
+    }
+    if (path === "/release/v4/Build/repo-details") {
+      return { data: { repo: { branch: "dev", repoUrl: "https://example.test/repo.git" } } };
+    }
+    if (path === "/release/v4/Build/manual") return { buildId: "build-1" };
+    if (path === "/release/v4/Build") {
+      buildPolls += 1;
+      // First poll: still running, but full of strings the old keyword scan
+      // misread as terminal (commit message, branch name).
+      if (buildPolls === 1) {
+        return { data: { branch: "feature/error-page", commit: "fix error handling, done", status: "Running" }, status: "Running" };
+      }
+      return { data: { status: "Succeeded" }, status: "Succeeded" };
+    }
+    return rawResponse(500, { error: `Unexpected ${request.method} ${path}` });
+  });
+
+  try {
+    await writeTwoAccountProjectAuth(configDir, server.url);
+    const result = await runAsync([
+      "release", "deploy", "--account", "alpha", "--project", "target-project", "--api-url", server.url,
+      "--yes", "--wait", "--poll-interval", "0", "--json"
+    ], { cwd, env: testEnv(configDir, { BLOCKS_SECRET_STORE: "file" }) });
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(buildPolls, 2, "the running build with scary strings must be polled again, not declared terminal");
+    // --json stdout must be exactly one parseable document; poll progress goes to stderr.
+    const output = JSON.parse(result.stdout);
+    assert.equal(output.buildId, "build-1");
+    assert.equal(output.verdict, "succeeded");
+    assert.match(result.stderr, /status: Running/);
+  } finally {
+    await new Promise((resolveClose) => server.close(resolveClose));
+  }
+});
+
+test("release secrets sync merges over the current set and prints key names only", async () => {
+  const { cwd, configDir } = await makeWorkspace();
+  const saves = [];
+  const server = await startJsonServer((request, body) => {
+    const path = request.url.split("?")[0];
+    if (path === "/release/v4/Build/repos-list") {
+      return { data: [{ branch: "dev", itemId: "repo-1", repoName: "web-app" }] };
+    }
+    if (path === "/release/v4/RepoSecret/value") {
+      // RepoSecretValueResponse: the set is the nested 'secrets' map, never the envelope.
+      return {
+        data: {
+          repoId: "repo-1",
+          secretId: "secret-9",
+          secrets: { CHANGED_KEY: "old-value-77", KEPT_KEY: "kept-value-42", UNTOUCHED_KEY: "untouched-value-13" }
+        }
+      };
+    }
+    if (path === "/release/v4/RepoSecret/save") {
+      saves.push(body);
+      return { data: null, isSuccess: true };
+    }
+    return rawResponse(500, { error: `Unexpected ${request.method} ${path}` });
+  });
+
+  try {
+    await writeTwoAccountProjectAuth(configDir, server.url);
+    const env = testEnv(configDir, { BLOCKS_SECRET_STORE: "file" });
+    await writeFile(join(cwd, "sync.env"), [
+      "# comment",
+      "KEPT_KEY=kept-value-42",
+      "CHANGED_KEY=new-value-88",
+      "ADDED_KEY=added-value-99",
+      ""
+    ].join("\n"));
+    const context = ["--account", "alpha", "--project", "target-project", "--api-url", server.url];
+
+    const plan = await runAsync(["release", "secrets", "sync", "--file", "sync.env", "--dry-run", "--json", ...context], { cwd, env });
+    assert.equal(plan.status, 0, plan.stderr);
+    const planned = JSON.parse(plan.stdout);
+    assert.deepEqual(planned.added, ["ADDED_KEY"]);
+    assert.deepEqual(planned.updated, ["CHANGED_KEY"]);
+    assert.deepEqual(planned.removed, []);
+    assert.equal(planned.mode, "merge");
+    for (const leaked of ["old-value-77", "new-value-88", "added-value-99", "kept-value-42"]) {
+      assert.ok(!plan.stdout.includes(leaked) && !plan.stderr.includes(leaked), `secret value '${leaked}' leaked to output`);
+    }
+    assert.equal(saves.length, 0, "dry-run must not save");
+
+    const apply = await runAsync(["release", "secrets", "sync", "--file", "sync.env", "--yes", "--json", ...context], { cwd, env });
+    assert.equal(apply.status, 0, apply.stderr);
+    assert.equal(JSON.parse(apply.stdout).saved, true);
+    assert.equal(saves.length, 1);
+    assert.deepEqual(saves[0], {
+      repoId: "repo-1",
+      secrets: {
+        ADDED_KEY: "added-value-99",
+        CHANGED_KEY: "new-value-88",
+        KEPT_KEY: "kept-value-42",
+        UNTOUCHED_KEY: "untouched-value-13"
+      }
+    });
+  } finally {
+    await new Promise((resolveClose) => server.close(resolveClose));
+  }
+});
+
+test("release teardown demands an explicit repo and confirms with the blast radius", async () => {
+  const { cwd, configDir } = await makeWorkspace();
+  const deletes = [];
+  const server = await startJsonServer((request) => {
+    const path = request.url.split("?")[0];
+    if (path === "/release/v4/Build/repos-list") {
+      return {
+        data: [
+          { branch: "dev", customDeploymentUrl: "https://web.example.test", deployedNamespace: "ns-web-1", itemId: "repo-1", repoName: "web-app" },
+          { branch: "dev", itemId: "repo-2", repoName: "other-app" }
+        ]
+      };
+    }
+    if (path === "/release/v4/Build/deployment" && request.method === "DELETE") {
+      deletes.push(request.url);
+      return { data: null, isSuccess: true };
+    }
+    return rawResponse(500, { error: `Unexpected ${request.method} ${path}` });
+  });
+
+  try {
+    await writeTwoAccountProjectAuth(configDir, server.url);
+    const env = testEnv(configDir, { BLOCKS_SECRET_STORE: "file" });
+    const context = ["--account", "alpha", "--project", "target-project", "--api-url", server.url];
+
+    // No repo named -> refused before any request, even with --yes.
+    const missing = await runAsync(["release", "teardown", "--yes", "--json", ...context], { cwd, env });
+    assert.equal(missing.status, 1);
+    assert.match(missing.stderr, /repo_selector_required/);
+
+    const plan = await runAsync(["release", "teardown", "web-app", "--dry-run", "--json", ...context], { cwd, env });
+    assert.equal(plan.status, 0, plan.stderr);
+    const planned = JSON.parse(plan.stdout);
+    assert.equal(planned.target.repoId, "repo-1");
+    assert.equal(planned.target.namespace, "ns-web-1");
+    assert.equal(deletes.length, 0, "dry-run must not delete");
+
+    const apply = await runAsync(["release", "teardown", "web-app", "--yes", "--json", ...context], { cwd, env });
+    assert.equal(apply.status, 0, apply.stderr);
+    assert.equal(deletes.length, 1);
+    assert.match(deletes[0], /repoId=repo-1/);
+  } finally {
+    await new Promise((resolveClose) => server.close(resolveClose));
+  }
+});
+
+test("release git repos refuses providers blocks-release has not activated", async () => {
+  const { cwd, configDir } = await makeWorkspace();
+  const env = testEnv(configDir, { BLOCKS_SECRET_STORE: "file" });
+
+  const result = run(["release", "git", "repos", "--provider", "gitlab", "--json"], { cwd, env });
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /provider_not_supported/);
+});
+
+test("release reports get only accepts the server's report types", async () => {
+  const { cwd, configDir } = await makeWorkspace();
+  const requests = [];
+  const server = await startJsonServer((request) => {
+    const path = request.url.split("?")[0];
+    if (path === "/release/v4/Build/reports") {
+      requests.push(request.url);
+      return { data: { findings: 0 }, isSuccess: true };
+    }
+    return rawResponse(500, { error: `Unexpected ${request.method} ${path}` });
+  });
+
+  try {
+    await writeTwoAccountProjectAuth(configDir, server.url);
+    const env = testEnv(configDir, { BLOCKS_SECRET_STORE: "file" });
+    const context = ["--account", "alpha", "--project", "target-project", "--api-url", server.url];
+
+    // 'sca' is not a type TestReportService knows: the server would answer a null
+    // report with isSuccess true, so the CLI must refuse before any request.
+    const bare = await runAsync(["release", "reports", "get", "build-1", "--type", "sca", "--json", ...context], { cwd, env });
+    assert.equal(bare.status, 1);
+    assert.match(bare.stderr, /invalid_report_type/);
+    assert.match(bare.stderr, /sca-container/);
+    assert.equal(requests.length, 0, "an invalid type must not reach the server");
+
+    const libraries = await runAsync(["release", "reports", "get", "build-1", "--type", "sca-libraries", "--json", ...context], { cwd, env });
+    assert.equal(libraries.status, 0, libraries.stderr);
+    assert.equal(requests.length, 1);
+    assert.match(requests[0], /buildId=build-1/);
+    assert.match(requests[0], /type=sca-libraries/);
+  } finally {
+    await new Promise((resolveClose) => server.close(resolveClose));
+  }
+});
+
+test("release secrets sync starts empty only on not-found and never saves over an unreadable set", async () => {
+  const { cwd, configDir } = await makeWorkspace();
+  const saves = [];
+  let valueStatus = 403;
+  const server = await startJsonServer((request, body) => {
+    const path = request.url.split("?")[0];
+    if (path === "/release/v4/Build/repos-list") {
+      return { data: [{ branch: "dev", itemId: "repo-1", repoName: "web-app" }] };
+    }
+    if (path === "/release/v4/RepoSecret/value") {
+      // SecretExceptionFilter shape: {isSuccess:false, errors:{<key>: message, reason}}.
+      if (valueStatus === 404) {
+        return rawResponse(404, { errors: { not_found: "Secret 'repo-1' was not found.", reason: "NO_SECRET_FOR_REPO" }, isSuccess: false });
+      }
+      return rawResponse(valueStatus, { errors: { access_denied: "Forbidden." }, isSuccess: false });
+    }
+    if (path === "/release/v4/RepoSecret/save") {
+      saves.push(body);
+      return { data: null, isSuccess: true };
+    }
+    return rawResponse(500, { error: `Unexpected ${request.method} ${path}` });
+  });
+
+  try {
+    await writeTwoAccountProjectAuth(configDir, server.url);
+    const env = testEnv(configDir, { BLOCKS_SECRET_STORE: "file" });
+    await writeFile(join(cwd, "sync.env"), "ONLY_KEY=only-value-55\n");
+    const context = ["--account", "alpha", "--project", "target-project", "--api-url", server.url];
+
+    // 403 (or any non-404) while reading the current set: save REPLACES the whole set,
+    // so merging over an unknown set would silently wipe every key not in the file.
+    const denied = await runAsync(["release", "secrets", "sync", "--file", "sync.env", "--yes", "--json", ...context], { cwd, env });
+    assert.equal(denied.status, 1);
+    assert.match(denied.stderr, /secrets_read_failed/);
+    assert.equal(saves.length, 0, "must not save when the current set could not be read");
+    assert.ok(!denied.stderr.includes("only-value-55"), "secret value leaked to stderr");
+
+    // 404 is the one answer that means "no set yet": start from empty and save the file.
+    valueStatus = 404;
+    const created = await runAsync(["release", "secrets", "sync", "--file", "sync.env", "--yes", "--json", ...context], { cwd, env });
+    assert.equal(created.status, 0, created.stderr);
+    const output = JSON.parse(created.stdout);
+    assert.deepEqual(output.added, ["ONLY_KEY"]);
+    assert.equal(output.saved, true);
+    assert.equal(saves.length, 1);
+    assert.deepEqual(saves[0], { repoId: "repo-1", secrets: { ONLY_KEY: "only-value-55" } });
+  } finally {
+    await new Promise((resolveClose) => server.close(resolveClose));
+  }
+});
+
+test("release deploy --with-secrets --json emits one document carrying the sync summary", async () => {
+  const { cwd, configDir } = await makeWorkspace();
+  const saves = [];
+  const server = await startJsonServer((request, body) => {
+    const path = request.url.split("?")[0];
+    if (path === "/os/v4/Project/Gets") {
+      return [{ tenantGroupId: "group-1", projects: [{ environment: "dev", tenantId: "target-project" }] }];
+    }
+    if (path === "/os/v4/Project/GetAsset") {
+      return { assets: { resources: [{ name: "dev", resourceId: "repo-1" }] } };
+    }
+    if (path === "/release/v4/Build/repo-details") {
+      return { data: { repo: { branch: "dev", repoUrl: "https://example.test/repo.git" } } };
+    }
+    if (path === "/release/v4/RepoSecret/value") {
+      return { data: { repoId: "repo-1", secretId: "secret-9", secrets: { EXISTING_KEY: "existing-value-31" } } };
+    }
+    if (path === "/release/v4/RepoSecret/save") {
+      saves.push(body);
+      return { data: null, isSuccess: true };
+    }
+    if (path === "/release/v4/Build/manual") return { buildId: "build-7", isSuccess: true };
+    return rawResponse(500, { error: `Unexpected ${request.method} ${path}` });
+  });
+
+  try {
+    await writeTwoAccountProjectAuth(configDir, server.url);
+    const env = testEnv(configDir, { BLOCKS_SECRET_STORE: "file" });
+    await writeFile(join(cwd, "deploy.env"), "NEW_KEY=new-value-64\n");
+    const result = await runAsync([
+      "release", "deploy", "--with-secrets", "deploy.env", "--yes", "--json",
+      "--account", "alpha", "--project", "target-project", "--api-url", server.url
+    ], { cwd, env });
+    assert.equal(result.status, 0, result.stderr);
+
+    // Exactly one JSON document on stdout -- the sync step must not print its own.
+    const output = JSON.parse(result.stdout);
+    assert.equal(output.buildId, "build-7");
+    assert.deepEqual(output.secretsSync.added, ["NEW_KEY"]);
+    assert.equal(output.secretsSync.saved, true);
+    assert.equal(saves.length, 1);
+    assert.deepEqual(saves[0].secrets, { EXISTING_KEY: "existing-value-31", NEW_KEY: "new-value-64" });
+    for (const leaked of ["existing-value-31", "new-value-64"]) {
+      assert.ok(!result.stdout.includes(leaked) && !result.stderr.includes(leaked), `secret value '${leaked}' leaked to output`);
+    }
+    assert.match(result.stderr, /release:secrets:sync/);
+  } finally {
+    await new Promise((resolveClose) => server.close(resolveClose));
+  }
+});
+
+test("secrets set reads the value from a file, redacts it in dry-run, and posts SetSecretRequest", async () => {
+  const { cwd, configDir } = await makeWorkspace();
+  const posts = [];
+  const server = await startJsonServer((request, body) => {
+    const path = request.url.split("?")[0];
+    if (path === "/os/v4/Secrets/set" && request.method === "POST") {
+      posts.push(body);
+      return { secretId: "sec-1" };
+    }
+    return rawResponse(500, { error: `Unexpected ${request.method} ${path}` });
+  });
+
+  try {
+    await writeTwoAccountProjectAuth(configDir, server.url);
+    const env = testEnv(configDir, { BLOCKS_SECRET_STORE: "file" });
+    const context = ["--account", "alpha", "--project", "target-project", "--api-url", server.url];
+    await writeFile(join(cwd, "key.txt"), "super-secret-value-91\n");
+
+    // No value source at all -> typed error before any request.
+    const missing = await runAsync(["secrets", "set", "stripe", "--json", ...context], { cwd, env });
+    assert.equal(missing.status, 1);
+    assert.match(missing.stderr, /secret_value_required/);
+
+    const plan = await runAsync(["secrets", "set", "stripe", "--value-file", "key.txt", "--roles", "admin,devops", "--body", "{\"type\":\"service\"}", "--dry-run", "--json", ...context], { cwd, env });
+    assert.equal(plan.status, 0, plan.stderr);
+    const planned = JSON.parse(plan.stdout);
+    assert.equal(planned.request.value, "***");
+    assert.equal(planned.request.type, "api", "the type is pinned to api even when a raw body says otherwise");
+    assert.deepEqual(planned.request.access, { roles: ["admin", "devops"], userIds: [] });
+    assert.ok(!plan.stdout.includes("super-secret-value-91"), "secret value leaked to dry-run output");
+    assert.equal(posts.length, 0);
+
+    const apply = await runAsync(["secrets", "set", "stripe", "--value-file", "key.txt", "--yes", "--json", ...context], { cwd, env });
+    assert.equal(apply.status, 0, apply.stderr);
+    assert.equal(JSON.parse(apply.stdout).secretId, "sec-1");
+    assert.equal(posts.length, 1);
+    // The trailing newline of the file is an editor artifact, not part of the value.
+    assert.deepEqual(posts[0], { name: "stripe", type: "api", value: "super-secret-value-91" });
+
+    // There is deliberately no read-value command: the CLI must never print a secret.
+    const value = await runAsync(["secrets", "value", "sec-1", "--json", ...context], { cwd, env });
+    assert.equal(value.status, 1);
+    assert.ok(!value.stdout.includes("super-secret-value-91") && !value.stderr.includes("super-secret-value-91"));
+  } finally {
+    await new Promise((resolveClose) => server.close(resolveClose));
+  }
+});
+
+test("secrets set-many creates one secret per dotenv key with values redacted in the plan", async () => {
+  const { cwd, configDir } = await makeWorkspace();
+  const posts = [];
+  const server = await startJsonServer((request, body) => {
+    const path = request.url.split("?")[0];
+    if (path === "/os/v4/Secrets/set-many" && request.method === "POST") {
+      posts.push(body);
+      return { secretIds: { DB_PASSWORD: "sec-a", API_TOKEN: "sec-b" } };
+    }
+    return rawResponse(500, { error: `Unexpected ${request.method} ${path}` });
+  });
+
+  try {
+    await writeTwoAccountProjectAuth(configDir, server.url);
+    const env = testEnv(configDir, { BLOCKS_SECRET_STORE: "file" });
+    const context = ["--account", "alpha", "--project", "target-project", "--api-url", server.url];
+    await writeFile(join(cwd, "svc.env"), "# db\nDB_PASSWORD=db-pass-23\nexport API_TOKEN='tok-45'\n");
+
+    const plan = await runAsync(["secrets", "set-many", "--env-file", "svc.env", "--dry-run", "--json", ...context], { cwd, env });
+    assert.equal(plan.status, 0, plan.stderr);
+    const planned = JSON.parse(plan.stdout);
+    assert.deepEqual(planned.names, ["DB_PASSWORD", "API_TOKEN"]);
+    assert.ok(planned.request.every((entry) => entry.value === "***"));
+    assert.ok(!plan.stdout.includes("db-pass-23") && !plan.stdout.includes("tok-45"), "secret values leaked to the plan");
+
+    const apply = await runAsync(["secrets", "set-many", "--env-file", "svc.env", "--yes", "--json", ...context], { cwd, env });
+    assert.equal(apply.status, 0, apply.stderr);
+    assert.deepEqual(posts[0], [
+      { name: "DB_PASSWORD", type: "api", value: "db-pass-23" },
+      { name: "API_TOKEN", type: "api", value: "tok-45" }
+    ]);
+    assert.deepEqual(JSON.parse(apply.stdout).secretIds, { DB_PASSWORD: "sec-a", API_TOKEN: "sec-b" });
+  } finally {
+    await new Promise((resolveClose) => server.close(resolveClose));
+  }
+});
+
+test("captcha enable re-saves without a secret and reports which configuration login enforces", async () => {
+  const { cwd, configDir } = await makeWorkspace();
+  const saves = [];
+  const configs = {
+    "cfg-1": { captchaGenerator: "EasyCaptchaGenerator", captchaKey: "key-1", id: "cfg-1", isEnable: true, provider: "recaptcha", secretId: "sec-1" },
+    "cfg-2": { captchaGenerator: "HardCaptchaGenerator", captchaKey: "key-2", id: "cfg-2", isEnable: false, provider: "hcaptcha", secretId: "sec-2" }
+  };
+  const server = await startJsonServer((request, body) => {
+    const path = request.url.split("?")[0];
+    if (path === "/os/v4/captcha/get/cfg-2") return configs["cfg-2"];
+    if (path === "/os/v4/captcha/get/missing") return rawResponse(404);
+    if (path === "/os/v4/captcha/list") return Object.values(configs);
+    if (path === "/os/v4/captcha/save" && request.method === "POST") {
+      saves.push(body);
+      configs[body.id] = { ...configs[body.id], ...body };
+      return configs[body.id];
+    }
+    return rawResponse(500, { error: `Unexpected ${request.method} ${path}` });
+  });
+
+  try {
+    await writeTwoAccountProjectAuth(configDir, server.url);
+    const env = testEnv(configDir, { BLOCKS_SECRET_STORE: "file" });
+    const context = ["--account", "alpha", "--project", "target-project", "--api-url", server.url];
+
+    const unknown = await runAsync(["captcha", "enable", "missing", "--yes", "--json", ...context], { cwd, env });
+    assert.equal(unknown.status, 1);
+    assert.match(unknown.stderr, /captcha_not_found/);
+
+    const plan = await runAsync(["captcha", "enable", "cfg-2", "--dry-run", "--json", ...context], { cwd, env });
+    assert.equal(plan.status, 0, plan.stderr);
+    const planned = JSON.parse(plan.stdout);
+    assert.equal(planned.activeForLoginAfter, "cfg-1", "cfg-1 is enabled and sorts first, so IAM keeps enforcing it");
+    assert.equal(saves.length, 0, "dry-run must not save");
+
+    const apply = await runAsync(["captcha", "enable", "cfg-2", "--yes", "--json", ...context], { cwd, env });
+    assert.equal(apply.status, 0, apply.stderr);
+    assert.equal(saves.length, 1);
+    // Exactly the record with isEnable flipped: no captchaSecret, so the stored secret is untouched.
+    assert.deepEqual(saves[0], { captchaGenerator: "HardCaptchaGenerator", captchaKey: "key-2", id: "cfg-2", isEnable: true, provider: "hcaptcha" });
+    const output = JSON.parse(apply.stdout);
+    assert.equal(output.changed, true);
+    assert.equal(output.activeForLogin, "cfg-1");
+    assert.match(output.note, /cfg-1/);
+    assert.match(apply.stderr, /cfg-1/);
+
+    const again = await runAsync(["captcha", "enable", "cfg-2", "--yes", "--json", ...context], { cwd, env });
+    assert.equal(again.status, 0, again.stderr);
+    assert.equal(JSON.parse(again.stdout).upToDate, true);
+    assert.equal(saves.length, 1, "an already-enabled record sends nothing");
+
+    const list = await runAsync(["captcha", "list", "--json", ...context], { cwd, env });
+    assert.equal(list.status, 0, list.stderr);
+    const listed = JSON.parse(list.stdout);
+    assert.equal(listed.activeForLogin, "cfg-1");
+    assert.equal(listed.totalCount, 2);
+  } finally {
+    await new Promise((resolveClose) => server.close(resolveClose));
+  }
+});
+
+test("localization list page numbers are sent zero-based so page 1 is not skipped", async () => {
+  const { cwd, configDir } = await makeWorkspace();
+  await writeProjectAuth(configDir);
+  const requests = [];
+  const server = await startJsonServer((request, body) => {
+    requests.push({ body, url: request.url });
+    if (request.url.split("?")[0] === "/localization/v4/Key/Gets") return { keys: [], totalCount: 27 };
+    return { totalCount: 0 };
+  });
+
+  try {
+    const env = testEnv(configDir, { BLOCKS_SECRET_STORE: "file" });
+    // Key/Gets skips PageNumber * PageSize: sending the CLI's 1-based default made
+    // `--page-size 100` skip past all 27 keys and report totalCount 27 with no rows.
+    const first = await runAsync(["localization", "key", "list", "--page-size", "100", "--api-url", server.url, "--json"], { cwd, env });
+    assert.equal(first.status, 0, first.stderr);
+    assert.equal(requests[0].body.pageNumber, 0);
+    assert.equal(requests[0].body.pageSize, 100);
+
+    const second = await runAsync(["localization", "key", "list", "--page-number", "2", "--api-url", server.url, "--json"], { cwd, env });
+    assert.equal(second.status, 0, second.stderr);
+    assert.equal(requests[1].body.pageNumber, 1);
+
+    const glossary = await runAsync(["localization", "glossary", "list", "--api-url", server.url, "--json"], { cwd, env });
+    assert.equal(glossary.status, 0, glossary.stderr);
+    assert.match(requests[2].url, /PageNumber=0/);
+
+    const invalid = await runAsync(["localization", "key", "list", "--page-number", "0", "--api-url", server.url, "--json"], { cwd, env });
+    assert.equal(invalid.status, 1);
+    assert.match(invalid.stderr, /--page-number must be greater than or equal to 1/);
+  } finally {
+    await new Promise((resolveClose) => server.close(resolveClose));
+  }
+});
+
+test("captcha save requires an explicit enable choice on create and redacts the secret", async () => {
+  const { cwd, configDir } = await makeWorkspace();
+  const saves = [];
+  const server = await startJsonServer((request, body) => {
+    const path = request.url.split("?")[0];
+    if (path === "/os/v4/captcha/save" && request.method === "POST") {
+      saves.push(body);
+      return { ...body, captchaSecret: undefined, id: "cfg-9", secretId: "sec-9" };
+    }
+    return rawResponse(500, { error: `Unexpected ${request.method} ${path}` });
+  });
+
+  try {
+    await writeTwoAccountProjectAuth(configDir, server.url);
+    const env = testEnv(configDir, { BLOCKS_SECRET_STORE: "file" });
+    const context = ["--account", "alpha", "--project", "target-project", "--api-url", server.url];
+
+    const noEnable = await runAsync(["captcha", "save", "--provider", "recaptcha", "--captcha-key", "site-1", "--dry-run", "--json", ...context], { cwd, env });
+    assert.equal(noEnable.status, 1);
+    assert.match(noEnable.stderr, /captcha_enable_required/);
+
+    const badProvider = await runAsync(["captcha", "save", "--provider", "turnstile", "--enable", "--dry-run", "--json", ...context], { cwd, env });
+    assert.equal(badProvider.status, 1);
+    assert.match(badProvider.stderr, /invalid_captcha_provider/);
+
+    const plan = await runAsync(["captcha", "save", "--provider", "recaptcha", "--captcha-key", "site-1", "--captcha-secret", "captcha-secret-77", "--enable", "--dry-run", "--json", ...context], { cwd, env });
+    assert.equal(plan.status, 0, plan.stderr);
+    const planned = JSON.parse(plan.stdout);
+    assert.equal(planned.request.captchaSecret, "***");
+    assert.equal(planned.request.isEnable, true);
+    assert.equal(planned.secretHandling, "create a new secret");
+    assert.ok(!plan.stdout.includes("captcha-secret-77"), "captcha secret leaked to dry-run output");
+
+    const apply = await runAsync(["captcha", "save", "--provider", "recaptcha", "--captcha-key", "site-1", "--captcha-secret", "captcha-secret-77", "--enable", "--yes", "--json", ...context], { cwd, env });
+    assert.equal(apply.status, 0, apply.stderr);
+    assert.deepEqual(saves[0], { captchaKey: "site-1", captchaSecret: "captcha-secret-77", isEnable: true, provider: "recaptcha" });
+    const saved = JSON.parse(apply.stdout);
+    assert.equal(saved.id, "cfg-9");
+    assert.equal(saved.secretId, "sec-9");
+    assert.ok(!apply.stdout.includes("captcha-secret-77"), "captcha secret echoed back in the result");
+  } finally {
+    await new Promise((resolveClose) => server.close(resolveClose));
+  }
+});

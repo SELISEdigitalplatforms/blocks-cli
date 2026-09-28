@@ -31,11 +31,7 @@ import { dataValidationDelete } from "./commands/data/validation/delete.js";
 import { dataValidationGet } from "./commands/data/validation/get.js";
 import { dataValidationList } from "./commands/data/validation/list.js";
 import { dataValidationSave } from "./commands/data/validation/save.js";
-import { dataFilesCreateFolder } from "./commands/data/files/create-folder.js";
 import { dataFilesDelete } from "./commands/data/files/delete.js";
-import { dataFilesDeleteFolder } from "./commands/data/files/delete-folder.js";
-import { dataFilesDmsList } from "./commands/data/files/dms-list.js";
-import { dataFilesDmsUpload } from "./commands/data/files/dms-upload.js";
 import { dataFilesGet } from "./commands/data/files/get.js";
 import { dataFilesGetMany } from "./commands/data/files/get-many.js";
 import { dataFilesInfo } from "./commands/data/files/info.js";
@@ -43,7 +39,33 @@ import { dataFilesPresignedUploadUrl } from "./commands/data/files/presigned-upl
 import { dataFilesUpdateAdditionalInfo } from "./commands/data/files/update-additional-info.js";
 import { dataFilesUpload } from "./commands/data/files/upload.js";
 import { dataFilesUploadToLocalStorage } from "./commands/data/files/upload-to-local-storage.js";
+import { dataFilesCompleteUpload } from "./commands/data/files/complete-upload.js";
 import { dataFilesUploadToUrl } from "./commands/data/files/upload-to-url.js";
+import {
+  dataFilesAccessGrant,
+  dataFilesAccessList,
+  dataFilesAccessResolve,
+  dataFilesAccessRevoke,
+  dataFilesAccessUpdate,
+  dataFilesCopy,
+  dataFilesCreateVersion,
+  dataFilesDirectoryCreate,
+  dataFilesDirectoryDelete,
+  dataFilesDirectoryGet,
+  dataFilesDirectoryMove,
+  dataFilesDirectoryUpdate,
+  dataFilesInheritance,
+  dataFilesList,
+  dataFilesMove,
+  dataFilesPurge,
+  dataFilesRename,
+  dataFilesRestore,
+  dataFilesSearch,
+  dataFilesShare,
+  dataFilesShared,
+  dataFilesTrash,
+  dataFilesVersions
+} from "./commands/data/files/object-tree.js";
 import { iamMe } from "./commands/iam/me.js";
 import { init } from "./commands/init.js";
 import { localizationAssistantTranslationSuggestion } from "./commands/localization/assistant/translation-suggestion.js";
@@ -89,17 +111,37 @@ import { localizationValidate } from "./commands/localization/validate.js";
 import { login } from "./commands/login.js";
 import { logout } from "./commands/logout.js";
 import { newWeb } from "./commands/new/web.js";
-// import { createProject } from "./commands/projects/create.js"; // disabled for now
+import { createProject } from "./commands/projects/create.js";
 import { getProject } from "./commands/projects/get.js";
 import { listProjects } from "./commands/projects/list.js";
-import { releaseBuildsGet } from "./commands/release/builds/get.js";
 import { releaseBuildsList } from "./commands/release/builds/list.js";
 import { releaseDeploy } from "./commands/release/deploy.js";
+import { releaseDomainSet } from "./commands/release/domain/set.js";
+import { releaseGitBranches } from "./commands/release/git/branches.js";
+import { releaseGitRepos } from "./commands/release/git/repos.js";
+import { gitClone } from "./commands/git/clone.js";
+import { gitConnect } from "./commands/git/connect.js";
+import { gitDisconnect } from "./commands/git/disconnect.js";
+import { gitInit } from "./commands/git/init.js";
+import { gitPull } from "./commands/git/pull.js";
+import { gitPush } from "./commands/git/push.js";
+import { gitStatus } from "./commands/git/status.js";
+import { releaseLogs } from "./commands/release/logs.js";
+import { releaseMonitorList } from "./commands/release/monitor/list.js";
+import { releaseRepoGet } from "./commands/release/repo/get.js";
+import { releaseReposList } from "./commands/release/repos/list.js";
+import { releaseReportsGet } from "./commands/release/reports/get.js";
+import { releaseSecretsAudit } from "./commands/release/secrets/audit.js";
+import { releaseSecretsDelete } from "./commands/release/secrets/delete.js";
+import { releaseSecretsList } from "./commands/release/secrets/list.js";
+import { releaseSecretsLock } from "./commands/release/secrets/lock.js";
+import { releaseSecretsRestore } from "./commands/release/secrets/restore.js";
+import { releaseSecretsSync } from "./commands/release/secrets/sync.js";
+import { releaseSecretsUnlock } from "./commands/release/secrets/unlock.js";
+import { releaseSettingsList } from "./commands/release/settings/list.js";
+import { releaseSetup } from "./commands/release/setup.js";
 import { releaseStatus } from "./commands/release/status.js";
-import { sdkClient } from "./commands/sdk/client.js";
-import { skillAdd } from "./commands/skill/add.js";
-import { skillList } from "./commands/skill/list.js";
-import { skillShow } from "./commands/skill/show.js";
+import { releaseTeardown } from "./commands/release/teardown.js";
 import { useProject } from "./commands/use.js";
 import { authClientCredentialsDelete } from "./commands/auth/client-credentials/delete.js";
 import { authClientCredentialsList } from "./commands/auth/client-credentials/list.js";
@@ -185,13 +227,36 @@ import { notifierMarkAllRead } from "./commands/notifier/mark-all-read.js";
 import { notifierMarkRead } from "./commands/notifier/mark-read.js";
 import { notifierNotify } from "./commands/notifier/notify.js";
 import { notifierUnread } from "./commands/notifier/unread.js";
-import { secretsGet } from "./commands/secrets/get.js";
-import { secretsSave } from "./commands/secrets/save.js";
 import { storageConfigDelete } from "./commands/storage/config/delete.js";
 import { storageConfigGet } from "./commands/storage/config/get.js";
 import { storageConfigList } from "./commands/storage/config/list.js";
 import { storageConfigSave } from "./commands/storage/config/save.js";
+import { captchaDelete } from "./commands/captcha/delete.js";
+import { captchaDisable, captchaEnable } from "./commands/captcha/enable.js";
+import { captchaGet } from "./commands/captcha/get.js";
+import { captchaList } from "./commands/captcha/list.js";
+import { captchaSave } from "./commands/captcha/save.js";
+import { secretsAccess } from "./commands/secrets/access.js";
+import { secretsAudit } from "./commands/secrets/audit.js";
+import { secretsGet } from "./commands/secrets/get.js";
+import { secretsDelete, secretsLock, secretsRestore, secretsUnlock } from "./commands/secrets/lifecycle.js";
+import { secretsList } from "./commands/secrets/list.js";
+import { secretsRotate } from "./commands/secrets/rotate.js";
+import { secretsSetMany } from "./commands/secrets/set-many.js";
+import { secretsSet } from "./commands/secrets/set.js";
+import { secretsUpdate } from "./commands/secrets/update.js";
+import type { CommandEntry } from "./lib/command-catalog.js";
 import { CliActionableError } from "./lib/errors.js";
+import { maybePrintUpdateNotice } from "./lib/update-check.js";
+import {
+  findCommand,
+  renderCommand,
+  renderFamily,
+  renderIndex,
+  resolveHelpTarget,
+  unknownFlagMessage,
+  unknownFlags
+} from "./lib/help.js";
 
 type CommandHandler = (args: string[]) => Promise<void>;
 
@@ -203,9 +268,10 @@ const commands: Partial<Record<string, CommandHandler>> = {
   "auth:status": authStatus,
   "auth:refresh": authRefresh,
   "doctor": doctor,
-  "init": () => init(),
+  "init": init,
   "login": login,
   "logout": logout,
+  "projects:create": createProject,
   "projects:list": listProjects,
   "use": useProject,
   "deselect": deselectProject,
@@ -244,12 +310,32 @@ const commands: Partial<Record<string, CommandHandler>> = {
   "data:files:presigned-upload-url": dataFilesPresignedUploadUrl,
   "data:files:upload-to-url": dataFilesUploadToUrl,
   "data:files:upload-to-local-storage": dataFilesUploadToLocalStorage,
+  "data:files:complete-upload": dataFilesCompleteUpload,
   "data:files:update-additional-info": dataFilesUpdateAdditionalInfo,
   "data:files:delete": dataFilesDelete,
-  "data:files:dms-list": dataFilesDmsList,
-  "data:files:dms-upload": dataFilesDmsUpload,
-  "data:files:create-folder": dataFilesCreateFolder,
-  "data:files:delete-folder": dataFilesDeleteFolder,
+  "data:files:list": dataFilesList,
+  "data:files:search": dataFilesSearch,
+  "data:files:trash": dataFilesTrash,
+  "data:files:shared": dataFilesShared,
+  "data:files:restore": dataFilesRestore,
+  "data:files:purge": dataFilesPurge,
+  "data:files:directory-create": dataFilesDirectoryCreate,
+  "data:files:directory-get": dataFilesDirectoryGet,
+  "data:files:directory-update": dataFilesDirectoryUpdate,
+  "data:files:directory-delete": dataFilesDirectoryDelete,
+  "data:files:directory-move": dataFilesDirectoryMove,
+  "data:files:versions": dataFilesVersions,
+  "data:files:create-version": dataFilesCreateVersion,
+  "data:files:copy": dataFilesCopy,
+  "data:files:move": dataFilesMove,
+  "data:files:rename": dataFilesRename,
+  "data:files:access-list": dataFilesAccessList,
+  "data:files:access-grant": dataFilesAccessGrant,
+  "data:files:access-update": dataFilesAccessUpdate,
+  "data:files:access-revoke": dataFilesAccessRevoke,
+  "data:files:access-resolve": dataFilesAccessResolve,
+  "data:files:inheritance": dataFilesInheritance,
+  "data:files:share": dataFilesShare,
   "localization:validate": localizationValidate,
   "localization:push": localizationPush,
   "localization:pull": localizationPull,
@@ -291,9 +377,26 @@ const commands: Partial<Record<string, CommandHandler>> = {
   "localization:module:list-for-tenant": localizationModuleListForTenant,
   "localization:module:tag-glossary": localizationModuleTagGlossary,
   "release:deploy": releaseDeploy,
+  "release:setup": releaseSetup,
   "release:status": releaseStatus,
   "release:builds:list": releaseBuildsList,
-  "release:builds:get": releaseBuildsGet,
+  "release:logs": releaseLogs,
+  "release:repos:list": releaseReposList,
+  "release:repo:get": releaseRepoGet,
+  "release:settings:list": releaseSettingsList,
+  "release:domain:set": releaseDomainSet,
+  "release:git:repos": releaseGitRepos,
+  "release:git:branches": releaseGitBranches,
+  "release:secrets:sync": releaseSecretsSync,
+  "release:secrets:list": releaseSecretsList,
+  "release:secrets:lock": releaseSecretsLock,
+  "release:secrets:unlock": releaseSecretsUnlock,
+  "release:secrets:delete": releaseSecretsDelete,
+  "release:secrets:restore": releaseSecretsRestore,
+  "release:secrets:audit": releaseSecretsAudit,
+  "release:reports:get": releaseReportsGet,
+  "release:monitor:list": releaseMonitorList,
+  "release:teardown": releaseTeardown,
   "iam:users:list": iamUsersList,
   "iam:users:get": iamUsersGet,
   "iam:users:create": iamUsersCreate,
@@ -362,12 +465,28 @@ const commands: Partial<Record<string, CommandHandler>> = {
   "notifier:unread": notifierUnread,
   "notifier:mark-read": notifierMarkRead,
   "notifier:mark-all-read": notifierMarkAllRead,
-  "secrets:get": secretsGet,
-  "secrets:save": secretsSave,
   "storage:config:list": storageConfigList,
   "storage:config:get": storageConfigGet,
   "storage:config:save": storageConfigSave,
   "storage:config:delete": storageConfigDelete,
+  "captcha:list": captchaList,
+  "captcha:get": captchaGet,
+  "captcha:save": captchaSave,
+  "captcha:enable": captchaEnable,
+  "captcha:disable": captchaDisable,
+  "captcha:delete": captchaDelete,
+  "secrets:list": secretsList,
+  "secrets:get": secretsGet,
+  "secrets:set": secretsSet,
+  "secrets:set-many": secretsSetMany,
+  "secrets:update": secretsUpdate,
+  "secrets:rotate": secretsRotate,
+  "secrets:lock": secretsLock,
+  "secrets:unlock": secretsUnlock,
+  "secrets:delete": secretsDelete,
+  "secrets:restore": secretsRestore,
+  "secrets:access": secretsAccess,
+  "secrets:audit": secretsAudit,
   "auth:idp:list": authIdpList,
   "auth:idp:get": authIdpGet,
   "auth:idp:create": authIdpCreate,
@@ -387,16 +506,19 @@ const commands: Partial<Record<string, CommandHandler>> = {
   "auth:remove": authRemove,
   "iam:me": iamMe,
   "projects:get": getProject,
+  "git:status": gitStatus,
+  "git:init": gitInit,
+  "git:clone": gitClone,
+  "git:connect": gitConnect,
+  "git:pull": gitPull,
+  "git:push": gitPush,
+  "git:disconnect": gitDisconnect,
   "new:web": newWeb,
-  "skill:list": skillList,
-  "skill:show": skillShow,
-  "skill:add": skillAdd,
-  "sdk:client": sdkClient,
 };
 
 const MAX_COMMAND_WORDS = 4;
 
-function resolveCommand(argv: string[]): { handler: CommandHandler; args: string[] } | null {
+function resolveCommand(argv: string[]): { args: string[]; handler: CommandHandler; name: string } | null {
   const words: string[] = [];
   let tokensConsumed = 0;
 
@@ -407,7 +529,7 @@ function resolveCommand(argv: string[]): { handler: CommandHandler; args: string
     tokensConsumed++;
 
     const handler = commands[words.join(":")];
-    if (handler) return { handler, args: argv.slice(tokensConsumed) };
+    if (handler) return { args: argv.slice(tokensConsumed), handler, name: words.join(" ") };
     if (words.length >= MAX_COMMAND_WORDS) break;
   }
 
@@ -417,17 +539,50 @@ function resolveCommand(argv: string[]): { handler: CommandHandler; args: string
 const argv = process.argv.slice(2);
 const [command, subcommand] = argv;
 
+const asJson = argv.includes("--json");
+const isHelpRequest = !command || command === "help" || command === "--help" || command === "-h";
+// 'blocks help <command>' is a registered path rather than '<command> --help':
+// most handlers treat --help as an ordinary argument and would run for real
+// (e.g. 'login --help' would perform an actual login), so the safe spelling is
+// a dedicated help command that never reaches a handler.
+const helpWords = command === "help" ? argv.slice(1).filter((token) => !token.startsWith("-")) : [];
+
 try {
   if (command === "--version" || command === "-v" || command === "version") {
     await printVersion();
-  } else if (!command || command === "help" || command === "--help" || command === "-h") {
+  } else if (isHelpRequest && helpWords.length > 0) {
+    const target = resolveHelpTarget(helpWords.flatMap((word) => word.split(":").filter(Boolean)));
+    if (!target) {
+      throw new CliActionableError(
+        `No command or family matches '${helpWords.join(" ")}'.`,
+        "unknown_help_target",
+        "blocks --help --json"
+      );
+    }
+    console.log(target.exact
+      ? renderCommand(target.exact, asJson)
+      : renderFamily(target.name, target.entries, asJson));
+  } else if (isHelpRequest && asJson) {
+    console.log(renderIndex());
+  } else if (isHelpRequest) {
     printHelp();
   } else {
     const resolved = resolveCommand(argv);
     if (!resolved) {
       throw new Error(`Unknown command: ${[command, subcommand].filter(Boolean).join(" ")}`);
     }
-    await resolved.handler(resolved.args);
+
+    const entry = findCommand(resolved.name);
+    if (entry && (resolved.args.includes("--help") || resolved.args.includes("-h"))) {
+      // '<command> --help' used to fall through to the handler, which treats
+      // --help as an ordinary argument and runs for real -- 'login --help'
+      // performed an actual login. Route it to the same renderer
+      // 'blocks help <command>' uses instead of ever reaching a handler.
+      console.log(renderCommand(entry, asJson));
+    } else {
+      if (entry) reportUnknownFlags(entry, resolved.args);
+      await resolved.handler(resolved.args);
+    }
   }
 } catch (error) {
   const cliError = toCliError(error);
@@ -438,6 +593,32 @@ try {
     if (cliError.nextStep) console.error(`Next: ${cliError.nextStep}`);
   }
   process.exitCode = 1;
+}
+
+// After the command, success or failure alike: a failed command is the moment
+// an outdated install matters most (unknown command/flag), and stderr keeps it
+// out of any --json stdout being parsed.
+await maybePrintUpdateNotice();
+
+/**
+ * Says something when a command was handed a flag it will never read.
+ *
+ * Warns rather than failing by default: the flag list is derived from source,
+ * and a false positive that refused a working command would be worse than the
+ * silence this replaces. Set BLOCKS_STRICT_FLAGS=1 (CI, scripted agent runs)
+ * to turn the warning into a hard failure before anything is sent.
+ */
+function reportUnknownFlags(entry: CommandEntry, args: string[]): void {
+  const unknown = unknownFlags(entry, args);
+  if (unknown.length === 0) return;
+
+  const message = unknownFlagMessage(entry, unknown);
+  if (process.env.BLOCKS_STRICT_FLAGS) {
+    throw new CliActionableError(message, "unknown_flag", `blocks help ${entry.name}`);
+  }
+
+  // stderr, so it stays out of a --json document being piped into a parser.
+  console.error(`Warning: ${message}`);
 }
 
 async function printVersion(): Promise<void> {
@@ -493,10 +674,16 @@ Global options:
   --version                 Print CLI version.
   --json                    Print machine-readable JSON where supported.
   --api-url <url>           Override Blocks API URL for this command.
-  --account <name>          Use a named account profile; default is implicit.
-  --project <tenantId>      Use a project tenant for project-scoped commands.
+  --account <name>          Use exactly this account from the resolved config store.
+  --project <tenantId>      Override the project for this command only.
   --dry-run                 Show planned mutation without calling the API.
   --yes                     Skip mutation confirmation after explicit approval.
+
+Update notice:
+  After a command finishes, the CLI checks the npm registry for a newer
+  @seliseblocks/cli-os at most once every 24 hours (cached in the config
+  directory) and prints a notice to stderr when one exists. It never updates
+  anything itself. Set BLOCKS_NO_UPDATE_CHECK=1 to disable the check.
 
 Setup and health:
   blocks init
@@ -504,15 +691,19 @@ Setup and health:
     and .env.example.
 
   blocks doctor [--json]
-    Check local Node.js, OIDC config, token cache, selected project, and config
-    file locations. Does not mutate cloud resources.
+    Inspect cached CLI version, Node.js, OIDC config, token, optional project,
+    and storage health. Account-only mode is valid. Performs no token refresh,
+    network request, or state write; the "CLI up to date" check reads the
+    cached daily registry lookup (see 'Update notice' above) and never fails
+    the run.
 
 Auth:
-  blocks login
+  blocks login [--account <name>]
     Device-code login. Prints a verification URL and user code, opens the
     browser to the verification page when possible so you only need to click
-    approve, then polls until the device is authorized; stores account access
-    and refresh tokens and auto-refreshes later. If a project was previously
+    approve, then polls until the device is authorized; bootstraps a missing
+    named profile without importing credentials, stores account access and
+    refresh tokens, and makes that account active. If a project was previously
     selected, re-impersonates it automatically; otherwise lists projects and
     prompts you to run 'blocks use <tenantId>'.
 
@@ -531,6 +722,20 @@ Auth:
     Revoke the current refresh token when possible and remove local session data.
 
 Projects:
+  blocks projects create <name> [--allow-duplicate-name] [--yes] [--dry-run] [--json]
+    Create a new Blocks project via /os/v4/Project/Create using the account
+    token (no project needs to be selected yet). Creates exactly one
+    application, always in the 'dev' environment -- environment, domain,
+    cookie domain, and production flag are fixed and not configurable here;
+    the domain sent is a placeholder the platform discards and replaces with
+    the one it assigns. Confirms first because it accepts the Blocks terms on
+    your behalf. Refuses a name already used by another project unless
+    --allow-duplicate-name is passed. Verifies the result against
+    Project/Gets and prints the new tenantId, tenantGroupId, and assigned
+    domain. Does not select the project -- run 'blocks use <tenantId>' next.
+    If the account is in project mode, temporarily stops that session for the
+    account-level create call and restores it afterward.
+
   blocks projects list [--json]
     List accessible Blocks projects via /os/v4/Project/Gets. Uses the
     impersonated project session when a project is selected, otherwise the
@@ -543,14 +748,14 @@ Projects:
     to resolve its target. Read-only.
 
   blocks use <project-tenant-id>
-    Save the selected project tenant globally and in blocks.json when present,
+    Save the selected project tenant for the resolved account and in blocks.json,
     then immediately impersonate it. If a different project was selected,
     stops that impersonation first to reclaim a fresh account refresh token
     before starting the new one.
 
   blocks deselect
     Stop the active impersonation (restoring a fresh account refresh token),
-    then clear the selected project tenant (globally and in blocks.json) and
+    then clear that account's selected project tenant and blocks.json entry and
     drop its cached impersonation token. Run 'blocks use <tenantId>' again to
     reselect and re-impersonate.
 
@@ -612,6 +817,9 @@ IAM:
     blocks iam permissions update <id> [same flags as create, plus --is-archived]
                               [--dry-run] [--yes] [--json]
     blocks iam permissions by-severity [--json]
+      --type is IAM's ResourceType: 0 None, 1 Endpoint, 2 FrontendAction, 3 DataProtection.
+      --severity is PermissionSeverity, ordered most-severe-first, not least: 0 None,
+      1 Critical, 2 High, 3 Medium, 4 Low.
 
   Resources (/iam/v4/iam/resource*):
     blocks iam resources groups [--json]
@@ -633,8 +841,8 @@ IAM:
     blocks iam organizations config save [--allow-org-creation-from-cloud]
                               [--allow-org-creation-from-construct] [--allow-org-creation-from-signup]
                               [--allow-org-creation-from-portal] [--multi-org-enabled]
-                              [--consent-for-multi-org-enable] [--body '<json>'|--file <path>]
-                              [--dry-run] [--yes] [--json]
+                              [--consent-for-multi-org-enable] [--org-name-uniqueness]
+                              [--body '<json>'|--file <path>] [--dry-run] [--yes] [--json]
 
   Signup settings (/iam/v4/iam/signup-settings):
     blocks iam signup-settings get [--json]
@@ -643,11 +851,15 @@ IAM:
                               [--body '<json>'|--file <path>] [--dry-run] [--yes] [--json]
 
 MFA (/iam/v4/mfa*, project-scoped: requires a selected project, impersonated project token only):
+  Every mfa-type/auth-type/user-mfa-type value is IAM's UserMfaType enum: 0 None, 1 TOTP,
+  2 Email, 3 Sms, 4 WhatsApp. Only 1 and 2 have a working provider; 3 and 4 are declared
+  but unimplemented. Leaving --user-mfa-type empty means no method is allowed, so MFA is
+  never actually required no matter what else the policy says.
   blocks mfa config get [--json]
     Read the tenant's MFA policy.
   blocks mfa config save [--enable] [--require-for-all-users] [--allow-user-opt-out]
                               [--allow-backup-codes] [--backup-codes-count <n>]
-                              [--user-mfa-type 0,1] [--required-roles a,b] [--exempt-roles a,b]
+                              [--user-mfa-type 1,2] [--required-roles a,b] [--exempt-roles a,b]
                               [--body '<json>'|--file <path>] [--dry-run] [--yes] [--json]
     Save the tenant's MFA policy.
   blocks mfa totp setup [--json]
@@ -658,17 +870,20 @@ MFA (/iam/v4/mfa*, project-scoped: requires a selected project, impersonated pro
     Composed enrollment: totp setup -> (scan the printed QR/secret, enter the code --
     interactively prompted if --code is omitted) -> totp verify-setup -> method set
     --mfa-type <n> -> backup-codes generate. One sitting, one confirmation.
-    --mfa-type is required and not defaulted: the numeric value meaning "TOTP" is
-    tenant-defined and undocumented here (same value plain mfa method set expects) --
-    look it up rather than guessing.
+    Non-interactive callers must pass --code or receive interactive_input_required.
+    --mfa-type is required and not defaulted: pass IAM UserMfaType 1 for TOTP
+    (the same value plain mfa method set expects).
   blocks mfa generate --mfa-type <n> [--send-phone-number-as-email-domain <domain>] [--json]
     Send an OTP challenge; returns an mfaId to pass to resend/verify.
   blocks mfa resend <mfaId> [--send-phone-number-as-email-domain <domain>] [--json]
   blocks mfa verify <mfaId> <code> --auth-type <n> [--from-token-call] [--json]
-  blocks mfa method set --mfa-type <n> [--json]
-    Switch the impersonated user's active MFA method.
+  blocks mfa method set --mfa-type <n> [--dry-run] [--yes] [--json]
+    Switch the impersonated user's active MFA method. IAM only branches on 1 (TOTP) and
+    2 (Email) here -- any other value falls through to its disable path and turns the
+    user's MFA off. Use 'blocks mfa disable' when that is what you mean.
   blocks mfa disable [--dry-run] [--yes] [--json]
   blocks mfa backup-codes list [--json]
+    Returns { remaining: <count> } only -- the codes themselves are shown once, at generate.
   blocks mfa backup-codes generate [--dry-run] [--yes] [--json]
   blocks mfa backup-codes use <userId> <code> [--json]
 
@@ -678,11 +893,16 @@ Mail (/os/v4/Mail/* — project-scoped: requires a selected project, impersonate
   blocks mail config get <name> [--json]
   blocks mail config save [--configuration-id <id>] [--name <n>] [--host <h>] [--port <n>]
                               [--enable-ssl] [--sender-name] [--sender-address] [--sender-username]
-                              [--account-password] [--inbound] [--provider <0|1>]
+                              [--account-password] [--inbound]
+                              [--provider amazon-ses|zoho|office365-smtp] [--security-mode]
+                              [--entra-tenant-id] [--client-id] [--client-secret] [--mailbox-address]
                               [--body '<json>'|--file <path>] [--dry-run] [--yes] [--json]
     Upsert: omit --configuration-id to create; pass it to update.
+    office365-smtp (outbound only) takes --entra-tenant-id, --client-id, --client-secret and
+    --mailbox-address instead of a username/password; host, port and TLS are fixed by the server.
   blocks mail config delete <configurationId> [--dry-run] [--yes] [--json]
-  blocks mail config duplicate <configurationId> [--dry-run] [--yes] [--json]
+  blocks mail config duplicate <configurationId> [--client-secret] [--dry-run] [--yes] [--json]
+    An office365-smtp copy needs its own --client-secret; it never shares the source's.
   blocks mail template list [--page-number] [--page-size] [--search] [--sort-by] [--sort-desc]
                               [--configuration-id] [--language] [--json]
   blocks mail template get <itemId> [--json]
@@ -739,24 +959,65 @@ Notifier (/logic/v4/Notifier/* — real-time/offline notification sends and inbo
   blocks notifier mark-read <id> [--dry-run] [--yes] [--json]
   blocks notifier mark-all-read [--dry-run] [--yes] [--json]
 
-Secrets (/os/v4/Secrets/* — project-scoped: requires a selected project, impersonated project
-          token only; generic tenant secret storage, e.g. captcha provider config):
-  blocks secrets get <secretKey> [--page-number 0] [--page-size 10] [--json]
-  blocks secrets save --secret-key <key> [--item-id <id>] --key-value-pairs '<json>'
-                              [--body '<json>'|--file <path>] [--dry-run] [--yes] [--json]
-    Upsert: omit --item-id to create, pass it to update. --key-value-pairs is a flat
-    JSON object of provider-specific fields, e.g.
-    --key-value-pairs '{"isEnable":"true","provider":"recaptcha","captchaKey":"...","captchaSecret":"..."}'.
-
 Storage (/os/v4/Storage/* — project-scoped: requires a selected project, impersonated project token only):
   blocks storage config list [--json]
   blocks storage config get <name> [--json]
   blocks storage config save [--item-id <id>] [--name <n>] [--strategy] [--connection-string]
                               [--secret-key] [--access-key] [--region-endpoint] [--host] [--port]
                               [--username] [--password] [--remote-base-path] [--update]
+                              [--upload-url-expiry-seconds] [--download-url-expiry-seconds]
+                              [--max-file-size-bytes] [--upload-completion-required-for Public,Private]
                               [--body '<json>'|--file <path>] [--dry-run] [--yes] [--json]
-    Upsert: omit --item-id to create; pass --update to update.
+    Upsert: omit --item-id to create; pass --update to update. Once a configuration exists only
+    the upload settings can change; the provider and its credentials are fixed.
   blocks storage config delete <name> [--dry-run] [--yes] [--json]
+
+Captcha (/os/v4/captcha/* — project-scoped: requires a selected project, impersonated project token only):
+  blocks captcha list [--json]
+    Every login-captcha configuration plus activeForLogin: the one blocks-iam enforces
+    (the first ENABLED record in id order, or null). Read-only.
+  blocks captcha get <id> [--json]
+    Returns a secretId reference, never the secret value; no command reveals it.
+  blocks captcha save [<id>] --provider recaptcha|hcaptcha|bcaptcha [--captcha-key <siteKey>]
+                              [--captcha-secret <secret>] [--generator EasyCaptchaGenerator|HardCaptchaGenerator]
+                              --enable|--enable=false [--body '<json>'|--file <path>] [--dry-run] [--yes] [--json]
+    Omit <id> to create (then --enable or --enable=false is required); pass it to update.
+    --captcha-secret stores the secret on create and REPLACES it on update; omitted
+    leaves the stored secret untouched. Redacted in --dry-run output, never echoed back.
+  blocks captcha enable <id> [--dry-run] [--yes] [--json]
+  blocks captcha disable <id> [--dry-run] [--yes] [--json]
+    Flip isEnable only (re-saves the record without a secret). The output states which
+    configuration is live afterwards: several may be enabled, only the first in id order counts.
+  blocks captcha delete <id> [--dry-run] [--yes] [--json]
+    Also retires the stored captcha secret. Not undoable.
+
+Secrets (/os/v4/Secrets/* — project-scoped: requires a selected project, impersonated project token only.
+         The project's secret store: one named record per secret with status, access list, rotation
+         and audit. The CLI NEVER prints a secret value -- there is no read-value command):
+  blocks secrets list [--search <s>] [--status active|locked|deleted] [--include-deleted]
+                              [--organization-id <id>] [--page <n>] [--page-size <n>] [--json]
+  blocks secrets get <secretId> [--json]
+    Metadata only (name, status, access, rotation, canReadValue). Read-only.
+  blocks secrets set <name> --value-file <path>|--value-env <NAME>|--value <text>
+                              [--description <d>] [--user-ids a,b] [--roles a,b] [--organization-id <id>]
+                              [--body '<json>'|--file <path>] [--dry-run] [--yes] [--json]
+    Always creates (names are not unique); returns {secretId}. Prefer --value-file/--value-env
+    so the value stays out of shell history. The value is redacted in --dry-run output.
+  blocks secrets set-many --env-file <dotenv> [--description <d>] [--organization-id <id>]
+                              [--dry-run] [--yes] [--json]
+    One secret per KEY=value line, named after the key; returns {secretIds: {name: id}}.
+  blocks secrets update <secretId> [--name <n>] [--description <d>] [--dry-run] [--yes] [--json]
+  blocks secrets rotate <secretId> --value-file <path>|--value-env <NAME>|--value <text>
+                              [--dry-run] [--yes] [--json]
+  blocks secrets lock <secretId> | unlock <secretId> | delete <secretId> | restore <secretId>
+                              [--dry-run] [--yes] [--json]
+    Locked secrets refuse value reads and rotation; delete is soft (restore undoes it).
+  blocks secrets access <secretId> [--user-ids a,b] [--roles a,b] [--merge] [--clear]
+                              [--dry-run] [--yes] [--json]
+    Who may read the value. Replaces the list by default; --merge adds to the current
+    one, --clear removes the restriction.
+  blocks secrets audit [<secretId>] [--action <a>] [--actor-user-id <id>] [--from <iso>] [--to <iso>]
+                              [--page <n>] [--page-size <n>] [--json]
 
 Auth Admin (/iam/v4/auth/identity-providers*, /config, /client-credentials, /oidc-clients —
             project-scoped: requires a selected project, impersonated project token only):
@@ -765,12 +1026,24 @@ Auth Admin (/iam/v4/auth/identity-providers*, /config, /client-credentials, /oid
   blocks auth idp create --provider <p> --provider-type <t> --protocol <proto>
                               --client-id <id> [--client-secret] [--display-name] [--issuer]
                               [--scope] [--redirect-uris a,b] [--active]
+                              [--authorization-url] [--token-url] [--user-info-url]
+                              [--jwks-uri] [--well-known-url] [--response-type]
+                              [--grant-types a,b] [--require-pkce]
+                              [--token-endpoint-auth-method] [--initial-roles a,b]
+                              [--initial-permissions a,b] [--icon]
                               [--body '<json>'|--file <path>] [--dry-run] [--yes] [--json]
-    Rich provider configs (JWKS, private keys, initial roles, etc.) go in --body/--file;
-    the flags above cover the common OAuth/OIDC fields.
+    Apple-specific fields (teamId, keyId, privateKey, appleAudience) go in --body/--file
+    so no private key lands in shell history.
+    IAM's create endpoint stores issuer/jwksUri/wellKnownUrl but drops
+    authorizationUrl/tokenUrl/userInfoUrl -- set those with 'idp update' afterward.
   blocks auth idp update <id> [same flags as create, all optional] [--dry-run] [--yes] [--json]
     provider/providerType/protocol/clientId are immutable: omit them, or echo the
     existing values exactly if you also pass --body/--file.
+    The only endpoint that persists authorizationUrl/tokenUrl/userInfoUrl -- create accepts
+    and drops them, and update never re-runs discovery, so values set here stick. Use it to
+    repair a provider whose authorizationUrl came back null: '/idp/initiate' builds its
+    redirect from that field, so hosted login goes nowhere without it. Read the endpoint
+    values from the tenant's discovery document rather than composing them by hand.
   blocks auth idp delete <id> [--dry-run] [--yes] [--json]
     Irreversible; also deletes the related OIDC client registration.
   blocks auth idp status <id> --active|--active=false [--dry-run] [--yes] [--json]
@@ -780,33 +1053,46 @@ Auth Admin (/iam/v4/auth/identity-providers*, /config, /client-credentials, /oid
                               [--access-token-minutes] [--remember-me-refresh-token-minutes]
                               [--wrong-attempts-to-lock] [--account-lock-duration-minutes]
                               [--oidc-enabled] [--logout-on-password-change]
-                              [--password-strength-regex] [--body '<json>'|--file <path>]
+                              [--password-strength-regex] [--password-strength-message]
+                              [--password-policy-min-length] [--password-policy-max-length]
+                              [--password-policy-require-uppercase] [--password-policy-require-lowercase]
+                              [--password-policy-require-numbers] [--password-policy-require-special-chars]
+                              [--password-policy-message] [--body '<json>'|--file <path>]
                               [--dry-run] [--yes] [--json]
   blocks auth client-credentials list [--json]
     clientSecret is included in list responses; treat CLI output as sensitive.
   blocks auth client-credentials save --name <n> [--item-id <id>] [--roles a,b]
                               [--permissions a,b] [--access-token-valid-minutes] [--active]
                               [--body '<json>'|--file <path>] [--dry-run] [--yes] [--json]
-    Omit --item-id to create; pass it to update. The response's clientSecret is
-    shown once and is not retrievable again afterward.
+    Omit --item-id to create; pass it to update. The response carries no clientSecret;
+    read it back from 'auth client-credentials list', which returns it in full.
   blocks auth client-credentials delete <id> [--dry-run] [--yes] [--json]
 
   blocks auth oidc-clients list [--json]
-    List registered OAuth 2.0 / OIDC client applications for the tenant. client_secret
-    is excluded from list/get responses.
+    List registered OAuth 2.0 / OIDC client applications for the tenant. The service
+    returns client_secret in full here; the CLI redacts it. Use rotate-secret to get one.
   blocks auth oidc-clients get <clientId> [--json]
   blocks auth oidc-clients save [--item-id <id>] [--client-display-name] [--client-type]
                               [--redirect-uris a,b] [--post-logout-redirect-uris a,b]
                               [--scope] [--allowed-scopes a,b] [--allowed-response-types a,b]
                               [--require-pkce] [--require-consent] [--require-mfa]
-                              [--allowed-mfa-methods 0,1] [--front-channel-logout-uri]
+                              [--allowed-mfa-methods 1,2] [--front-channel-logout-uri]
                               [--back-channel-logout-uri] [--auto-redirect]
                               [--external-discovery-endpoint] [--active] [--login-mode]
                               [--client-logo-url] [--client-brand-color] [--use-tokens-cookie]
-                              [--register-as-identity-provider] [--device-flow-client]
+                              [--register-as-identity-provider] [--oidc-url] [--device-flow-client]
                               [--body '<json>'|--file <path>] [--dry-run] [--yes] [--json]
     Upsert: omit --item-id to register a new client, pass it to update an existing one.
-    The response's client_secret is shown once and is not retrievable again afterward.
+    The response's client_secret is shown here; the service also returns it on list/get, where the CLI redacts it.
+    --client-type is not optional in practice: IAM derives tokenEndpointAuthMethod from it,
+    so omitting it stores a browser/SPA client as confidential ("client_secret_post") and
+    lets it request the client_credentials grant. Pass --client-type public for any
+    PKCE/browser client.
+    --register-as-identity-provider creates the linked identity provider in the same call.
+    Its authorize/token/userinfo/jwks/issuer values are filled from the discovery document.
+    When omitted, --external-discovery-endpoint defaults to
+    <oidc-url>/<project>/.well-known/openid-configuration; pass it explicitly for an
+    external provider or non-standard IAM base URL.
   blocks auth oidc-clients delete <clientId> [--dry-run] [--yes] [--json]
     Irreversible; revokes all tokens issued to the client.
   blocks auth oidc-clients rotate-secret <clientId> [--dry-run] [--yes] [--json]
@@ -817,25 +1103,32 @@ Data:
     Validate local blocks/data/schemas/*.json and blocks/data/rules.json before
     pushing. Local-only.
 
-  blocks data schema list [--json]
+  blocks data schema list [--page <n>] [--page-size <n>] [--json]
     List project schemas via /data/v4/schemas using an impersonated project
-    token. Read-only.
+    token. Read-only. Page defaults are 1/100; fails clearly on an unexpected
+    response shape instead of treating it as an empty list.
 
   blocks data schema pull [--json]
-    Download project schemas into blocks/data/schemas/*.json. Writes local files
-    only.
+    Download every project schema (paging through all of them) into
+    blocks/data/schemas/*.json. Strips the API id, project identifiers, and
+    platform-managed fields so the file is portable and re-pushable as-is.
+    Writes local files only.
 
   blocks data schema push [--dry-run] [--yes] [--json]
-    Create or update project schemas via /data/v4/schemas/define. Mutating;
-    uses POST for create and PUT for update.
+    Create or update project schemas via /data/v4/schemas/define. Mutating.
+    Looks up the destination project's schema by name -- never trusts a local
+    id/itemId, which may belong to another project -- and uses PUT with the
+    destination id when found, POST otherwise. Warns when a local id is
+    ignored; fails clearly instead of treating an empty response as success.
 
   blocks data rules pull [--json]
-    Download data-access policies into blocks/data/rules.json. Writes local
-    files only.
+    Download data-access policies into blocks/data/rules.json in the CLI's
+    portable format (schemaName, no itemId/schemaId). Writes local files only.
 
   blocks data rules deploy [--dry-run] [--yes] [--json]
     Apply schema security and data-access policies. Mutating; supports dry-run
-    and confirmation.
+    and confirmation. Resolves each policy's destination schema id and any
+    existing policy id by name -- never reuses a source-project id.
 
   blocks data reload [--dry-run] [--yes] [--json]
     Reload Data schema configuration so staged schema/rule changes become live.
@@ -856,10 +1149,14 @@ Data:
                               [--body '<json>'|--file <path>] [--dry-run] [--yes] [--json]
     blocks data config update --item-id <id> [--connection-string] [--database-name]
                               [--collection-name-editable] [--collection-name-pattern]
-                              [--body '<json>'|--file <path>] [--dry-run] [--yes] [--json]
+                              [--enable-analytics] [--body '<json>'|--file <path>]
+                              [--dry-run] [--yes] [--json]
 
   Raw Schema API (/data/v4/schemas* - beyond the file-oriented list/pull/push above):
     blocks data schema get <id> [--json]
+      Non-JSON output also prints the schema's exact GraphQL operation names --
+      generated names are naive string concatenation, not English
+      pluralization (e.g. Company -> getCompanys/Companys, not Companies).
     blocks data schema get-by-name <schemaName> [--json]
       Full field-level detail by collection name (info-by-name).
     blocks data schema aggregation [--keyword] [--schema-name] [--collection-name]
@@ -872,6 +1169,7 @@ Data:
       Irreversible.
     blocks data schema info list [--json]
       Entity-type schema collections with basic info.
+      --schema-type: 1 Entity, 2 Dto. There is no 0.
     blocks data schema info save --schema-name <n> [--collection-name] [--schema-type <1|2>]
                               [--body '<json>'|--file <path>] [--dry-run] [--yes] [--json]
       Create schema metadata only (no fields yet) - pair with data schema fields.
@@ -902,26 +1200,25 @@ Data:
       Upsert: omit --item-id to create, pass it to update.
     blocks data validation delete <validationId> [--dry-run] [--yes] [--json]
 
-  Files / DMS (/data/v4/Files/* - storage and document management; no SDK required, but see
-                the blocks-data-storage skill if writing this into app code instead of scripting it):
+  Storage object tree (files, directories, discovery, trash, versions, and access):
     blocks data files get <fileId> [--version] [--configuration-name] [--json]
     blocks data files get-many <fileId...>|--file-ids a,b [--configuration-name] [--json]
     blocks data files info [--name] [--tenant-id] [--page] [--page-size] [--sort-by]
                               [--sort-desc] [--json]
-    blocks data files upload --file <localPath> [--name] [--parent-id] [--tags]
+    blocks data files upload --file <localPath> [--name] [--item-id] [--parent-id] [--tags]
                               [--access-modifier Public|Private] [--content-type]
                               [--configuration-name] [--module-name <1-11>] [--local-storage]
+                              [--object-access-level Creator|Organization] [--inherits-parent-access]
                               [--dry-run] [--yes] [--json]
-      Composed flow: presigned-upload-url -> PUT the file -> dms-upload, threading the
-      returned uploadUrl/fileId automatically (content-type is inferred from the file
-      extension if omitted). Pass --local-storage to use the one-call
-      upload-to-local-storage path instead, for local-storage-backed projects.
-    blocks data files presigned-upload-url --name <fileName> [--parent-directory-id]
+      Cloud: create file/version metadata, PUT bytes to the returned URL, and complete the
+      upload when the storage configuration requires it. Local: one multipart request.
+    blocks data files presigned-upload-url --name <fileName> [--item-id] [--parent-directory-id]
                               [--access-modifier Public|Private] [--configuration-name]
                               [--module-name <1-11>] [--meta-data] [--tags]
-                              [--body '<json>'|--file <path>] [--json]
-      Cloud-storage upload, step 1 of 2. Returns an uploadUrl and fileId; PUT the bytes next
-      with data files upload-to-url.
+                              [--object-access-level Creator|Organization] [--inherits-parent-access]
+                              [--size-in-bytes] [--content-type] [--checksum] [--checksum-algorithm]
+                              [--body '<json>'|--file <path>] [--dry-run] [--yes] [--json]
+      Mutating cloud step 1: creates metadata/version and returns uploadUrl/fileId.
     blocks data files upload-to-url --url <presignedUrl> --file <localPath>
                               --content-type <type> [--blob-type BlockBlob] [--no-blob-type-header]
                               [--dry-run] [--yes] [--json]
@@ -929,23 +1226,52 @@ Data:
     blocks data files upload-to-local-storage --file <localPath> [--name] [--item-id]
                               [--parent-directory-id] [--tags] [--access-modifier Public|Private]
                               [--configuration-name] [--meta-data] [--additional-properties '<json>']
+                              [--object-access-level Creator|Organization] [--inherits-parent-access]
                               [--dry-run] [--yes] [--json]
       One-call alternative to the two commands above, for local-storage-backed projects.
+    blocks data files complete-upload <fileId> <fileVersionId> [--dry-run] [--yes] [--json]
+      Step 3 when step 1 said uploadCompletionRequired: verify and promote the quarantined upload.
     blocks data files update-additional-info <itemId> --additional-properties '<json>'
                               [--dry-run] [--yes] [--json]
     blocks data files delete <fileId> [--configuration-name] [--event-queue-name]
+                              [--permanent]
                               [--dry-run] [--yes] [--json]
-    blocks data files dms-list [--parent-id] [--search] [--configuration-name] [--take]
-                              [--skip] [--json]
-      Combined folder+file listing for a DMS parent ("" = root).
-    blocks data files dms-upload --file-storage-id <id> --artifact-name <name>
-                              [--parent-id] [--tags a,b] [--body '<json>'|--file <path>]
+      Defaults to moving the file to trash; --permanent removes bytes and metadata.
+    blocks data files list [--parent-id] [--module-name <1-11>] [--type directory|file]
+                              [--search] [--cursor] [--limit 1-200] [--json]
+    blocks data files search <query> [--directory-id] [--type directory|file]
+                              [--cursor] [--limit 1-200] [--json]
+    blocks data files trash|shared [--type directory|file] [--cursor] [--limit] [--json]
+    blocks data files restore <resourceId> [--dry-run] [--yes] [--json]
+    blocks data files purge <resourceId> [--dry-run] [--yes] [--json]
+    blocks data files directory-create <name> [--parent-id] [--module-name]
+                              [--description] [--allowed-extensions pdf,docx]
                               [--dry-run] [--yes] [--json]
-      Registers an uploaded file (fileId from presigned-upload-url/upload-to-local-storage)
-      so it appears in a DMS folder. Upload alone does not make a file visible in a folder.
-    blocks data files create-folder <name> [--parent-id] [--description] [--tags a,b]
-                              [--configuration-name] [--dry-run] [--yes] [--json]
-    blocks data files delete-folder <folderId> [--configuration-name]
+    blocks data files directory-get <directoryId> [--json]
+    blocks data files directory-update <directoryId> [--name] [--description]
+                              [--dry-run] [--yes] [--json]
+    blocks data files directory-delete <directoryId> [--permanent]
+                              [--dry-run] [--yes] [--json]
+    blocks data files directory-move <directoryId> [--target-directory-id]
+                              [--dry-run] [--yes] [--json]
+    blocks data files versions <fileId> [--cursor] [--limit 1-100] [--json]
+    blocks data files create-version <fileId> [--configuration-name]
+                              [--dry-run] [--yes] [--json]
+    blocks data files copy <fileId> --target-directory-id <id> [--copy-access-policies]
+                              [--dry-run] [--yes] [--json]
+    blocks data files move <fileId> --target-directory-id <id> [--dry-run] [--yes] [--json]
+    blocks data files rename <fileId> --name <name> [--dry-run] [--yes] [--json]
+    blocks data files access-list|access-resolve <resourceId> [--json]
+    blocks data files access-grant <resourceId> --resource-type Directory|File
+                              --principal-type User|Role|Everyone|Organization
+                              [--principal-id] --permission View|Download|Edit|Delete|Manage|Owner
+                              [--effect Allow|Deny] [--priority] [--expires-at]
+                              [--dry-run] [--yes] [--json]
+    blocks data files access-update <resourceId> --policy-id <id> <same policy flags>
+    blocks data files access-revoke <resourceId> --policy-id <id> [--dry-run] [--yes] [--json]
+    blocks data files inheritance <resourceId> --enabled=true|false [--dry-run] [--yes] [--json]
+    blocks data files share <resourceId> --resource-type <type> --principal-type <type>
+                              [--principal-id] --permission <permission> [--expires-at]
                               [--dry-run] [--yes] [--json]
 
 Localization:
@@ -1034,6 +1360,7 @@ Localization:
     blocks localization key uilm-import <fileId> [--message-co-relation-id]
                               [--dry-run] [--yes] [--json]
     blocks localization key uilm-export [--output-type <0-5>] [--app-ids a,b] [--languages a,b]
+      --output-type: 0 Json (default), 1 Xml, 2 Text, 3 Xlsx, 4 Csv, 5 Xlf.
                               [--reference-file-id] [--caller-tenant-id] [--start-date]
                               [--end-date] [--message-co-relation-id] [--dry-run] [--yes] [--json]
     blocks localization key get-uilm-exported-files [--search] [--page-number] [--page-size]
@@ -1058,41 +1385,123 @@ Localization:
                               [--dry-run] [--yes] [--json]
 
 Release:
-  blocks release deploy [--domain <customDomain>] [--wait] [--poll-interval <seconds>]
-                    [--timeout <seconds>] [--dry-run] [--yes] [--json]
-    Deploy the selected project's environment. Resolves everything from state
-    you already have: the repo linked to this project (Project/GetAsset) and
-    that repo's connected branch (Build/repo-details) -- no --repo-id needed.
-    Aborts if the connected branch doesn't match this environment's name.
-    Pass --domain to also set the custom deployment domain before deploying.
-    Pass --wait to poll release status on the resulting build until it reaches
-    a terminal state (or --timeout elapses, default 900s) instead of returning
-    immediately with just a build id.
-    Mutating; no artifact upload is performed by this CLI.
+  blocks release deploy [--repo <name|id>] [--domain <customDomain>]
+                    [--with-secrets <dotenvFile>] [--wait] [--follow]
+                    [--poll-interval <seconds>] [--timeout <seconds>]
+                    [--dry-run] [--yes] [--json]
+    Deploy the selected project's environment (Build/manual). Resolves the repo
+    from --repo (name or id via Build/repos-list) or, when omitted, from the
+    project's linked assets. Aborts if the connected branch doesn't match this
+    environment's name. --with-secrets first syncs env vars from a dotenv file,
+    --domain also sets the custom deployment domain, --wait polls the status
+    field until a terminal value, --follow additionally streams build events
+    to stderr. Final stdout is one verdict document. Mutating.
 
-  blocks release status <buildId> [--json]
-    Read Release build status by build id using an impersonated project
-    token. Read-only.
+  blocks release setup [repo] [--hosting-provider <name|id>] [--region <name|id>]
+                    [--machine-config <name|id>] [--wait] [--follow]
+                    [--dry-run] [--yes] [--json]
+    First-time deploy (Build/run-build): creates the deployment namespace and
+    push webhook. Resolves hosting settings by name or id from Build/settings.
+    Re-deploys belong to 'release deploy'. Mutating.
 
-  blocks release builds list [repoId] [--repo-id <repoId>] [--json]
-    List Release build details for a repository using an impersonated project
-    token. When repoId is omitted, resolves it from the selected project's
-    linked repo assets (Project/GetAsset, account token) -- auto-picked if
-    there's exactly one, otherwise you're prompted to choose. Read-only.
+  blocks release status <buildId> [--wait] [--follow] [--json]
+    Build status plus a stable verdict (succeeded/failed/running) derived from
+    the status field. --wait polls to a terminal state; --follow also streams
+    build events to stderr. Read-only.
 
-  blocks release builds get <buildId> [--json]
-    Alias for release status. Read-only.
+  blocks release logs <buildId> [--follow] [--group Clone|Build|Deploy|Sast|Sca] [--json]
+    Stored pipeline events of one build; --follow keeps streaming new events
+    until the build is terminal. Read-only.
+
+  blocks release builds list [repo] [--branch <b>] [--page <n>] [--page-size <n>] [--json]
+    Paged builds of one repo (name or id; auto-picked when only one repo is
+    registered). Read-only.
+
+  blocks release repos list [--json]
+  blocks release repo get <repo> [--json]
+    Repositories registered in blocks-release for this project, and one repo's
+    details with recent builds. Read-only.
+
+  blocks release settings list [--json]
+    Hosting providers, regions, and machine configs valid for 'release setup'.
+    Read-only.
+
+  blocks release domain set <domain> [--repo <name|id>] [--dry-run] [--yes] [--json]
+    Set a repo's custom deployment domain (Build/repo-update). Mutating.
+
+  blocks release git repos [--provider github] [--search <s>] [--page <n>] [--json]
+  blocks release git branches <owner/repo> [--provider github] [--json]
+    Browse the connected source-control account. Only 'github' is active today;
+    other providers fail with provider_not_supported. Read-only.
+
+  blocks release secrets sync [--file <dotenv>] [--repo <name|id>] [--prune]
+                    [--dry-run] [--yes] [--json]
+    Bulk env-var upsert from a dotenv file into the repo's secret set. Merge by
+    default; --prune makes the file the whole set (listing removed key names
+    first). Values are never displayed. Mutating.
+
+  blocks release secrets list|audit [--repo <name|id>] [--json]
+    Secret-set metadata and its audit trail. No key names or values. Read-only.
+
+  blocks release secrets lock|unlock|delete|restore [--repo <name|id>]
+                    [--dry-run] [--yes] [--json]
+    Lifecycle of the repo's whole secret set. Delete is soft (restore undoes it).
+    Mutating.
+
+  blocks release reports get <buildId> --type sast|sca-container|sca-libraries|dast [--json]
+    Security scan report for one build. Read-only.
+
+  blocks release monitor list [--repo <name|id>] [--json]
+    Monitoring/alerting entries for a deployed repo. Read-only.
+
+  blocks release teardown <repo> [--dry-run] [--yes] [--json]
+    DELETE a repo's live deployment: cancels in-flight builds and deletes the
+    Kubernetes namespace. Requires the repo named explicitly; not undoable.
+    Mutating.
+
+Source control (GitHub, through the account connected in the Blocks portal):
+  blocks git status [--json]
+    Connected repository, branch, uncommitted files, commits ahead/behind the
+    last fetch. Local and read-only; exit 0 even when nothing is connected.
+
+  blocks git init [--repo <owner/name>] [--name <n>] [--org <o>] [--public] [--branch <b>]
+                  [--message <m>] [--dry-run] [--yes] [--json]
+    Code exists here, not on GitHub: create the repository (private unless
+    --public; --repo uses an existing empty one instead), git init if needed,
+    commit, push, and record the binding in blocks.json. Refuses if a
+    repository is already connected. Mutating.
+
+  blocks git clone <owner/name> [--branch <b>] [--dir <path>] [--json]
+    Code exists on GitHub, not here: clone it and write the binding plus the
+    selected project into its blocks.json. Refuses a non-empty directory.
+
+  blocks git connect <owner/name> --strategy keep-local|adopt-remote|merge
+                     [--branch <b>] [--dry-run] [--yes] [--json]
+    Code exists in both places and was never connected. The strategy is
+    required and never guessed: keep-local overwrites the remote branch,
+    adopt-remote overwrites this directory, merge joins the histories (a
+    conflict aborts with merge_conflict and pushes nothing). Mutating.
+
+  blocks git pull [--rebase] [--json]
+  blocks git push [--message <m>] [--dry-run] [--yes] [--json]
+    Everyday sync of the connected branch. pull refuses on uncommitted changes
+    (working_tree_dirty) rather than stashing; push commits what changed and
+    pushes, or reports nothingToPush. Studio runs push after each build.
+
+  blocks git disconnect [--yes] [--json]
+    Forget the connected repository (blocks.json only); .git and GitHub are
+    left untouched. Mutating.
 
 Scaffold:
-  blocks new web <name> [--app-domain <domain>] [--client-id <oidcClientId>]
+  blocks new web <name> [--app-domain <domain>] [--client-id <oidcClientId>] [--yes]
                     [--x-blocks-key <tenantId>] [--blocks-api-url <url>] [--oidc-url <url>]
     Create a Vite React starter app that talks to Blocks exclusively through
     @seliseblocks/client (a single createBlocksClient() instance) using the SDK
     hosted IdP flow: blocksClient.auth.idp.redirectToProvider() on login click
     and blocksClient.auth.idp.callback() on /login/callback. Includes route
     guards, auto-refresh through auth.oidc.refreshToken(), live
-    auth/iam/data/localization SDK examples, environment config, and safe
-    .gitignore defaults.
+    auth/iam/localization SDK examples, a Profile landing page, environment
+    config, and safe .gitignore defaults.
     Uses the selected project (see 'use') unless --x-blocks-key overrides it.
     --app-domain and --client-id are resolved from the project when omitted:
     if the project has one domain it's used automatically, otherwise you're
@@ -1101,32 +1510,16 @@ Scaffold:
     name + redirect URI, active, registered as a Blocks OIDC identity
     provider) on the spot, or skip and register one later from the portal or
     'auth oidc-clients save'.
-    --blocks-api-url defaults to https://api.seliseblocks.com if omitted -
-    pass a different Data/IAM/Localization/OS gateway URL explicitly only if
-    your project uses a non-default one.
+    Non-interactive callers must provide --app-domain and --client-id or receive
+    interactive_input_required.
+    When a client id resolves, the command checks AuthController and may enable
+    OIDC login. In non-interactive runs, pass --yes only after approving that
+    possible tenant mutation; failure stops before scaffold files are written.
+    If --blocks-api-url is omitted, it is derived from the app domain:
+    https://blocksapi.<registrable-domain> (for example, app domain
+    https://dqrsf.slsblx.com uses https://blocksapi.slsblx.com). Pass a
+    different Data/IAM/Localization/OS gateway URL explicitly only if your
+    project uses a non-default one.
     --oidc-url defaults to https://iam.seliseblocks.com.
-
-Skills:
-  blocks skill list [--json]
-    List bundled blocks-skills/*/SKILL.md agent context docs (name +
-    description). Local-only, no cloud calls.
-  blocks skill show <name> [--json]
-    Print one skill's full SKILL.md content.
-  blocks skill add <name> [--dir <path>]
-    Copy a bundled skill's SKILL.md into <path>/<name>/SKILL.md in the
-    current directory (default --dir is 'blocks-skills'), for use in a
-    project outside this monorepo. Overwrites silently, same as
-    'data schema pull'.
-
-SDK:
-  blocks sdk client [--app-domain <domain>] [--client-id <oidcClientId>]
-                    [--x-blocks-key <tenantId>] [--blocks-api-url <url>] [--oidc-url <url>] [--json]
-    Read-only: "I want to use the Blocks SDK -- show me the client." Resolves this
-    project's @seliseblocks/client config (same values 'new web' scaffolds with,
-    using the selected project unless --x-blocks-key overrides it, and the
-    project's registered domain/OIDC client when --app-domain/--client-id are
-    omitted) and prints a ready-to-paste createBlocksClient(...) snippet.
-    Passing both --app-domain and --client-id skips the project lookup entirely
-    (no login required). Never writes a file; to scaffold a new app use 'new web'.
 `);
 }

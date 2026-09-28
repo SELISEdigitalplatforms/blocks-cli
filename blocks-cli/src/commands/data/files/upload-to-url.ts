@@ -2,6 +2,7 @@ import { readFile } from "node:fs/promises";
 import { booleanFlag, stringFlag } from "../../../lib/args.js";
 import { confirmMutation } from "../../../lib/confirm.js";
 import { writeOutput } from "../../../lib/output.js";
+import { redactUrlSecrets } from "../../../lib/redact.js";
 import { parseCommand } from "../../../lib/workspace.js";
 
 /**
@@ -20,7 +21,12 @@ export async function dataFilesUploadToUrl(argv: string[]): Promise<void> {
   const skipBlobTypeHeader = flags["no-blob-type-header"] === true;
 
   if (booleanFlag(flags, "dry-run")) {
-    writeOutput({ dryRun: true, file: filePath, url }, flags);
+    // The pre-signed URL carries its own time-limited write credential in the
+    // query string (an Azure SAS token, an S3 X-Amz-Signature). It is not a
+    // Blocks token, but it is a usable one, and a dry-run is the output most
+    // likely to be pasted into a log or a chat -- so show where the upload is
+    // going without reprinting the signature.
+    writeOutput({ dryRun: true, file: filePath, url: redactUrlSecrets(url) }, flags);
     return;
   }
 

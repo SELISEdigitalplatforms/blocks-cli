@@ -1,13 +1,19 @@
-import { parseFlags, stringFlag } from "../../lib/args.js";
+import { optionalIntegerFlag, parseFlags, stringFlag } from "../../lib/args.js";
 import { blocksRequest } from "../../lib/api.js";
 import { confirmMutation } from "../../lib/confirm.js";
-import { defaults, readConfig, writeConfig } from "../../lib/config.js";
+import { defaults } from "../../lib/config.js";
+import { apiUrlFromAppDomain, oidcRedirectUrisFromAppDomain } from "../../lib/domains.js";
 import { CliActionableError } from "../../lib/errors.js";
+import { withBlocksIdentityProviderDiscovery } from "../../lib/oidc-discovery.js";
+import { findAvailablePort, isPortFree } from "../../lib/port.js";
 import { findProjectByTenantId, ProjectRecord } from "../../lib/project-info.js";
 import { promptText, selectFromList } from "../../lib/prompt.js";
 import { requestContext } from "../../lib/request-context.js";
+import { writeOutput } from "../../lib/output.js";
 import { scaffoldWebProject } from "../../lib/scaffold-web/index.js";
-import { parseCommand, readWorkspaceConfig, selectedProject, writeWorkspaceConfig } from "../../lib/workspace.js";
+import { parseCommand, readWorkspaceConfig, saveSelectedProject, selectedProject, writeWorkspaceConfig } from "../../lib/workspace.js";
+
+const DEFAULT_DEV_PORT = 5173;
 
 export async function newWeb(argv: string[]): Promise<void> {
   const { args, flags } = parseCommand(argv);
@@ -18,33 +24,32 @@ export async function newWeb(argv: string[]): Promise<void> {
   const explicitAppDomain = stringFlag(flags, "app-domain");
   const project = explicitAppDomain ? {} : (await findProjectByTenantId(tenantId, flags)).project;
 
-  const apiUrl = stringFlag(flags, "blocks-api-url", { defaultValue: defaults().apiUrl });
   const oidcUrl = stringFlag(flags, "oidc-url", { defaultValue: defaults().oidcUrl });
   const appDomain = await resolveAppDomain(project, flags);
-  const oidcClientId = await resolveOidcClientId(tenantId, appDomain, name, flags);
+  const apiUrl = stringFlag(flags, "blocks-api-url") || apiUrlFromAppDomain(appDomain);
+  const devPort = await resolveDevPort(flags);
+  const oidcClientId = await resolveOidcClientId(tenantId, appDomain, name, devPort, flags);
+
+  if (oidcClientId) {
+    await ensureOidcLoginEnabled(tenantId, oidcUrl, flags);
+  }
 
   await scaffoldWebProject({
     apiUrl,
     appDomain,
+    devPort,
     name,
     oidcClientId,
     oidcUrl,
     xBlocksKey: tenantId
   });
 
+  let selectionWarning: string | undefined;
   try {
-    const config = await readConfig();
-    await writeConfig({
-      ...config,
-      selectedProject: {
-        ...config.selectedProject,
-        appDomain,
-        name,
-        tenantId
-      }
-    });
+    await saveSelectedProject(tenantId, stringFlag(flags, "account") || undefined, { appDomain, name });
   } catch (error) {
-    console.warn(`Warning: could not update global CLI project selection: ${(error as Error).message}`);
+    selectionWarning = (error as Error).message;
+    console.warn(`Warning: could not update account project selection: ${selectionWarning}`);
   }
 
   const workspace = await readWorkspaceConfig();
@@ -60,9 +65,25 @@ export async function newWeb(argv: string[]): Promise<void> {
     });
   }
 
-  console.log(`Created ${name}`);
-  console.log(`Next: cd ${name} && npm install && npm run cert && npm run dev`);
-  console.log("See README.md for hosts-file and OIDC redirect URI setup.");
+  if (flags.json) {
+    writeOutput({
+      apiUrl,
+      appDomain,
+      created: true,
+      devPort,
+      directory: name,
+      name,
+      next: [`cd ${name}`, "npm install", "npm run cert", "npm run dev"],
+      oidcClientId: oidcClientId ?? null,
+      oidcUrl,
+      selectionWarning: selectionWarning ?? null,
+      tenantId
+    }, flags);
+  } else {
+    console.log(`Created ${name}`);
+    console.log(`Next: cd ${name} && npm install && npm run cert && npm run dev`);
+    console.log("See README.md for hosts-file and OIDC redirect URI setup.");
+  }
 }
 
 async function resolveAppDomain(project: ProjectRecord, flags: Record<string, string | boolean>): Promise<string> {
@@ -92,12 +113,44 @@ async function resolveAppDomain(project: ProjectRecord, flags: Record<string, st
   return domains[index];
 }
 
+// Default dev port (5173, Vite's own default) is the one baked into
+// pre-existing docs/instructions and the redirect URI a developer may have
+// already registered by hand, so it's only displaced when something else on
+// the machine is already bound to it -- most commonly a second Blocks app
+// scaffolded earlier and still running its own `npm run dev`.
+async function resolveDevPort(flags: Record<string, string | boolean>): Promise<number> {
+  const explicitPort = optionalIntegerFlag(flags, "dev-port");
+
+  if (explicitPort !== undefined) {
+    if (explicitPort < 1 || explicitPort > 65535) {
+      throw new Error("--dev-port must be between 1 and 65535.");
+    }
+    if (!(await isPortFree(explicitPort))) {
+      throw new CliActionableError(
+        `Port ${explicitPort} is already in use.`,
+        "dev_port_in_use",
+        "Pass a different --dev-port, or stop whatever is currently listening on it."
+      );
+    }
+    return explicitPort;
+  }
+
+  if (await isPortFree(DEFAULT_DEV_PORT)) return DEFAULT_DEV_PORT;
+
+  const picked = await findAvailablePort(DEFAULT_DEV_PORT + 1);
+  console.warn(
+    `Warning: default dev port ${DEFAULT_DEV_PORT} is already in use (likely another Blocks app already running locally) -- using ${picked} instead. Pass --dev-port to choose explicitly.`
+  );
+  return picked;
+}
+
 type OidcClientSummary = { id: string; label: string };
 
 async function resolveOidcClientId(
   tenantId: string,
   appDomain: string,
   appName: string,
+  devPort: number,
   flags: Record<string, string | boolean>
 ): Promise<string | undefined> {
   const flagValue = stringFlag(flags, "client-id");
@@ -113,7 +166,7 @@ async function resolveOidcClientId(
   const choice = await selectFromList("Choose an OIDC client for this app's login, or create/skip:", options);
 
   if (choice < clients.length) return clients[choice].id;
-  if (choice === clients.length) return await createOidcClientInteractively(tenantId, appDomain, appName, flags);
+  if (choice === clients.length) return await createOidcClientInteractively(tenantId, appDomain, appName, devPort, flags);
 
   console.warn(
     "Warning: no OIDC client selected. The scaffolded app's login page will show a setup notice until you register a public OIDC client (redirect_uri = <origin>/login/callback) and set VITE_BLOCKS_OIDC_CLIENT_ID in .env."
@@ -142,6 +195,47 @@ async function listOidcClientSummaries(tenantId: string, flags: Record<string, s
   return summaries;
 }
 
+// Creating/selecting an OIDC client is not enough for the hosted login flow to
+// work: AuthController separately gates the whole OIDC/IdP path behind
+// isOidcEnabled on the tenant's auth config, off by default. Without this,
+// scaffolded apps 404/error on login until someone flips it manually in the
+// portal (IAM > Auth Config), so check-and-enable it here as part of setup.
+// POST /auth/config replaces the whole config document rather than merging
+// (confirmed against the portal's own save call, which always resends every
+// field) -- sending just `{ isOidcEnabled: true }` would reset every other
+// AuthController setting for this tenant, so the fetched config is spread
+// back in full with only that one field overridden.
+//
+// Turning isOidcEnabled on isn't a single independent flag either: the
+// activation-link flow keys off accountActivationPath, which has to point at
+// the OIDC variant ("oidc/activate/") once OIDC is on, or activation emails
+// break. accountActionBaseUrl (the host those links are built against) has
+// no safe cross-environment default, but this project's own IAM host is
+// already known here as `oidcUrl`, so it's used whenever the tenant doesn't
+// already have one set.
+async function ensureOidcLoginEnabled(tenantId: string, oidcUrl: string, flags: Record<string, string | boolean>): Promise<void> {
+  const config = await blocksRequest<Record<string, unknown>>("/iam/v4/auth/config", {
+    impersonatedProjectAuth: true,
+    projectTenantId: tenantId,
+    ...requestContext(flags)
+  });
+
+  if (config.isOidcEnabled) return;
+
+  await confirmMutation(flags, "Enable OIDC login on this project's AuthController configuration.");
+  await blocksRequest<unknown>("/iam/v4/auth/config", {
+    body: {
+      ...config,
+      accountActionBaseUrl: config.accountActionBaseUrl || oidcUrl,
+      accountActivationPath: "oidc/activate/",
+      isOidcEnabled: true
+    },
+    impersonatedProjectAuth: true,
+    projectTenantId: tenantId,
+    ...requestContext(flags)
+  });
+}
+
 function normalizeList(raw: unknown): unknown[] {
   if (Array.isArray(raw)) return raw;
   if (raw && typeof raw === "object") {
@@ -157,20 +251,30 @@ async function createOidcClientInteractively(
   tenantId: string,
   appDomain: string,
   appName: string,
+  devPort: number,
   flags: Record<string, string | boolean>
 ): Promise<string> {
-  const defaultRedirect = `https://${appDomain}/login/callback`;
+  const [defaultRedirect, localRedirect] = oidcRedirectUrisFromAppDomain(appDomain, devPort);
   const displayName = (await promptText(`OIDC client display name [${appName}]: `)) || appName;
-  const redirectUri = (await promptText(`Redirect URI [${defaultRedirect}]: `)) || defaultRedirect;
+  const redirectUri = (await promptText(`Production redirect URI [${defaultRedirect}]: `)) || defaultRedirect;
 
-  const body = {
+  // clientType drives IAM's tokenEndpointAuthMethod: omitting it stores this browser
+  // app as confidential ("client_secret_post") and lets it request client_credentials.
+  // The scaffold only ever produces a PKCE SPA, so it is always "public".
+  // isAutoRedirect: the scaffolded login page's startLogin() already navigates
+  // straight to the provider via window.location.assign -- without this flag IAM
+  // shows an interstitial "continue" click on the hosted login page instead of
+  // redirecting immediately, which is dead weight for a flow the SPA already drives.
+  const body = withBlocksIdentityProviderDiscovery({
     clientDisplayName: displayName,
+    clientType: "public",
     isActive: true,
-    redirectUris: [redirectUri],
+    isAutoRedirect: true,
+    redirectUris: [...new Set([redirectUri, localRedirect])],
     registerAsIdentityProvider: true,
     requirePkce: true,
     scope: "openid profile"
-  };
+  }, stringFlag(flags, "oidc-url", { defaultValue: defaults().oidcUrl }), tenantId);
 
   await confirmMutation(flags, `Create OIDC client '${displayName}' for this project. The response's client secret (if any) is shown once.`);
   const result = await blocksRequest<Record<string, unknown>>("/iam/v4/oidc-clients", {
@@ -180,8 +284,9 @@ async function createOidcClientInteractively(
     ...requestContext(flags)
   });
 
-  console.log("Created OIDC client:");
-  console.log(JSON.stringify(result, null, 2));
+  const log = flags.json ? console.error : console.log;
+  log("Created OIDC client:");
+  log(JSON.stringify(result, null, 2));
 
   const id = result.itemId ?? result.clientId ?? result.id;
   if (typeof id !== "string" || !id) {

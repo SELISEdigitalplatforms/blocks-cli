@@ -1,54 +1,62 @@
-import { stringFlag } from "../../../lib/args.js";
+import { integerFlag, stringFlag } from "../../../lib/args.js";
 import { blocksRequest } from "../../../lib/api.js";
-import { CliActionableError } from "../../../lib/errors.js";
 import { writeOutput } from "../../../lib/output.js";
-import { getProjectAssets, resolveSelectedProject } from "../../../lib/project-info.js";
-import { selectFromList } from "../../../lib/prompt.js";
+import { RELEASE_API, ReleaseEnvelope, ReleaseRepo, repoIdOf, repoSummary, resolveRepoSelection } from "../../../lib/release.js";
 import { requestContext } from "../../../lib/request-context.js";
-import { parseCommand } from "../../../lib/workspace.js";
+import { parseCommand, selectedProject } from "../../../lib/workspace.js";
+
+type RepoDetailsData = {
+  repo?: ReleaseRepo;
+  build?: Array<Record<string, unknown>>;
+  totalCount?: number;
+};
 
 export async function releaseBuildsList(argv: string[]): Promise<void> {
   const { args, flags } = parseCommand(argv);
-  const { group, tenantId: projectKey } = await resolveSelectedProject(flags);
-  const repoId = args[0] || stringFlag(flags, "repo-id") || (await resolveRepoId(group.tenantGroupId, flags));
+  const selector = args[0] || stringFlag(flags, "repo-id") || stringFlag(flags, "repo") || undefined;
+  const branch = stringFlag(flags, "branch");
+  const page = integerFlag(flags, "page", 1);
+  if (page < 1) throw new Error("--page must be greater than or equal to 1");
+  const pageSize = integerFlag(flags, "page-size", 30);
+  if (pageSize < 1) throw new Error("--page-size must be greater than or equal to 1");
 
-  const result = await blocksRequest<unknown>("/release/v4/api/Build/repo-details", {
+  const projectKey = await selectedProject(flags);
+  const repo = await resolveRepoSelection(selector, projectKey, flags);
+  const repoId = repoIdOf(repo);
+  if (!repoId) throw new Error("The resolved repo is missing an id in Build/repos-list.");
+
+  const result = await blocksRequest<ReleaseEnvelope<RepoDetailsData>>(`${RELEASE_API}/Build/repo-details`, {
     impersonatedProjectAuth: true,
-    ...requestContext(flags),
     projectTenantId: projectKey,
-    query: { RepoId: repoId }
+    query: {
+      RepoId: repoId,
+      branch: branch || undefined,
+      pageNumber: page,
+      pageSize
+    },
+    ...requestContext(flags)
   });
-  writeOutput(result, flags);
+
+  const data = result?.data;
+  writeOutput(
+    {
+      builds: (data?.build ?? []).map((build) => buildRow(build)),
+      page,
+      pageSize,
+      repo: repoSummary(data?.repo ?? repo),
+      totalCount: data?.totalCount ?? undefined
+    },
+    flags
+  );
 }
 
-async function resolveRepoId(tenantGroupId: string | undefined, flags: Record<string, string | boolean>): Promise<string> {
-  if (!tenantGroupId) {
-    throw new CliActionableError(
-      "This project has no tenant group on record, so its linked repos can't be looked up.",
-      "no_tenant_group",
-      "Pass --repo-id explicitly."
-    );
-  }
-
-  const response = await getProjectAssets(tenantGroupId, flags);
-  const resources = response.assets?.resources ?? [];
-
-  if (resources.length === 0) {
-    throw new CliActionableError(
-      "No repo linked to this project.",
-      "repo_not_linked",
-      "Link a repo from the Blocks portal (requires GitHub auth), then re-run this command, or pass --repo-id explicitly."
-    );
-  }
-
-  const resource = resources.length === 1 ? resources[0] : resources[await selectFromList(
-    "Multiple repos are linked to this project -- choose one:",
-    resources.map((item) => `${item.name ?? "(unnamed)"} (${item.resourceId ?? "?"})`)
-  )];
-
-  if (!resource.resourceId) {
-    throw new Error("The selected repo asset is missing a resourceId.");
-  }
-
-  return resource.resourceId;
+function buildRow(build: Record<string, unknown>): Record<string, unknown> {
+  return {
+    branch: build.branch,
+    buildId: build.itemId ?? build.id,
+    commit: build.commit,
+    createdDate: build.createdDate ?? build.createDate ?? build.createdAt,
+    duration: build.duration,
+    status: build.status
+  };
 }

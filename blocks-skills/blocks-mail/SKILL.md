@@ -3,7 +3,13 @@ name: blocks-mail
 description: "Send transactional email via the SDK's `blocksClient.mail.send()`/`sendToAny()`, or administer mail via the project-scoped `blocks mail config|template|mailbox *` CLI — server config, template CRUD/clone, mailbox reads, none of which have an SDK equivalent. CLI also exposes `mail send`/`sendtoany` as an admin/terminal mirror of the SDK calls. CLI mutations require `--dry-run` before `--yes`. Use for app email sending, or managing SMTP/inbound providers, templates, mailbox history."
 ---
 
+When invoking a project-scoped `blocks` command, either use the resolved account's saved selection or pass `--project <tenantId>` for that one command without changing saved state. `--project` applies to CLI commands only, never SDK calls.
+
 # Blocks Mail
+
+For CLI work, use blocks-bootstrap first when account or project context is
+unknown. Mail operations must not choose or repair authentication context as a
+side effect.
 
 Blocks mail has **two distinct surfaces that don't fully overlap**:
 
@@ -34,27 +40,30 @@ await blocksClient.mail.send({
 
 ## CLI — administering mail (`blocks mail config|template|mailbox *`)
 
-Everything under `mail config`, `mail template`, and `mail mailbox` is project-scoped: every command requires an impersonated project session, resolving the target project from whichever project is selected with `blocks use <tenantId>`, the workspace's `blocks.json`, or an explicit `--project <tenantId>`. There is no account-level mode for any mail command, including `mail send`/`mail sendtoany`.
+Everything under `mail config`, `mail template`, and `mail mailbox` is project-scoped: every command requires an impersonated project session. Project resolution is an explicit `--project <tenantId>`, then the workspace's `blocks.json`, then the resolved account's selection from `blocks use <tenantId>`. There is no account-level mode for any mail command, including `mail send`/`mail sendtoany`.
 
 ### `mail config` — SMTP/inbound provider configuration
 
 - **`blocks mail config list [--json]`** — read-only.
 - **`blocks mail config get <name> [--json]`** — read-only (positional arg, or `--name`).
-- **`blocks mail config save [--configuration-id <id>] [--name <n>] [--host <h>] [--port <p>] [--enable-ssl] [--inbound] [--provider <n>] [--sender-name <n>] [--sender-address <addr>] [--sender-username <u>] [--account-password <p>] [--body '<json>'|--file <path>] [--dry-run] [--yes] [--json]`** — upsert: omit `--configuration-id` to create, pass it to update. `--provider` and `--port` are raw integers (the CLI doesn't document the provider enum's meaning — don't guess a value). `--account-password` is redacted (`***`) in `--dry-run` output only; the live response and stored value are still sensitive.
+- **`blocks mail config save [--configuration-id <id>] [--name <n>] [--host <h>] [--port <p>] [--enable-ssl] [--inbound] [--provider amazon-ses|zoho|office365-smtp] [--security-mode legacy|none|starttls|ssl-on-connect] [--sender-name <n>] [--sender-address <addr>] [--sender-username <u>] [--account-password <p>] [--entra-tenant-id <id>] [--client-id <id>] [--client-secret <s>] [--mailbox-address <addr>] [--body '<json>'|--file <path>] [--dry-run] [--yes] [--json]`** — the create-or-update call for a mail server, so omitting `--configuration-id` is what makes it a new one. `--provider` takes a name or its raw number (`amazon-ses`=0, `zoho`=1, `office365-smtp`=2); `--port` is a raw integer. `--account-password` and `--client-secret` are redacted (`***`) in `--dry-run` output only.
+- **Password providers (Amazon SES, Zoho)** need `--host`, `--port`, `--sender-username` and `--account-password`. Zoho can be inbound; SES is outbound only.
+- **`office365-smtp`** is outbound-only OAuth (client credentials): pass `--entra-tenant-id` (the Microsoft Entra tenant the app is registered in — not the Blocks tenant), `--client-id`, `--client-secret` and `--mailbox-address`, plus `--sender-name`/`--sender-address`. No `--account-password` (the server rejects one). The server fixes host (`smtp.office365.com`), port (587) and STARTTLS itself. The client secret goes to Blocks Secrets and is never returned — `config list` shows `isClientSecretConfigured` instead.
+- Updating (`--configuration-id`) reads the stored configuration and merges, so `--enable-ssl`/`--inbound`/`--provider` and the Office 365 ids survive a host-only change. A password provider still needs `--account-password` on every update (it is returned masked, so it cannot be carried); an Office 365 update keeps the stored client secret unless `--client-secret` is passed, which rotates it. The provider and direction of an existing configuration cannot be changed.
 - **`blocks mail config delete <configurationId> [--dry-run] [--yes] [--json]`**
-- **`blocks mail config duplicate <configurationId> [--dry-run] [--yes] [--json]`**
+- **`blocks mail config duplicate <configurationId> [--client-secret <s>] [--dry-run] [--yes] [--json]`** — an Office 365 copy requires its own `--client-secret`; a duplicate never shares the source's secret.
 
 ### `mail template` — email template CRUD/clone
 
 - **`blocks mail template list [--configuration-id <id>] [--language <l>] [--search <q>] [--sort-by <field>] [--sort-desc] [--page-number 1] [--page-size 20] [--json]`** — read-only.
 - **`blocks mail template get <itemId> [--json]`** — read-only.
-- **`blocks mail template save [--item-id <id>] [--name <n>] [--configuration-id <id>] [--language <l>] [--subject <s>] [--template-body <html>] [--json-content <json>] [--image-id <id>] [--image-url <url>] [--body '<json>'|--file <path>] [--dry-run] [--yes] [--json]`** — upsert: omit `--item-id` to create, pass it to update.
+- **`blocks mail template save [--item-id <id>] [--name <n>] [--configuration-id <id>] [--language <l>] [--subject <s>] [--template-body <html>] [--json-content <json>] [--image-id <id>] [--image-url <url>] [--body '<json>'|--file <path>] [--dry-run] [--yes] [--json]`** — one template per language, so a multi-language template means one `save` per `--language`. Omitting `--item-id` creates rather than updates.
 - **`blocks mail template delete <itemId> [--dry-run] [--yes] [--json]`**
 - **`blocks mail template clone <itemId> [--name <n>] [--configuration-id <id>] [--language <l>] [--subject <s>] [--dry-run] [--yes] [--json]`**
 
 ### `mail mailbox` — mailbox message reads
 
-- **`blocks mail mailbox list [--inbound] [--page-number 1] [--page-size 20] [--search <q>] [--start-date <date>] [--end-date <date>] [--status <s>] [--json]`** — read-only. There is **no `--configuration-id` flag** on this command (see Gotchas — this corrects a stale example elsewhere in this repo's own docs).
+- **`blocks mail mailbox list [--inbound[=false]] [--page-number 1] [--page-size 20] [--search <q>] [--start-date <date>] [--end-date <date>] [--status <s>] [--json]`** — read-only. There is **no `--configuration-id` flag** on this command.
 - **`blocks mail mailbox get <messageId> [--json]`** — read-only (positional arg, or `--id`).
 
 ### `mail send` / `mail sendtoany` — CLI mirror of the SDK send calls
@@ -76,9 +85,9 @@ Every write command (`config save/delete/duplicate`, `template save/delete/clone
 ## Gotchas
 
 - **The premise that mail has no SDK path at all is wrong for sending.** `blocksClient.mail.send()`/`sendToAny()` exist and are the correct answer for "send email from my app." Only `config`/`template`/`mailbox` administration is CLI-only.
-- **`mail mailbox list` does not take `--configuration-id`.** This CLI's own usage guide has previously shown an example with that flag that isn't backed by the actual flag list — the real command only reads `--inbound`, `--page-number`, `--page-size`, `--search`, `--start-date`, `--end-date`, `--status`. The CLI's flag parser silently ignores unrecognized `--` flags rather than erroring, so a stale example like that "works" without doing what it implies. Don't repeat it; use the real flags above.
-- **`--account-password` (config save) is redacted only in `--dry-run` output.** The live `config save`/`config get` response is not redacted — treat it as a secret regardless.
-- **`--provider` and `--port` on `config save` are raw values with no documented enum/meaning in the CLI** — don't invent what a given integer means; ask the user or read it back from `config get` on an existing configuration.
+- **`mail mailbox list` does not take `--configuration-id`.** The real command only reads `--inbound`, `--page-number`, `--page-size`, `--search`, `--start-date`, `--end-date`, and `--status`. Unknown flags are ignored by the generic parser, so use only the documented surface.
+- **`--account-password` (config save) is redacted only in `--dry-run` output.** The API returns it masked, but treat anything credential-shaped in a live response as a secret regardless.
+- **`--entra-tenant-id` is not `--project`.** It is the Microsoft Entra directory for the Office 365 app; the Blocks tenant always comes from the selected project.
 - **`purpose`/`language` on `send`/`sendtoany` select a template implicitly** — there's no lookup or validation for which `purpose` strings are valid for a tenant. Confirm against `mail template list`/`get` rather than guessing a purpose name.
 - **`mail send` and `mail sendtoany` are still project-scoped CLI commands**, not account-level — same project-selection/impersonated-token requirement as `config`/`template`/`mailbox`.
 - **`--dry-run` before `--yes`, always** — same discipline as every other mutating `blocks` command in this pack; never jump straight to `--yes` on a mail write.
@@ -89,6 +98,7 @@ Every write command (`config save/delete/duplicate`, `template save/delete/clone
 - "Send a test email to this address from the terminal." → `blocks mail sendtoany --to <addr> --is-test-mail --dry-run --json`, then `--yes` after approval.
 - "List the mail server configurations for this project." → `blocks mail config list --json`.
 - "Set up a new SMTP configuration for this project." → `blocks mail config save --name <n> --host <h> --port <p> --enable-ssl --sender-name <n> --sender-address <addr> --account-password <p> --dry-run --json`, then `--yes`.
+- "Send mail through our Microsoft 365 mailbox." → `blocks mail config save --name <n> --provider office365-smtp --entra-tenant-id <entraTenant> --client-id <appId> --client-secret <secret> --mailbox-address <addr> --sender-name <n> --sender-address <addr> --dry-run --json`, then `--yes`.
 - "Show me the password-reset email template." → `blocks mail template list --search <query> --json`, then `blocks mail template get <itemId> --json`.
 - "Clone this template into a new language." → `blocks mail template clone <itemId> --language <code> --name <n> --dry-run --json`.
 - "What mail was sent out last week?" → `blocks mail mailbox list --start-date <date> --end-date <date> --json`.

@@ -5,6 +5,7 @@ import { compact, jsonBodyFlag, listFlag } from "../../../lib/json-flag.js";
 import { writeOutput } from "../../../lib/output.js";
 import { requestContext } from "../../../lib/request-context.js";
 import { parseCommand, selectedProject } from "../../../lib/workspace.js";
+import { withGatewayReload } from "../../../lib/data-gateway.js";
 
 /**
  * `fields` (a FieldDefinitionRequest[]: name/type/isArray/isPIIData/isUniqueData/description) has no
@@ -38,5 +39,5 @@ export async function dataSchemaFields(argv: string[]): Promise<void> {
     ...requestContext(flags),
     projectTenantId: projectKey
   });
-  writeOutput(result, flags);
+  writeOutput(await withGatewayReload(flags, projectKey, result), flags);
 }

@@ -4,9 +4,12 @@ import { writeOutput } from "../../lib/output.js";
 import { requestContext } from "../../lib/request-context.js";
 import { parseCommand, selectedProject } from "../../lib/workspace.js";
 
-// Swagger documents GetUnreadNotificationsBySubscriptionFilter as GET with a JSON
-// request body, which the Fetch spec forbids sending on a GET request. Sent as a
-// flattened query string instead, matching every other GET endpoint in this API.
+// blocks-logic declares GetUnreadNotificationsBySubscriptionFilter as [HttpGet] with a
+// [FromBody] request -- a combination fetch cannot send (GET bodies are forbidden by
+// the Fetch spec). The flattened query below is the closest a client can get, but the
+// server binds from the body, so until blocks-logic switches to [FromQuery] the
+// filters do not reach it and the request is likely rejected as missing its body.
+// Kept as a query so the command starts working the moment the server side is fixed.
 export async function notifierUnread(argv: string[]): Promise<void> {
   const { flags } = parseCommand(argv);
   const projectKey = await selectedProject(flags);

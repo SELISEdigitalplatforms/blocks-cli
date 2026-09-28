@@ -1,4 +1,5 @@
 import { blocksRequest } from "./api.js";
+import { isRecord } from "./data-response.js";
 import { requestContext } from "./request-context.js";
 
 const LOCALIZATION_API = "/localization/v4";
@@ -17,18 +18,29 @@ type ApiResponse = {
   validationErrors?: Array<{ errorMessage?: string; propertyName?: string }>;
 };
 
+export type LocalizationResource = {
+  characterLength: number;
+  culture: string;
+  value: string;
+};
+
 export type LocalizationSaveKey = {
   context?: string;
   keyName: string;
   moduleId: string;
-  resources: Array<{
-    characterLength: number;
-    culture: string;
-    value: string;
-  }>;
+  resources: unknown[];
   routes?: string[];
   shouldPublish: boolean;
 };
+
+/** The module's itemId, or undefined when the tenant has no module by that name. */
+export async function findLocalizationModuleId(
+  moduleName: string,
+  flags: Flags,
+  projectTenantId: string
+): Promise<string | undefined> {
+  return (await findLocalizationModule(moduleName, flags, projectTenantId))?.itemId;
+}
 
 export async function resolveLocalizationModuleId(
   moduleName: string,
@@ -75,6 +87,57 @@ export async function getCloudLocalizationDictionary(
   });
 
   return normalizeDictionary(result);
+}
+
+/**
+ * Reads the keys a module already stores, indexed by key name.
+ *
+ * `Key/Save` and `Key/SaveKeys` both end in `repoKey.Resources = key.Resources` -- the
+ * request's resource list replaces the stored one instead of merging into it. Anything
+ * that writes one culture has to read the other cultures back first, or pushing de-DE
+ * after en-US leaves every key holding de-DE alone.
+ */
+export async function getLocalizationKeysByNames(
+  keyNames: string[],
+  moduleId: string,
+  flags: Flags,
+  projectTenantId: string
+): Promise<Map<string, Record<string, unknown>>> {
+  if (!keyNames.length) return new Map();
+
+  const response = await blocksRequest<unknown>(`${LOCALIZATION_API}/Key/GetsByKeyNames`, {
+    body: { keyNames, moduleId },
+    impersonatedProjectAuth: true,
+    ...requestContext(flags),
+    projectTenantId
+  });
+
+  const rows = Array.isArray(response)
+    ? response
+    : isRecord(response)
+      ? (Object.values(response).find(Array.isArray) ?? [])
+      : [];
+
+  // Indexed exactly, not case-insensitively: the server matched these names with a
+  // case-sensitive `In`, so every row's keyName is one of the names sent, and folding case
+  // here would let two keys that differ only in case collide onto one record.
+  const byName = new Map<string, Record<string, unknown>>();
+  for (const row of rows.filter(isRecord)) {
+    const keyName = row.keyName;
+    if (typeof keyName === "string") byName.set(keyName, row);
+  }
+  return byName;
+}
+
+/**
+ * Replaces the translation for `culture` (matched case-insensitively, keeping the stored
+ * spelling) or appends one; every other culture's translation is kept as-is.
+ */
+export function upsertResource(resources: unknown, culture: string, value: string): Record<string, unknown>[] {
+  const list = Array.isArray(resources) ? resources.filter(isRecord) : [];
+  const index = list.findIndex((item) => typeof item.culture === "string" && item.culture.toLowerCase() === culture.toLowerCase());
+  if (index === -1) return [...list, { characterLength: value.length, culture, value }];
+  return list.map((item, position) => (position === index ? { ...item, characterLength: value.length, value } : item));
 }
 
 async function findLocalizationModule(moduleName: string, flags: Flags, projectTenantId: string): Promise<ModuleRecord | undefined> {

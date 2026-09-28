@@ -106,7 +106,7 @@ export async function writeAuthPages(root: string): Promise<void> {
     "    <section className=\"empty-page\">",
     "      <AlertTriangle size={42} />",
     "      <h2>{t(\"common.error\")}</h2>",
-    "      <p>The page could not finish loading. Try again or return to the dashboard.</p>",
+    "      <p>The page could not finish loading. Try again or return home.</p>",
     "      <button className=\"primary-button\" onClick={() => onNavigate?.(\"/\")}>",
     "        <Home size={16} /> {t(\"notFound.home\")}",
     "      </button>",
