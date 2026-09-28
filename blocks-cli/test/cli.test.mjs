@@ -31,6 +31,9 @@ const bin = join(repoRoot, "bin", "run.js");
 // update notice from making live npm registry calls throughout the suite.
 // Tests that exercise the notice itself override it with an empty value.
 process.env.BLOCKS_NO_UPDATE_CHECK = "1";
+// A developer's own blocks-cli/.env (see the .env loading in config.ts) must never
+// change what the suite asserts about the production defaults.
+process.env.BLOCKS_ENV_FILE = join(tmpdir(), "blocks-cli-test-no-env-file");
 
 test("isNewerVersion orders semver correctly", () => {
   assert.equal(isNewerVersion("0.4.0", "0.3.1"), true);
@@ -3462,6 +3465,50 @@ test("init uses centralized default API URL", async () => {
   const envExample = await readFile(join(cwd, ".env.example"), "utf8");
   assert.equal(blocksConfig.project.apiUrl, "https://api.seliseblocks.com");
   assert.match(envExample, /^VITE_BLOCKS_API_URL=https:\/\/api\.seliseblocks\.com$/m);
+});
+
+test("init takes the default API URL from the package .env when one is present", async () => {
+  const { cwd, configDir } = await makeWorkspace();
+  const envFile = join(configDir, "package.env");
+  await writeFile(envFile, "DEFAULT_API_URL=https://dev-api.example.test\n");
+
+  const result = run(["init"], {
+    cwd,
+    env: testEnv(configDir, { BLOCKS_SECRET_STORE: "file", BLOCKS_ENV_FILE: envFile })
+  });
+
+  assert.equal(result.status, 0, result.stderr);
+  const blocksConfig = JSON.parse(await readFile(join(cwd, "blocks.json"), "utf8"));
+  assert.equal(blocksConfig.project.apiUrl, "https://dev-api.example.test");
+});
+
+test("a real DEFAULT_API_URL environment variable wins over the package .env", async () => {
+  const { cwd, configDir } = await makeWorkspace();
+  const envFile = join(configDir, "package.env");
+  await writeFile(envFile, "DEFAULT_API_URL=https://from-file.example.test\n");
+
+  const result = run(["init"], {
+    cwd,
+    env: testEnv(configDir, { BLOCKS_SECRET_STORE: "file", BLOCKS_ENV_FILE: envFile, DEFAULT_API_URL: "https://from-env.example.test" })
+  });
+
+  assert.equal(result.status, 0, result.stderr);
+  const blocksConfig = JSON.parse(await readFile(join(cwd, "blocks.json"), "utf8"));
+  assert.equal(blocksConfig.project.apiUrl, "https://from-env.example.test");
+});
+
+test("the CLI never reads the working directory's .env as its own", async () => {
+  const { cwd, configDir } = await makeWorkspace();
+  await writeFile(join(cwd, ".env"), "DEFAULT_API_URL=https://app-workspace.example.test\n");
+
+  const result = run(["init"], {
+    cwd,
+    env: testEnv(configDir, { BLOCKS_SECRET_STORE: "file" })
+  });
+
+  assert.equal(result.status, 0, result.stderr);
+  const blocksConfig = JSON.parse(await readFile(join(cwd, "blocks.json"), "utf8"));
+  assert.equal(blocksConfig.project.apiUrl, "https://api.seliseblocks.com");
 });
 
 test("new web derives the default API URL from the app domain when no API override is passed", async () => {

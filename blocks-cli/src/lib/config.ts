@@ -1,6 +1,7 @@
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { homedir, platform } from "node:os";
 import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { CliActionableError } from "./errors.js";
 import { isInteractive, selectFromList } from "./prompt.js";
 
@@ -40,13 +41,25 @@ export type BlocksCliConfig = {
   selectedProject?: BlocksProjectSelection;
 };
 
+// Loads blocks-cli/.env (gitignored) into process.env, so a checkout can point
+// at another environment without editing this file; without one, the
+// production values below apply. The path is next to this package on purpose,
+// never "./.env": the CLI runs inside app workspaces, and their own .env is
+// not the CLI's. BLOCKS_ENV_FILE overrides the path (the tests point it at
+// nothing). A variable already set in the environment is never overwritten.
+try {
+  process.loadEnvFile(process.env.BLOCKS_ENV_FILE ?? fileURLToPath(new URL("../../.env", import.meta.url)));
+} catch {
+  // No .env next to the package: production defaults.
+}
+
 const BAD_GATEWAY_OS_URL = "https://os.seliseblocks.com";
-const DEFAULT_API_URL = "https://api.seliseblocks.com";
-const DEFAULT_OS_CLIENT_ID = "4a633b13-1108-4fbf-84fd-b196c9dcdee2";
-const DEFAULT_OIDC_URL = "https://iam.seliseblocks.com";
-const DEFAULT_OS_URL = "https://api.seliseblocks.com";
+const DEFAULT_API_URL = process.env.DEFAULT_API_URL || "https://api.seliseblocks.com";
+const DEFAULT_OS_CLIENT_ID = process.env.DEFAULT_OS_CLIENT_ID || "4a633b13-1108-4fbf-84fd-b196c9dcdee2";
+const DEFAULT_OIDC_URL = process.env.DEFAULT_OIDC_URL || "https://iam.seliseblocks.com";
+const DEFAULT_OS_URL = process.env.DEFAULT_OS_URL || "https://api.seliseblocks.com";
 const DEFAULT_PROFILE_TIMESTAMP = "2026-01-01T00:00:00.000Z";
-const DEFAULT_ROOT_TENANT_ID = "d7e5554c758541db8a18694b64ef423d";
+const DEFAULT_ROOT_TENANT_ID = process.env.DEFAULT_ROOT_TENANT_ID || "d7e5554c758541db8a18694b64ef423d";
 const DEFAULT_SCOPE = "openid profile offline_access";
 
 export function defaults(): { apiUrl: string; osClientId: string; oidcUrl: string; osUrl: string; rootTenantId: string; scope: string } {
