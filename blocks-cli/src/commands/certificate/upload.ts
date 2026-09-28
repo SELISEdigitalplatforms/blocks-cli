@@ -1,4 +1,4 @@
-import { access, readFile, stat } from "node:fs/promises";
+import { readFile } from "node:fs/promises";
 import { basename } from "node:path";
 import { booleanFlag, stringFlag } from "../../lib/args.js";
 import { blocksRequest } from "../../lib/api.js";
@@ -25,8 +25,10 @@ export async function certificateUpload(argv: string[]): Promise<void> {
     );
   }
 
+  // Single read closes the TOCTOU window CodeQL flags between access/stat and readFile.
+  let bytes: Buffer;
   try {
-    await access(filePath);
+    bytes = await readFile(filePath);
   } catch {
     throw new CliActionableError(
       `No file at '${filePath}'.`,
@@ -34,9 +36,7 @@ export async function certificateUpload(argv: string[]): Promise<void> {
       "Pass --file <path> to an existing PEM/CRT certificate."
     );
   }
-
-  const fileStat = await stat(filePath);
-  if (!fileStat.isFile() || fileStat.size === 0) {
+  if (bytes.length === 0) {
     throw new CliActionableError(
       `'${filePath}' is empty.`,
       "certificate_file_empty",
@@ -74,7 +74,6 @@ export async function certificateUpload(argv: string[]): Promise<void> {
       : `Upload tenant certificate from '${filePath}'.`
   );
 
-  const bytes = await readFile(filePath);
   const form = buildCertificateForm(bytes, basename(filePath));
   const projectKey = await selectedProject(flags);
   const result = await blocksRequest<UploadCertificateResponse>(endpoint, {

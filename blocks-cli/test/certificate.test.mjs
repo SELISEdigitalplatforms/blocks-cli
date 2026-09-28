@@ -128,7 +128,7 @@ async function startCertServer({ failMessage = null, httpStatus = 200 } = {}) {
     }
 
     response.statusCode = 404;
-    response.end(JSON.stringify({ message: `unexpected ${request.method} ${url.pathname}` }));
+    response.end(JSON.stringify({ message: "not found" }));
   });
 
   await new Promise((resolveListen) => server.listen(0, "127.0.0.1", resolveListen));
