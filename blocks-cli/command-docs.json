@@ -1000,5 +1000,13 @@
   "github status": {
     "summary": "Show whether this Blocks account has a GitHub connection.",
     "details": "Calls GET /release/v4/Github/credential. Reports {connected:false} on 404, or {connected:true,login} when a credential exists. Read-only; never opens a browser."
+  },
+  "domain configure": {
+    "summary": "Set the project's cookie/custom domain via blocks-os Domain/Configure.",
+    "details": "Requires --cookie-domain (non-empty). POSTs { cookieDomain } to /os/v4/Domain/Configure and reports { configured, cookieDomain } because the API does not echo the value. Empty domain fails client-side with domain_missing_required_fields (\"domain name is missing\"), matching the server. No get/remove exists on blocks-os yet. Mutating."
+  },
+  "certificate upload": {
+    "summary": "Upload a public certificate for token validation via Certificate/UploadCertificate.",
+    "details": "Requires --file pointing at an existing non-empty PEM/CRT. Sends multipart form field 'certificate' plus query isThirdParty (--third-party) and optional providerRef (--provider-ref). Defaults isThirdParty to false and omits providerRef when empty. When --provider-ref is set without --third-party, the query is still sent and JSON notes providerRefIgnoredWhenNotThirdParty. Permission: blocks-os::project::mutate-token-validation-params. Mutating."
   }
 }

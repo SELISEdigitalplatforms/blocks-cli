@@ -387,6 +387,19 @@ export const commandCatalog: readonly CommandEntry[] = [
     ]
   },
   {
+    "name": "certificate upload",
+    "family": "certificate",
+    "summary": "Upload a public certificate for token validation via Certificate/UploadCertificate.",
+    "details": "Requires --file pointing at an existing non-empty PEM/CRT. Sends multipart form field 'certificate' plus query isThirdParty (--third-party) and optional providerRef (--provider-ref). Defaults isThirdParty to false and omits providerRef when empty. When --provider-ref is set without --third-party, the query is still sent and JSON notes providerRefIgnoredWhenNotThirdParty. Permission: blocks-os::project::mutate-token-validation-params. Mutating.",
+    "scope": "project",
+    "mutating": true,
+    "flags": [
+      "file",
+      "provider-ref",
+      "third-party"
+    ]
+  },
+  {
     "name": "data config create",
     "family": "data",
     "summary": "Point the Data Gateway at an external database.",
@@ -1220,6 +1233,17 @@ export const commandCatalog: readonly CommandEntry[] = [
     "scope": "local",
     "mutating": false,
     "flags": []
+  },
+  {
+    "name": "domain configure",
+    "family": "domain",
+    "summary": "Set the project's cookie/custom domain via blocks-os Domain/Configure.",
+    "details": "Requires --cookie-domain (non-empty). POSTs { cookieDomain } to /os/v4/Domain/Configure and reports { configured, cookieDomain } because the API does not echo the value. Empty domain fails client-side with domain_missing_required_fields (\"domain name is missing\"), matching the server. No get/remove exists on blocks-os yet. Mutating.",
+    "scope": "project",
+    "mutating": true,
+    "flags": [
+      "cookie-domain"
+    ]
   },
   {
     "name": "git clone",

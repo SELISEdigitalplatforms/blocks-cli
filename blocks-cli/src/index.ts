@@ -238,6 +238,8 @@ import { captchaDisable, captchaEnable } from "./commands/captcha/enable.js";
 import { captchaGet } from "./commands/captcha/get.js";
 import { captchaList } from "./commands/captcha/list.js";
 import { captchaSave } from "./commands/captcha/save.js";
+import { certificateUpload } from "./commands/certificate/upload.js";
+import { domainConfigure } from "./commands/domain/configure.js";
 import { secretsAccess } from "./commands/secrets/access.js";
 import { secretsAudit } from "./commands/secrets/audit.js";
 import { secretsGet } from "./commands/secrets/get.js";
@@ -477,6 +479,8 @@ const commands: Partial<Record<string, CommandHandler>> = {
   "captcha:enable": captchaEnable,
   "captcha:disable": captchaDisable,
   "captcha:delete": captchaDelete,
+  "domain:configure": domainConfigure,
+  "certificate:upload": certificateUpload,
   "secrets:list": secretsList,
   "secrets:get": secretsGet,
   "secrets:set": secretsSet,
@@ -975,6 +979,17 @@ Storage (/os/v4/Storage/* — project-scoped: requires a selected project, imper
     Upsert: omit --item-id to create; pass --update to update. Once a configuration exists only
     the upload settings can change; the provider and its credentials are fixed.
   blocks storage config delete <name> [--dry-run] [--yes] [--json]
+
+Domain (/os/v4/Domain/* — project-scoped: requires a selected project, impersonated project token only):
+  blocks domain configure --cookie-domain <hostname> [--dry-run] [--yes] [--json]
+    Set the tenant cookie/custom domain via Domain/Configure. There is no CLI
+    read-back or remove today (blocks-os exposes configure only). Mutating.
+
+Certificate (/os/v4/Certificate/* — project-scoped: requires a selected project, impersonated project token only):
+  blocks certificate upload --file <path.pem> [--third-party] [--provider-ref <id>] [--dry-run] [--yes] [--json]
+    Upload a public certificate (multipart) via Certificate/UploadCertificate.
+    --third-party targets an external IdP slot; --provider-ref names that provider.
+    Permission: mutate-token-validation-params. Mutating.
 
 Captcha (/os/v4/captcha/* — project-scoped: requires a selected project, impersonated project token only):
   blocks captcha list [--json]
