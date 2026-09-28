@@ -1,6 +1,7 @@
 import { stringFlag } from "../../../lib/args.js";
 import { blocksRequest } from "../../../lib/api.js";
 import { writeOutput } from "../../../lib/output.js";
+import { redactSecrets } from "../../../lib/redact.js";
 import { requestContext } from "../../../lib/request-context.js";
 import { parseCommand, selectedProject } from "../../../lib/workspace.js";
 
@@ -14,5 +15,8 @@ export async function authIdpGet(argv: string[]): Promise<void> {
     ...requestContext(flags),
     projectTenantId: projectKey
   });
-  writeOutput(result, flags);
+  // Identity providers store the OIDC client secret verbatim and return it on
+  // every read -- redact it here for the same reason oidc-clients list/get do:
+  // this output is routinely pasted into issues and CI logs.
+  writeOutput(redactSecrets(result), flags);
 }

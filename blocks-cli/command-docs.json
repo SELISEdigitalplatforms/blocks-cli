@@ -167,7 +167,7 @@
   },
   "iam organizations config save": {
     "summary": "Save the tenant's organization policy.",
-    "details": "Boolean flags only turn settings on; use --body to switch one off."
+    "details": "Reads the current policy and merges the flags over it; pass --flag=false to switch a setting off. --org-name-uniqueness makes organization names unique within the tenant. Multi-org can only be switched on, once, with --consent-for-multi-org-enable."
   },
   "iam signup-settings get": {
     "summary": "Read the tenant's signup policy.",
@@ -234,7 +234,7 @@
   },
   "mail config save": {
     "summary": "Create or update an SMTP / inbound mail server configuration.",
-    "details": "Upsert: omit --configuration-id to create; pass it to update. --provider and --port are raw integers. --account-password is redacted from dry-run output, but the live response and the stored value are still sensitive."
+    "details": "Upsert: omit --configuration-id to create; pass it to update. --provider takes amazon-ses, zoho or office365-smtp (or the raw number); --security-mode takes legacy, none, starttls or ssl-on-connect. office365-smtp is outbound-only OAuth: pass --entra-tenant-id (the Microsoft Entra tenant, not the Blocks one), --client-id, --client-secret and --mailbox-address, and no --account-password; the server fixes host, port and TLS. The client secret goes to Blocks Secrets and is never returned; omit it on an update to keep the stored one. Provider and direction cannot change on an existing configuration. --account-password and --client-secret are redacted from dry-run output."
   },
   "mail config delete": {
     "summary": "Delete a mail configuration.",
@@ -242,7 +242,8 @@
   },
   "mail config duplicate": {
     "summary": "Copy an existing mail configuration into a new one.",
-    "positional": "<configurationId>"
+    "positional": "<configurationId>",
+    "details": "An office365-smtp source needs --client-secret for the copy: a duplicate never shares the source's secret."
   },
   "mail template list": {
     "summary": "List mail templates, optionally filtered by configuration."
@@ -321,7 +322,8 @@
     "positional": "<name>"
   },
   "storage config save": {
-    "summary": "Upsert: omit --item-id to create; pass --update to update."
+    "summary": "Upsert: omit --item-id to create; pass --update to update.",
+    "details": "Once a configuration exists (by --item-id with --update, or a create whose --name is taken) only the upload settings change: --upload-url-expiry-seconds, --download-url-expiry-seconds, --max-file-size-bytes (max 50 MB) and --upload-completion-required-for. Those four are carried from the stored record, since the server resets any left out. Provider and credential flags are refused on an existing configuration because the server would drop them."
   },
   "storage config delete": {
     "summary": "Delete a storage backend configuration.",
@@ -356,7 +358,7 @@
   },
   "auth config save": {
     "summary": "Save AuthController config.",
-    "details": "Fetches and merges current values first. Enabling OIDC requires accountActionBaseUrl."
+    "details": "Fetches and merges current values first. Enabling OIDC requires accountActionBaseUrl. The --password-policy-* flags set the structured password policy the IAM screens show; --password-strength-message explains a custom --password-strength-regex."
   },
   "auth client-credentials list": {
     "summary": "List this project's machine-to-machine client credentials.",
@@ -432,7 +434,8 @@
     "details": "Rare and deliberate."
   },
   "data config update": {
-    "summary": "Update an existing data-source configuration."
+    "summary": "Update an existing data-source configuration.",
+    "details": "--enable-analytics toggles Graph Log analytics; the first enable opens a 14-day access window. Omitted, the stored value is kept."
   },
   "data schema get": {
     "summary": "Non-JSON output also prints the schema's exact GraphQL operation names -- generated names are naive string concatenation, not English...",
@@ -510,11 +513,12 @@
     "summary": "List file metadata records with paging and sorting."
   },
   "data files upload": {
-    "summary": "Cloud: create file/version metadata, then PUT bytes to the returned URL.",
-    "details": "Local: one multipart request. The file appears in the object tree without registration."
+    "summary": "Cloud: create file/version metadata, PUT bytes to the returned URL, then complete the upload when required.",
+    "details": "Declares size, content type and a SHA-256 checksum so blocks-data can refuse an oversized file and verify it. When the storage configuration requires completion for the access modifier, the bytes land in quarantine and the command calls complete-upload; a rejected upload fails with its reason. Local: one multipart request. The file appears in the object tree without registration."
   },
   "data files presigned-upload-url": {
-    "summary": "Mutating cloud step 1: creates metadata/version and returns uploadUrl/fileId."
+    "summary": "Mutating cloud step 1: creates metadata/version and returns uploadUrl/fileId.",
+    "details": "When the response says uploadCompletionRequired, PUT with its requiredHeaders and finish with 'data files complete-upload <fileId> <fileVersionId>'. Pass --size-in-bytes, --content-type and --checksum so verification can check them."
   },
   "data files upload-to-url": {
     "summary": "PUT a local file straight to a pre-signed storage URL (upload step 2).",
@@ -988,5 +992,10 @@
     "summary": "Create a new branch from the connected repository and push it.",
     "positional": "<name>",
     "details": "Requires a connected repository (repo_not_bound). --from names the starting point (default: the connected branch). Uses 'git branch', never 'git checkout -b' -- the workspace's checked-out HEAD is never touched, so 'git push'/'git pull' keep targeting the connected branch exactly as before. branch_create_failed if the name already exists locally; push_rejected if the remote branch already exists. Mutating."
+  },
+  "data files complete-upload": {
+    "summary": "Verify and promote a quarantined upload (cloud upload step 3).",
+    "positional": "<fileId> <fileVersionId>",
+    "details": "Only for an upload whose presign response said uploadCompletionRequired; any other version answers file_version_not_found. Idempotent: a repeat returns the recorded Verified/Rejected outcome."
   }
 }

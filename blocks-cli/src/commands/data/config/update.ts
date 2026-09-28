@@ -18,7 +18,9 @@ export async function dataConfigUpdate(argv: string[]): Promise<void> {
   // IsCollectionNameEditable is a non-nullable bool and CollectionNamePattern defaults
   // to "", so a connection-string-only update silently reset both. Read the current
   // configuration (the GET returns the connection string decoded, under
-  // `dbConnectionString`) and merge the flags over it.
+  // `dbConnectionString`) and merge the flags over it. EnableAnalytics is nullable and
+  // left out unless passed, which keeps the stored value; the first enable starts a
+  // 14-day analytics access window on the server.
   const current = carryCurrent(
     await blocksRequest<unknown>("/data/v4/configurations", {
       impersonatedProjectAuth: true,
@@ -36,6 +38,7 @@ export async function dataConfigUpdate(argv: string[]): Promise<void> {
       collectionNamePattern: stringFlag(flags, "collection-name-pattern") || undefined,
       connectionString: stringFlag(flags, "connection-string") || undefined,
       databaseName: stringFlag(flags, "database-name") || undefined,
+      enableAnalytics: optionalBooleanFlag(flags, "enable-analytics"),
       isCollectionNameEditable: optionalBooleanFlag(flags, "collection-name-editable"),
       itemId: stringFlag(flags, "item-id") || undefined
     })

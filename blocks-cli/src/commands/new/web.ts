@@ -1,16 +1,19 @@
-import { parseFlags, stringFlag } from "../../lib/args.js";
+import { optionalIntegerFlag, parseFlags, stringFlag } from "../../lib/args.js";
 import { blocksRequest } from "../../lib/api.js";
 import { confirmMutation } from "../../lib/confirm.js";
 import { defaults } from "../../lib/config.js";
 import { apiUrlFromAppDomain, oidcRedirectUrisFromAppDomain } from "../../lib/domains.js";
 import { CliActionableError } from "../../lib/errors.js";
 import { withBlocksIdentityProviderDiscovery } from "../../lib/oidc-discovery.js";
+import { findAvailablePort, isPortFree } from "../../lib/port.js";
 import { findProjectByTenantId, ProjectRecord } from "../../lib/project-info.js";
 import { promptText, selectFromList } from "../../lib/prompt.js";
 import { requestContext } from "../../lib/request-context.js";
 import { writeOutput } from "../../lib/output.js";
 import { scaffoldWebProject } from "../../lib/scaffold-web/index.js";
 import { parseCommand, readWorkspaceConfig, saveSelectedProject, selectedProject, writeWorkspaceConfig } from "../../lib/workspace.js";
+
+const DEFAULT_DEV_PORT = 5173;
 
 export async function newWeb(argv: string[]): Promise<void> {
   const { args, flags } = parseCommand(argv);
@@ -24,7 +27,8 @@ export async function newWeb(argv: string[]): Promise<void> {
   const oidcUrl = stringFlag(flags, "oidc-url", { defaultValue: defaults().oidcUrl });
   const appDomain = await resolveAppDomain(project, flags);
   const apiUrl = stringFlag(flags, "blocks-api-url") || apiUrlFromAppDomain(appDomain);
-  const oidcClientId = await resolveOidcClientId(tenantId, appDomain, name, flags);
+  const devPort = await resolveDevPort(flags);
+  const oidcClientId = await resolveOidcClientId(tenantId, appDomain, name, devPort, flags);
 
   if (oidcClientId) {
     await ensureOidcLoginEnabled(tenantId, oidcUrl, flags);
@@ -33,6 +37,7 @@ export async function newWeb(argv: string[]): Promise<void> {
   await scaffoldWebProject({
     apiUrl,
     appDomain,
+    devPort,
     name,
     oidcClientId,
     oidcUrl,
@@ -65,6 +70,7 @@ export async function newWeb(argv: string[]): Promise<void> {
       apiUrl,
       appDomain,
       created: true,
+      devPort,
       directory: name,
       name,
       next: [`cd ${name}`, "npm install", "npm run cert", "npm run dev"],
@@ -107,12 +113,44 @@ async function resolveAppDomain(project: ProjectRecord, flags: Record<string, st
   return domains[index];
 }
 
+// Default dev port (5173, Vite's own default) is the one baked into
+// pre-existing docs/instructions and the redirect URI a developer may have
+// already registered by hand, so it's only displaced when something else on
+// the machine is already bound to it -- most commonly a second Blocks app
+// scaffolded earlier and still running its own `npm run dev`.
+async function resolveDevPort(flags: Record<string, string | boolean>): Promise<number> {
+  const explicitPort = optionalIntegerFlag(flags, "dev-port");
+
+  if (explicitPort !== undefined) {
+    if (explicitPort < 1 || explicitPort > 65535) {
+      throw new Error("--dev-port must be between 1 and 65535.");
+    }
+    if (!(await isPortFree(explicitPort))) {
+      throw new CliActionableError(
+        `Port ${explicitPort} is already in use.`,
+        "dev_port_in_use",
+        "Pass a different --dev-port, or stop whatever is currently listening on it."
+      );
+    }
+    return explicitPort;
+  }
+
+  if (await isPortFree(DEFAULT_DEV_PORT)) return DEFAULT_DEV_PORT;
+
+  const picked = await findAvailablePort(DEFAULT_DEV_PORT + 1);
+  console.warn(
+    `Warning: default dev port ${DEFAULT_DEV_PORT} is already in use (likely another Blocks app already running locally) -- using ${picked} instead. Pass --dev-port to choose explicitly.`
+  );
+  return picked;
+}
+
 type OidcClientSummary = { id: string; label: string };
 
 async function resolveOidcClientId(
   tenantId: string,
   appDomain: string,
   appName: string,
+  devPort: number,
   flags: Record<string, string | boolean>
 ): Promise<string | undefined> {
   const flagValue = stringFlag(flags, "client-id");
@@ -128,7 +166,7 @@ async function resolveOidcClientId(
   const choice = await selectFromList("Choose an OIDC client for this app's login, or create/skip:", options);
 
   if (choice < clients.length) return clients[choice].id;
-  if (choice === clients.length) return await createOidcClientInteractively(tenantId, appDomain, appName, flags);
+  if (choice === clients.length) return await createOidcClientInteractively(tenantId, appDomain, appName, devPort, flags);
 
   console.warn(
     "Warning: no OIDC client selected. The scaffolded app's login page will show a setup notice until you register a public OIDC client (redirect_uri = <origin>/login/callback) and set VITE_BLOCKS_OIDC_CLIENT_ID in .env."
@@ -213,9 +251,10 @@ async function createOidcClientInteractively(
   tenantId: string,
   appDomain: string,
   appName: string,
+  devPort: number,
   flags: Record<string, string | boolean>
 ): Promise<string> {
-  const [defaultRedirect, localRedirect] = oidcRedirectUrisFromAppDomain(appDomain);
+  const [defaultRedirect, localRedirect] = oidcRedirectUrisFromAppDomain(appDomain, devPort);
   const displayName = (await promptText(`OIDC client display name [${appName}]: `)) || appName;
   const redirectUri = (await promptText(`Production redirect URI [${defaultRedirect}]: `)) || defaultRedirect;
 

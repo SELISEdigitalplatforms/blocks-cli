@@ -67,7 +67,7 @@ export const commandCatalog: readonly CommandEntry[] = [
     "name": "auth config save",
     "family": "auth",
     "summary": "Save AuthController config.",
-    "details": "Fetches and merges current values first. Enabling OIDC requires accountActionBaseUrl.",
+    "details": "Fetches and merges current values first. Enabling OIDC requires accountActionBaseUrl. The --password-policy-* flags set the structured password policy the IAM screens show; --password-strength-message explains a custom --password-strength-regex.",
     "scope": "project",
     "mutating": true,
     "flags": [
@@ -79,6 +79,14 @@ export const commandCatalog: readonly CommandEntry[] = [
       "file",
       "logout-on-password-change",
       "oidc-enabled",
+      "password-policy-max-length",
+      "password-policy-message",
+      "password-policy-min-length",
+      "password-policy-require-lowercase",
+      "password-policy-require-numbers",
+      "password-policy-require-special-chars",
+      "password-policy-require-uppercase",
+      "password-strength-message",
       "password-strength-regex",
       "refresh-token-minutes",
       "remember-me-refresh-token-minutes",
@@ -405,6 +413,7 @@ export const commandCatalog: readonly CommandEntry[] = [
     "name": "data config update",
     "family": "data",
     "summary": "Update an existing data-source configuration.",
+    "details": "--enable-analytics toggles Graph Log analytics; the first enable opens a 14-day access window. Omitted, the stored value is kept.",
     "scope": "project",
     "mutating": true,
     "flags": [
@@ -413,6 +422,7 @@ export const commandCatalog: readonly CommandEntry[] = [
       "collection-name-pattern",
       "connection-string",
       "database-name",
+      "enable-analytics",
       "file",
       "item-id"
     ]
@@ -492,6 +502,19 @@ export const commandCatalog: readonly CommandEntry[] = [
       "priority",
       "resource-id",
       "resource-type"
+    ]
+  },
+  {
+    "name": "data files complete-upload",
+    "family": "data",
+    "summary": "Verify and promote a quarantined upload (cloud upload step 3).",
+    "positional": "<fileId> <fileVersionId>",
+    "details": "Only for an upload whose presign response said uploadCompletionRequired; any other version answers file_version_not_found. Idempotent: a repeat returns the recorded Verified/Rejected outcome.",
+    "scope": "project",
+    "mutating": true,
+    "flags": [
+      "file-id",
+      "file-version-id"
     ]
   },
   {
@@ -690,18 +713,25 @@ export const commandCatalog: readonly CommandEntry[] = [
     "name": "data files presigned-upload-url",
     "family": "data",
     "summary": "Mutating cloud step 1: creates metadata/version and returns uploadUrl/fileId.",
+    "details": "When the response says uploadCompletionRequired, PUT with its requiredHeaders and finish with 'data files complete-upload <fileId> <fileVersionId>'. Pass --size-in-bytes, --content-type and --checksum so verification can check them.",
     "scope": "project",
     "mutating": true,
     "flags": [
       "access-modifier",
       "body",
+      "checksum",
+      "checksum-algorithm",
       "configuration-name",
+      "content-type",
       "file",
+      "inherits-parent-access",
       "item-id",
       "meta-data",
       "module-name",
       "name",
+      "object-access-level",
       "parent-directory-id",
+      "size-in-bytes",
       "tags"
     ]
   },
@@ -815,8 +845,8 @@ export const commandCatalog: readonly CommandEntry[] = [
   {
     "name": "data files upload",
     "family": "data",
-    "summary": "Cloud: create file/version metadata, then PUT bytes to the returned URL.",
-    "details": "Local: one multipart request. The file appears in the object tree without registration.",
+    "summary": "Cloud: create file/version metadata, PUT bytes to the returned URL, then complete the upload when required.",
+    "details": "Declares size, content type and a SHA-256 checksum so blocks-data can refuse an oversized file and verify it. When the storage configuration requires completion for the access modifier, the bytes land in quarantine and the command calls complete-upload; a rejected upload fails with its reason. Local: one multipart request. The file appears in the object tree without registration.",
     "scope": "project",
     "mutating": true,
     "flags": [
@@ -824,11 +854,13 @@ export const commandCatalog: readonly CommandEntry[] = [
       "configuration-name",
       "content-type",
       "file",
+      "inherits-parent-access",
       "item-id",
       "local-storage",
       "meta-data",
       "module-name",
       "name",
+      "object-access-level",
       "parent-directory-id",
       "parent-id",
       "tags"
@@ -845,9 +877,11 @@ export const commandCatalog: readonly CommandEntry[] = [
       "additional-properties",
       "configuration-name",
       "file",
+      "inherits-parent-access",
       "item-id",
       "meta-data",
       "name",
+      "object-access-level",
       "parent-directory-id",
       "tags"
     ]
@@ -1318,7 +1352,7 @@ export const commandCatalog: readonly CommandEntry[] = [
     "name": "iam organizations config save",
     "family": "iam",
     "summary": "Save the tenant's organization policy.",
-    "details": "Boolean flags only turn settings on; use --body to switch one off.",
+    "details": "Reads the current policy and merges the flags over it; pass --flag=false to switch a setting off. --org-name-uniqueness makes organization names unique within the tenant. Multi-org can only be switched on, once, with --consent-for-multi-org-enable.",
     "scope": "project",
     "mutating": true,
     "flags": [
@@ -1329,7 +1363,8 @@ export const commandCatalog: readonly CommandEntry[] = [
       "body",
       "consent-for-multi-org-enable",
       "file",
-      "multi-org-enabled"
+      "multi-org-enabled",
+      "org-name-uniqueness"
     ]
   },
   {
@@ -2351,9 +2386,11 @@ export const commandCatalog: readonly CommandEntry[] = [
     "family": "mail",
     "summary": "Copy an existing mail configuration into a new one.",
     "positional": "<configurationId>",
+    "details": "An office365-smtp source needs --client-secret for the copy: a duplicate never shares the source's secret.",
     "scope": "project",
     "mutating": true,
     "flags": [
+      "client-secret",
       "id"
     ]
   },
@@ -2380,20 +2417,23 @@ export const commandCatalog: readonly CommandEntry[] = [
     "name": "mail config save",
     "family": "mail",
     "summary": "Create or update an SMTP / inbound mail server configuration.",
-    "details": "Upsert: omit --configuration-id to create; pass it to update. --provider and --port are raw integers. --account-password is redacted from dry-run output, but the live response and the stored value are still sensitive.",
+    "details": "Upsert: omit --configuration-id to create; pass it to update. --provider takes amazon-ses, zoho or office365-smtp (or the raw number); --security-mode takes legacy, none, starttls or ssl-on-connect. office365-smtp is outbound-only OAuth: pass --entra-tenant-id (the Microsoft Entra tenant, not the Blocks one), --client-id, --client-secret and --mailbox-address, and no --account-password; the server fixes host, port and TLS. The client secret goes to Blocks Secrets and is never returned; omit it on an update to keep the stored one. Provider and direction cannot change on an existing configuration. --account-password and --client-secret are redacted from dry-run output.",
     "scope": "project",
     "mutating": true,
     "flags": [
       "account-password",
       "body",
+      "client-id",
+      "client-secret",
       "configuration-id",
       "enable-ssl",
+      "entra-tenant-id",
       "file",
       "host",
       "inbound",
+      "mailbox-address",
       "name",
       "port",
-      "provider",
       "sender-address",
       "sender-name",
       "sender-username"
@@ -2699,13 +2739,14 @@ export const commandCatalog: readonly CommandEntry[] = [
     "family": "new",
     "summary": "Create a Vite React starter app that talks to Blocks exclusively through @seliseblocks/client (a single createBlocksClient() instance) using the...",
     "positional": "<name>",
-    "details": "Create a Vite React starter app that talks to Blocks exclusively through @seliseblocks/client (a single createBlocksClient() instance) using the SDK hosted IdP flow: blocksClient.auth.idp.redirectToProvider() on login click and blocksClient.auth.idp.callback() on /login/callback. Includes route guards, auto-refresh through auth.oidc.refreshToken(), live auth/iam/localization SDK examples, a Profile landing page, environment config, and safe .gitignore defaults. Uses the selected project (see 'use') unless --x-blocks-key overrides it. --app-domain and --client-id are resolved from the project when omitted: if the project has one domain it's used automatically, otherwise you're prompted to choose; the OIDC client is picked from a list of the project's existing clients, or you can create a minimal one (display name + redirect URI, active, registered as a Blocks OIDC identity provider) on the spot, or skip and register one later from the portal or 'auth oidc-clients save'. Non-interactive callers must provide --app-domain and --client-id or receive interactive_input_required. When a client id resolves, the command checks AuthController and may enable OIDC login. In non-interactive runs, pass --yes only after approving that possible tenant mutation; failure stops before scaffold files are written. If --blocks-api-url is omitted, it is derived from the app domain: https://blocksapi.<registrable-domain> (for example, app domain https://dqrsf.slsblx.com uses https://blocksapi.slsblx.com). Pass a different Data/IAM/Localization/OS gateway URL explicitly only if your project uses a non-default one. --oidc-url defaults to https://iam.seliseblocks.com.",
+    "details": "Create a Vite React starter app that talks to Blocks exclusively through @seliseblocks/client (a single createBlocksClient() instance) using the SDK hosted IdP flow: blocksClient.auth.idp.redirectToProvider() on login click and blocksClient.auth.idp.callback() on /login/callback. Includes route guards, auto-refresh through auth.oidc.refreshToken(), live auth/iam/localization SDK examples, a Profile landing page, environment config, and safe .gitignore defaults. Uses the selected project (see 'use') unless --x-blocks-key overrides it. --app-domain and --client-id are resolved from the project when omitted: if the project has one domain it's used automatically, otherwise you're prompted to choose; the OIDC client is picked from a list of the project's existing clients, or you can create a minimal one (display name + redirect URI, active, registered as a Blocks OIDC identity provider) on the spot, or skip and register one later from the portal or 'auth oidc-clients save'. Non-interactive callers must provide --app-domain and --client-id or receive interactive_input_required. When a client id resolves, the command checks AuthController and may enable OIDC login. In non-interactive runs, pass --yes only after approving that possible tenant mutation; failure stops before scaffold files are written. If --blocks-api-url is omitted, it is derived from the app domain: https://blocksapi.<registrable-domain> (for example, app domain https://dqrsf.slsblx.com uses https://blocksapi.slsblx.com). Pass a different Data/IAM/Localization/OS gateway URL explicitly only if your project uses a non-default one. --oidc-url defaults to https://iam.seliseblocks.com. The Vite dev server's port defaults to 5173 and is baked into .env, vite.config.ts (strictPort), and the local OIDC redirect URI registered for a newly created client, so all three stay consistent. If port 5173 is already bound (for example by another Blocks app's own 'npm run dev'), the command automatically picks the next free port and warns about it; pass --dev-port to choose one explicitly instead, which fails fast with dev_port_in_use if that port is already taken.",
     "scope": "project",
     "mutating": true,
     "flags": [
       "app-domain",
       "blocks-api-url",
       "client-id",
+      "dev-port",
       "oidc-url",
       "x-blocks-key"
     ]
@@ -3360,15 +3401,18 @@ export const commandCatalog: readonly CommandEntry[] = [
     "name": "storage config save",
     "family": "storage",
     "summary": "Upsert: omit --item-id to create; pass --update to update.",
+    "details": "Once a configuration exists (by --item-id with --update, or a create whose --name is taken) only the upload settings change: --upload-url-expiry-seconds, --download-url-expiry-seconds, --max-file-size-bytes (max 50 MB) and --upload-completion-required-for. Those four are carried from the stored record, since the server resets any left out. Provider and credential flags are refused on an existing configuration because the server would drop them.",
     "scope": "project",
     "mutating": true,
     "flags": [
       "access-key",
       "body",
       "connection-string",
+      "download-url-expiry-seconds",
       "file",
       "host",
       "item-id",
+      "max-file-size-bytes",
       "name",
       "password",
       "port",
@@ -3377,6 +3421,8 @@ export const commandCatalog: readonly CommandEntry[] = [
       "secret-key",
       "strategy",
       "update",
+      "upload-completion-required-for",
+      "upload-url-expiry-seconds",
       "username"
     ]
   },
