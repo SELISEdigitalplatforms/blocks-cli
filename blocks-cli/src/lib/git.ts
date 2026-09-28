@@ -358,13 +358,13 @@ export async function fetchPushCredential(projectKey: string, flags: Record<stri
       throw new CliActionableError(
         "GitHub is not connected for this Blocks account, or the connection is no longer valid.",
         "github_not_connected",
-        "Connect GitHub from the Blocks portal (Repositories -> Connect GitHub), then re-run."
+        "Run 'blocks github connect', then re-run."
       );
     }
     throw error;
   }
   if (!response?.token) {
-    throw new CliActionableError("blocks-release returned no GitHub credential.", "github_credential_missing", "Reconnect GitHub from the Blocks portal, then re-run.");
+    throw new CliActionableError("blocks-release returned no GitHub credential.", "github_credential_missing", "Run 'blocks github connect', then re-run.");
   }
   return { username: response.username || "x-access-token", token: response.token, login: response.login };
 }

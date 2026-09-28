@@ -1263,7 +1263,7 @@ export const commandCatalog: readonly CommandEntry[] = [
     "name": "git init",
     "family": "git",
     "summary": "Create a GitHub repository for code that exists only here, push it, and connect it.",
-    "details": "Creates the repository through blocks-release using the GitHub account connected in the portal (private unless --public; --org places it under an organisation the account belongs to; --repo <owner/name> uses an existing empty repository instead). Runs git init if needed, ensures a .gitignore, commits everything, pushes --branch (default main, or the current branch) and writes the repo binding to blocks.json. Refuses with repo_already_bound when a repository is already connected -- run 'git disconnect' first. github_not_connected means the Blocks account has no GitHub connection. Mutating.",
+    "details": "Creates the repository through blocks-release using the GitHub account connected via 'blocks github connect' (or the portal) (private unless --public; --org places it under an organisation the account belongs to; --repo <owner/name> uses an existing empty repository instead). Runs git init if needed, ensures a .gitignore, commits everything, pushes --branch (default main, or the current branch) and writes the repo binding to blocks.json. Refuses with repo_already_bound when a repository is already connected -- run 'git disconnect' first. github_not_connected means the Blocks account has no GitHub connection -- run 'blocks github connect'. Mutating.",
     "scope": "project",
     "mutating": true,
     "flags": [
@@ -1304,6 +1304,26 @@ export const commandCatalog: readonly CommandEntry[] = [
     "summary": "Connected repository, branch, uncommitted files and ahead/behind counts for this workspace.",
     "details": "Local and read-only -- never fetches, so behind reflects the last fetch or pull. Exits 0 with bound:null / isRepository:false when nothing is connected, so a caller branches on the JSON rather than on an error.",
     "scope": "local",
+    "mutating": false,
+    "flags": []
+  },
+  {
+    "name": "github connect",
+    "family": "github",
+    "summary": "Connect this Blocks account to GitHub via OAuth (open browser, then poll).",
+    "details": "Resolves the public BLOCKS_GITHUB_SSO_CLIENT_ID from blocks-release's served SPA (or BLOCKS_GITHUB_SSO_CLIENT_ID env), opens the GitHub authorize URL with scopes repo, user:email, read:user, read:repo_hook, then polls GET /release/v4/Github/credential every 5s until connected or --timeout (default 300). --dry-run prints the authorize URL and plan without opening a browser or polling. Stores nothing new locally -- blocks-release persists the token. Mutating (GitHub consent / server-side token).",
+    "scope": "project",
+    "mutating": false,
+    "flags": [
+      "timeout"
+    ]
+  },
+  {
+    "name": "github status",
+    "family": "github",
+    "summary": "Show whether this Blocks account has a GitHub connection.",
+    "details": "Calls GET /release/v4/Github/credential. Reports {connected:false} on 404, or {connected:true,login} when a credential exists. Read-only; never opens a browser.",
+    "scope": "project",
     "mutating": false,
     "flags": []
   },
@@ -2726,7 +2746,7 @@ export const commandCatalog: readonly CommandEntry[] = [
     "family": "new",
     "summary": "Create a Vite React starter app that talks to Blocks exclusively through @seliseblocks/client (a single createBlocksClient() instance) using the...",
     "positional": "<name>",
-    "details": "Create a Vite React starter app that talks to Blocks exclusively through @seliseblocks/client (a single createBlocksClient() instance) using the SDK hosted IdP flow: blocksClient.auth.idp.redirectToProvider() on login click and blocksClient.auth.idp.callback() on /login/callback. Includes route guards, auto-refresh through auth.oidc.refreshToken(), live auth/iam/localization SDK examples, a Profile landing page, environment config, and safe .gitignore defaults. Uses the selected project (see 'use') unless --x-blocks-key overrides it. --app-domain and --client-id are resolved from the project when omitted: if the project has one domain it's used automatically, otherwise you're prompted to choose; the OIDC client is picked from a list of the project's existing clients, or you can create a minimal one (display name + redirect URI, active, registered as a Blocks OIDC identity provider) on the spot, or skip and register one later from the portal or 'auth oidc-clients save'. Non-interactive callers must provide --app-domain and --client-id or receive interactive_input_required. When a client id resolves, the command checks AuthController and may enable OIDC login. In non-interactive runs, pass --yes only after approving that possible tenant mutation; failure stops before scaffold files are written. If --blocks-api-url is omitted, it is derived from the app domain: https://blocksapi.<registrable-domain> (for example, app domain https://dqrsf.slsblx.com uses https://blocksapi.slsblx.com). Pass a different Data/IAM/Localization/OS gateway URL explicitly only if your project uses a non-default one. --oidc-url defaults to https://iam.seliseblocks.com. The Vite dev server's port defaults to 5173 and is baked into .env, vite.config.ts (strictPort), and the local OIDC redirect URI registered for a newly created client, so all three stay consistent. If port 5173 is already bound (for example by another Blocks app's own 'npm run dev'), the command automatically picks the next free port and warns about it; pass --dev-port to choose one explicitly instead, which fails fast with dev_port_in_use if that port is already taken.",
+    "details": "Create a Vite React starter app that talks to Blocks exclusively through @seliseblocks/client (a single createBlocksClient() instance) using the SDK hosted IdP flow: blocksClient.auth.idp.redirectToProvider() on login click and blocksClient.auth.idp.callback() on /login/callback. Includes route guards, auto-refresh through auth.oidc.refreshToken(), live auth/iam/localization SDK examples, a Profile landing page, environment config, and safe .gitignore defaults. Uses the selected project (see 'use') unless --x-blocks-key overrides it. --app-domain and --client-id are resolved from the project when omitted: if the project has one domain it's used automatically, otherwise you're prompted to choose; the OIDC client is picked from a list of the project's existing clients, or you can create a minimal one (display name + redirect URI, active, registered as a Blocks OIDC identity provider) on the spot, or skip and register one later from the portal or 'auth oidc-clients save'. Non-interactive callers must provide --app-domain and --client-id or receive interactive_input_required. When a client id resolves, the command checks AuthController and may enable OIDC login. In non-interactive runs, pass --yes only after approving that possible tenant mutation; failure stops before scaffold files are written. If --blocks-api-url is omitted, it is derived from the app domain: https://blocksapi.<registrable-domain> (for example, app domain https://dqrsf.slsblx.com uses https://blocksapi.slsblx.com). Pass a different Data/IAM/Localization/OS gateway URL explicitly only if your project uses a non-default one. --oidc-url defaults to https://iam.seliseblocks.com.",
     "scope": "project",
     "mutating": true,
     "flags": [
@@ -2917,7 +2937,7 @@ export const commandCatalog: readonly CommandEntry[] = [
     "name": "release deploy",
     "family": "release",
     "summary": "Deploy the selected project's environment (Build/manual), optionally syncing secrets and setting the domain first.",
-    "details": "Resolves the repo from --repo (name or id via Build/repos-list) or, when omitted, from the project's linked assets (Project/GetAsset) and that repo's connected branch (Build/repo-details). Aborts if the connected branch doesn't match this environment's name. --with-secrets <dotenvFile> first runs release secrets sync for that file and folds its summary into the final document as secretsSync; --domain also sets the custom deployment domain before deploying. --wait polls the build's status FIELD until a server terminal value (Succeeded/Failed/Cancelled/...; or --timeout elapses, default 900s); --follow implies --wait and streams build events to stderr. All progress goes to stderr, so --json stdout stays one parseable verdict document ({buildId, status, verdict, build}). Mutating; no artifact upload is performed by this CLI.",
+    "details": "Resolves the repo from --repo (name or id via Build/repos-list) or, when omitted, in order: (1) this workspace's blocks.json repo binding matched against Build/repos-list on the environment branch, (2) the single Build/repos-list entry whose branch equals the environment, (3) the project's linked OS assets (Project/GetAsset) as a legacy fallback. Labels the choice as repoSource: explicit | workspace-binding | repos-list-match | project-asset. Aborts with repo_ambiguous when multiple env-branch matches exist and none is the workspace binding; repo_not_linked when nothing matches (nextStep suggests git init/connect or --repo). Aborts if the connected branch doesn't match this environment's name. --with-secrets <dotenvFile> first runs release secrets sync for that file and folds its summary into the final document as secretsSync; --domain also sets the custom deployment domain before deploying. --wait polls the build's status FIELD until a server terminal value (Succeeded/Failed/Cancelled/...; or --timeout elapses, default 900s); --follow implies --wait and streams build events to stderr. All progress goes to stderr, so --json stdout stays one parseable verdict document ({buildId, status, verdict, build, repoSource}). Mutating; no artifact upload is performed by this CLI.",
     "scope": "project",
     "mutating": true,
     "flags": [

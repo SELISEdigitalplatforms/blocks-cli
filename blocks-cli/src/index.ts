@@ -122,6 +122,8 @@ import { releaseGitRepos } from "./commands/release/git/repos.js";
 import { gitClone } from "./commands/git/clone.js";
 import { gitConnect } from "./commands/git/connect.js";
 import { gitDisconnect } from "./commands/git/disconnect.js";
+import { githubConnect } from "./commands/github/connect.js";
+import { githubStatus } from "./commands/github/status.js";
 import { gitInit } from "./commands/git/init.js";
 import { gitPull } from "./commands/git/pull.js";
 import { gitPush } from "./commands/git/push.js";
@@ -513,6 +515,8 @@ const commands: Partial<Record<string, CommandHandler>> = {
   "git:pull": gitPull,
   "git:push": gitPush,
   "git:disconnect": gitDisconnect,
+  "github:connect": githubConnect,
+  "github:status": githubStatus,
   "new:web": newWeb,
 };
 
@@ -1459,7 +1463,18 @@ Release:
     Kubernetes namespace. Requires the repo named explicitly; not undoable.
     Mutating.
 
-Source control (GitHub, through the account connected in the Blocks portal):
+GitHub account:
+  blocks github connect [--timeout <seconds>] [--dry-run] [--json]
+    Open the GitHub OAuth authorize page (same client id / scopes as the Blocks
+    portal Connect GitHub button) and poll until Github/credential succeeds.
+    Default timeout 300s. Mutating only on the GitHub/Blocks side -- stores
+    nothing new locally.
+
+  blocks github status [--json]
+    Whether this Blocks account has a GitHub connection, and the GitHub login
+    when connected. Read-only; never opens a browser.
+
+Source control (GitHub, through the account connected via 'github connect' or the portal):
   blocks git status [--json]
     Connected repository, branch, uncommitted files, commits ahead/behind the
     last fetch. Local and read-only; exit 0 even when nothing is connected.

@@ -775,7 +775,7 @@
   },
   "release deploy": {
     "summary": "Deploy the selected project's environment (Build/manual), optionally syncing secrets and setting the domain first.",
-    "details": "Resolves the repo from --repo (name or id via Build/repos-list) or, when omitted, from the project's linked assets (Project/GetAsset) and that repo's connected branch (Build/repo-details). Aborts if the connected branch doesn't match this environment's name. --with-secrets <dotenvFile> first runs release secrets sync for that file and folds its summary into the final document as secretsSync; --domain also sets the custom deployment domain before deploying. --wait polls the build's status FIELD until a server terminal value (Succeeded/Failed/Cancelled/...; or --timeout elapses, default 900s); --follow implies --wait and streams build events to stderr. All progress goes to stderr, so --json stdout stays one parseable verdict document ({buildId, status, verdict, build}). Mutating; no artifact upload is performed by this CLI."
+    "details": "Resolves the repo from --repo (name or id via Build/repos-list) or, when omitted, in order: (1) this workspace's blocks.json repo binding matched against Build/repos-list on the environment branch, (2) the single Build/repos-list entry whose branch equals the environment, (3) the project's linked OS assets (Project/GetAsset) as a legacy fallback. Labels the choice as repoSource: explicit | workspace-binding | repos-list-match | project-asset. Aborts with repo_ambiguous when multiple env-branch matches exist and none is the workspace binding; repo_not_linked when nothing matches (nextStep suggests git init/connect or --repo). Aborts if the connected branch doesn't match this environment's name. --with-secrets <dotenvFile> first runs release secrets sync for that file and folds its summary into the final document as secretsSync; --domain also sets the custom deployment domain before deploying. --wait polls the build's status FIELD until a server terminal value (Succeeded/Failed/Cancelled/...; or --timeout elapses, default 900s); --follow implies --wait and streams build events to stderr. All progress goes to stderr, so --json stdout stays one parseable verdict document ({buildId, status, verdict, build, repoSource}). Mutating; no artifact upload is performed by this CLI."
   },
   "release setup": {
     "summary": "First-time deploy of a registered repo (Build/run-build): creates the deployment namespace and push webhook.",
@@ -964,7 +964,7 @@
   },
   "git init": {
     "summary": "Create a GitHub repository for code that exists only here, push it, and connect it.",
-    "details": "Creates the repository through blocks-release using the GitHub account connected in the portal (private unless --public; --org places it under an organisation the account belongs to; --repo <owner/name> uses an existing empty repository instead). Runs git init if needed, ensures a .gitignore, commits everything, pushes --branch (default main, or the current branch) and writes the repo binding to blocks.json. Refuses with repo_already_bound when a repository is already connected -- run 'git disconnect' first. github_not_connected means the Blocks account has no GitHub connection. Mutating."
+    "details": "Creates the repository through blocks-release using the GitHub account connected via 'blocks github connect' (or the portal) (private unless --public; --org places it under an organisation the account belongs to; --repo <owner/name> uses an existing empty repository instead). Runs git init if needed, ensures a .gitignore, commits everything, pushes --branch (default main, or the current branch) and writes the repo binding to blocks.json. Refuses with repo_already_bound when a repository is already connected -- run 'git disconnect' first. github_not_connected means the Blocks account has no GitHub connection -- run 'blocks github connect'. Mutating."
   },
   "git clone": {
     "summary": "Clone a GitHub repository and bind it to the selected project.",
@@ -992,5 +992,13 @@
     "summary": "Verify and promote a quarantined upload (cloud upload step 3).",
     "positional": "<fileId> <fileVersionId>",
     "details": "Only for an upload whose presign response said uploadCompletionRequired; any other version answers file_version_not_found. Idempotent: a repeat returns the recorded Verified/Rejected outcome."
+  },
+  "github connect": {
+    "summary": "Connect this Blocks account to GitHub via OAuth (open browser, then poll).",
+    "details": "Resolves the public BLOCKS_GITHUB_SSO_CLIENT_ID from blocks-release's served SPA (or BLOCKS_GITHUB_SSO_CLIENT_ID env), opens the GitHub authorize URL with scopes repo, user:email, read:user, read:repo_hook, then polls GET /release/v4/Github/credential every 5s until connected or --timeout (default 300). --dry-run prints the authorize URL and plan without opening a browser or polling. Stores nothing new locally -- blocks-release persists the token. Mutating (GitHub consent / server-side token)."
+  },
+  "github status": {
+    "summary": "Show whether this Blocks account has a GitHub connection.",
+    "details": "Calls GET /release/v4/Github/credential. Reports {connected:false} on 404, or {connected:true,login} when a credential exists. Read-only; never opens a browser."
   }
 }
