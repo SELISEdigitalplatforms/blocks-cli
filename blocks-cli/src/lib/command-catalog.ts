@@ -2576,6 +2576,50 @@ export const commandCatalog: readonly CommandEntry[] = [
     ]
   },
   {
+    "name": "logic scheduler create",
+    "family": "logic",
+    "summary": "Create a cron-triggered webhook schedule in blocks-logic.",
+    "details": "Requires --name, --cron (5-field), --url (absolute), or supply the full body via --file. Optional --method (default POST), repeatable --header key=value, --payload, --signing-secret (sent, never echoed), --description, --start-date, --end-date. POSTs Scheduler/CreateSchedule. Reports {itemId,name,cronExpression,isActive:true}. Mutating unless --dry-run.",
+    "scope": "project",
+    "mutating": true,
+    "flags": [
+      "file"
+    ]
+  },
+  {
+    "name": "logic scheduler delete",
+    "family": "logic",
+    "summary": "Delete a logic schedule.",
+    "positional": "<schedule-id>",
+    "details": "Confirms the schedule exists via GetSchedules, then POSTs Scheduler/DeleteSchedule. Requires --yes. Reports {itemId, deleted:true}. Errors: scheduler_not_found. Mutating.",
+    "scope": "project",
+    "mutating": true,
+    "flags": []
+  },
+  {
+    "name": "logic scheduler list",
+    "family": "logic",
+    "summary": "List logic schedules from Scheduler/GetSchedules.",
+    "details": "POSTs {Search, PageNumber (0-based), PageSize (default 10)} to GetSchedules and returns the response with signingSecret fields stripped. Read-only.",
+    "scope": "project",
+    "mutating": false,
+    "flags": [
+      "search"
+    ]
+  },
+  {
+    "name": "logic scheduler update",
+    "family": "logic",
+    "summary": "Update a schedule with read-before-write merge.",
+    "positional": "<schedule-id>",
+    "details": "Lists schedules and filters by id (no GetById), merges supplied flags (or --file body), POSTs Scheduler/UpdateSchedule. --active/--inactive toggles IsActive. Errors: scheduler_not_found (no Update call). Mutating unless --dry-run.",
+    "scope": "project",
+    "mutating": true,
+    "flags": [
+      "file"
+    ]
+  },
+  {
     "name": "login",
     "family": "login",
     "summary": "Device-code login.",

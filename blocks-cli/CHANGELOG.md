@@ -11,6 +11,8 @@
 - `blocks logic proxy versions|revert|test|executions|execution|overview` —
   Phase 2 history, controlled revert, non-mutating test, and request-log/metrics
   reads against `/logic/v4/Proxies/*`.
+- `blocks logic scheduler create|update|delete|list` — cron-triggered webhook
+  schedules against `/logic/v4/Scheduler/*` (read-merge-write updates; secrets never echoed).
 
 - `blocks logic push <file>` — compile a YAML workflow-as-code file into
   blocks-logic's WorkflowExportFile shape (embedded 12-type catalog, auto-layout,

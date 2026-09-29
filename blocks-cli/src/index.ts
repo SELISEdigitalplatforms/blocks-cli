@@ -140,6 +140,10 @@ import { logicProxyTest } from "./commands/logic/proxy/test.js";
 import { logicProxyExecutions } from "./commands/logic/proxy/executions.js";
 import { logicProxyExecution } from "./commands/logic/proxy/execution.js";
 import { logicProxyOverview } from "./commands/logic/proxy/overview.js";
+import { logicSchedulerCreate } from "./commands/logic/scheduler/create.js";
+import { logicSchedulerUpdate } from "./commands/logic/scheduler/update.js";
+import { logicSchedulerDelete } from "./commands/logic/scheduler/delete.js";
+import { logicSchedulerList } from "./commands/logic/scheduler/list.js";
 import { gitInit } from "./commands/git/init.js";
 import { gitPull } from "./commands/git/pull.js";
 import { gitPush } from "./commands/git/push.js";
@@ -554,6 +558,10 @@ const commands: Partial<Record<string, CommandHandler>> = {
   "logic:proxy:executions": logicProxyExecutions,
   "logic:proxy:execution": logicProxyExecution,
   "logic:proxy:overview": logicProxyOverview,
+  "logic:scheduler:create": logicSchedulerCreate,
+  "logic:scheduler:update": logicSchedulerUpdate,
+  "logic:scheduler:delete": logicSchedulerDelete,
+  "logic:scheduler:list": logicSchedulerList,
   "new:web": newWeb,
 };
 
@@ -1589,6 +1597,23 @@ Logic (workflow-as-code → blocks-logic):
 
   blocks logic proxy overview <proxy-id> [--json]
     Rolling-24h metrics overview (verbatim).
+
+  blocks logic scheduler create --name <n> --cron <expr> --url <url>
+                                [--method <verb>] [--header k=v]... [--payload <s>]
+                                [--signing-secret <s>] [--description <s>]
+                                [--start-date <ISO>] [--end-date <ISO>]
+                                [--file <path.json>] [--dry-run] [--yes] [--json]
+    Create a cron-triggered webhook schedule.
+
+  blocks logic scheduler update <schedule-id> [--name/--cron/--url/…] [--active|--inactive]
+                                [--file <path.json>] [--dry-run] [--yes] [--json]
+    Read-merge-write update (no GetById — list-and-filter).
+
+  blocks logic scheduler delete <schedule-id> --yes [--json]
+    Delete a schedule. Requires confirmation.
+
+  blocks logic scheduler list [--search <s>] [--page <n>] [--page-size <n>] [--json]
+    List schedules (signing secrets never echoed).
 
 Source control (GitHub, through the account connected via 'github connect' or the portal):
   blocks git status [--json]
