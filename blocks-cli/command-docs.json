@@ -1060,5 +1060,35 @@
     "summary": "Hard-delete a logic proxy.",
     "positional": "<proxy-id>",
     "details": "DELETEs /logic/v4/Proxies/{id}. Requires --yes (or interactive confirmation). Reports {itemId, deleted:true}. Server retains version history and execution logs. Errors: proxy_not_found. Mutating."
+  },
+  "logic proxy versions": {
+    "summary": "List a proxy's version history (newest first).",
+    "positional": "<proxy-id>",
+    "details": "GETs /logic/v4/Proxies/{id}/versions with Page (0-based) and PageSize (default 50). Returns ProxyVersionDto rows + totalCount verbatim. Works for proxies that were later deleted. Errors: PROXY_NOT_FOUND when the id never existed for this tenant. Read-only."
+  },
+  "logic proxy revert": {
+    "summary": "Revert a proxy to a prior version.",
+    "positional": "<proxy-id> <version-id>",
+    "details": "POSTs /logic/v4/Proxies/{id}/versions/{versionId}/revert. Reports {itemId, revertedTo}. History is append-only (a Revert row is recorded). Errors: PROXY_NOT_FOUND, PROXY_VERSION_NOT_FOUND, PROXY_DELETED, PROXY_REVERT_CONFLICT, PROXY_VERSION_NOT_REVERTABLE. Mutating unless --dry-run."
+  },
+  "logic proxy test": {
+    "summary": "Test a saved proxy or an unsaved draft against upstream without writing logs.",
+    "positional": "<proxy-id>",
+    "details": "Exactly one of a positional proxy id or --draft-file (create-shaped JSON). Requires --method. Optional --path-suffix, --query, --body, --content-type. POSTs /logic/v4/Proxies/test and returns ProxyTestResponseDto verbatim. Creates no ProxyExecutions row and mutates nothing. Errors: PROXY_VALIDATION (client-side for both/neither target; server-side for bad method etc.)."
+  },
+  "logic proxy executions": {
+    "summary": "List recent proxy executions (rolling 24h window).",
+    "positional": "<proxy-id>",
+    "details": "GETs /logic/v4/Proxies/{id}/executions. --status-class all|2xx|4xx|5xx (default all). --after-id live-tails (ignores --page). --as-of pins the window across pages (echo asOfUtc). Page 0-based; page-size default 25. Errors: PROXY_NOT_FOUND, PROXY_VALIDATION. Read-only."
+  },
+  "logic proxy execution": {
+    "summary": "Fetch one proxy execution detail.",
+    "positional": "<proxy-id> <execution-id>",
+    "details": "GETs /logic/v4/Proxies/{id}/executions/{executionId}. Returns ProxyExecutionDetailDto verbatim, or {\"data\":null} (exit 0) for unknown/mismatched/foreign ids \u2014 never a 404. Read-only."
+  },
+  "logic proxy overview": {
+    "summary": "Proxy metrics overview (rolling 24h / all-time).",
+    "positional": "<proxy-id>",
+    "details": "GETs /logic/v4/Proxies/{id}/overview and returns ProxyOverviewDto verbatim (calls24h, avgLatencyMs, errorRatePct, \u2026). Errors: PROXY_NOT_FOUND only when the proxy is unknown AND has no execution rows. Read-only."
   }
 }

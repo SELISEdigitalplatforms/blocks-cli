@@ -2447,6 +2447,30 @@ export const commandCatalog: readonly CommandEntry[] = [
     "flags": []
   },
   {
+    "name": "logic proxy execution",
+    "family": "logic",
+    "summary": "Fetch one proxy execution detail.",
+    "positional": "<proxy-id> <execution-id>",
+    "details": "GETs /logic/v4/Proxies/{id}/executions/{executionId}. Returns ProxyExecutionDetailDto verbatim, or {\"data\":null} (exit 0) for unknown/mismatched/foreign ids — never a 404. Read-only.",
+    "scope": "project",
+    "mutating": false,
+    "flags": []
+  },
+  {
+    "name": "logic proxy executions",
+    "family": "logic",
+    "summary": "List recent proxy executions (rolling 24h window).",
+    "positional": "<proxy-id>",
+    "details": "GETs /logic/v4/Proxies/{id}/executions. --status-class all|2xx|4xx|5xx (default all). --after-id live-tails (ignores --page). --as-of pins the window across pages (echo asOfUtc). Page 0-based; page-size default 25. Errors: PROXY_NOT_FOUND, PROXY_VALIDATION. Read-only.",
+    "scope": "project",
+    "mutating": false,
+    "flags": [
+      "after-id",
+      "as-of",
+      "status-class"
+    ]
+  },
+  {
     "name": "logic proxy get",
     "family": "logic",
     "summary": "Fetch one proxy from /logic/v4/Proxies/{id}.",
@@ -2468,6 +2492,43 @@ export const commandCatalog: readonly CommandEntry[] = [
     ]
   },
   {
+    "name": "logic proxy overview",
+    "family": "logic",
+    "summary": "Proxy metrics overview (rolling 24h / all-time).",
+    "positional": "<proxy-id>",
+    "details": "GETs /logic/v4/Proxies/{id}/overview and returns ProxyOverviewDto verbatim (calls24h, avgLatencyMs, errorRatePct, …). Errors: PROXY_NOT_FOUND only when the proxy is unknown AND has no execution rows. Read-only.",
+    "scope": "project",
+    "mutating": false,
+    "flags": []
+  },
+  {
+    "name": "logic proxy revert",
+    "family": "logic",
+    "summary": "Revert a proxy to a prior version.",
+    "positional": "<proxy-id> <version-id>",
+    "details": "POSTs /logic/v4/Proxies/{id}/versions/{versionId}/revert. Reports {itemId, revertedTo}. History is append-only (a Revert row is recorded). Errors: PROXY_NOT_FOUND, PROXY_VERSION_NOT_FOUND, PROXY_DELETED, PROXY_REVERT_CONFLICT, PROXY_VERSION_NOT_REVERTABLE. Mutating unless --dry-run.",
+    "scope": "project",
+    "mutating": true,
+    "flags": []
+  },
+  {
+    "name": "logic proxy test",
+    "family": "logic",
+    "summary": "Test a saved proxy or an unsaved draft against upstream without writing logs.",
+    "positional": "<proxy-id>",
+    "details": "Exactly one of a positional proxy id or --draft-file (create-shaped JSON). Requires --method. Optional --path-suffix, --query, --body, --content-type. POSTs /logic/v4/Proxies/test and returns ProxyTestResponseDto verbatim. Creates no ProxyExecutions row and mutates nothing. Errors: PROXY_VALIDATION (client-side for both/neither target; server-side for bad method etc.).",
+    "scope": "project",
+    "mutating": false,
+    "flags": [
+      "body",
+      "content-type",
+      "draft-file",
+      "method",
+      "path-suffix",
+      "query"
+    ]
+  },
+  {
     "name": "logic proxy update",
     "family": "logic",
     "summary": "Update a logic proxy with read-before-write merge (or full --file replace).",
@@ -2475,6 +2536,16 @@ export const commandCatalog: readonly CommandEntry[] = [
     "details": "Mode A: any subset of --name/--upstream/--methods — CLI GETs the current ProxyDetailDto, merges only the supplied fields, and PUTs the complete body so routes/headers/access are not wiped. Mode B: --file supplies the full replacement body. Enabled and Slug are never sent (PATCH-only / immutable). Follow-up GET prints the stored detail. Errors: proxy_not_found (no PUT), PROXY_VALIDATION. Mutating unless --dry-run.",
     "scope": "project",
     "mutating": true,
+    "flags": []
+  },
+  {
+    "name": "logic proxy versions",
+    "family": "logic",
+    "summary": "List a proxy's version history (newest first).",
+    "positional": "<proxy-id>",
+    "details": "GETs /logic/v4/Proxies/{id}/versions with Page (0-based) and PageSize (default 50). Returns ProxyVersionDto rows + totalCount verbatim. Works for proxies that were later deleted. Errors: PROXY_NOT_FOUND when the id never existed for this tenant. Read-only.",
+    "scope": "project",
+    "mutating": false,
     "flags": []
   },
   {

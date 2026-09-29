@@ -165,14 +165,25 @@ export function throwProxyUpstreamError(data: unknown, fallbackMessage: string):
 
   const errors = source.errors ?? record.errors;
 
-  if (code === "PROXY_SLUG_CONFLICT" || /slug.?conflict/i.test(message)) {
+  const verbatimCodes = new Set([
+    "PROXY_SLUG_CONFLICT",
+    "PROXY_VALIDATION",
+    "PROXY_NOT_FOUND",
+    "PROXY_VERSION_NOT_FOUND",
+    "PROXY_DELETED",
+    "PROXY_REVERT_CONFLICT",
+    "PROXY_VERSION_NOT_REVERTABLE"
+  ]);
+  if (code && verbatimCodes.has(code)) {
+    // Ticket surfaces PROXY_NOT_FOUND verbatim for Phase 2; Phase 1 also accepts proxy_not_found.
+    const outCode = code === "PROXY_NOT_FOUND" ? "PROXY_NOT_FOUND" : code;
+    throw new CliActionableError(message, outCode, undefined, errors);
+  }
+  if (/slug.?conflict/i.test(message)) {
     throw new CliActionableError(message, "PROXY_SLUG_CONFLICT");
   }
-  if (code === "PROXY_VALIDATION" || code === "PROXY_NOT_FOUND") {
-    throw new CliActionableError(message, code === "PROXY_NOT_FOUND" ? "proxy_not_found" : "PROXY_VALIDATION", undefined, errors);
-  }
-  if (code === "PROXY_NOT_FOUND" || /not found/i.test(message)) {
-    throw new CliActionableError(message, "proxy_not_found");
+  if (/not found/i.test(message)) {
+    throw new CliActionableError(message, "PROXY_NOT_FOUND");
   }
   if (errors !== undefined) {
     throw new CliActionableError(message, "PROXY_VALIDATION", undefined, errors);
@@ -535,4 +546,187 @@ export function buildSimpleUpdateOverrides(flags: Flags): Record<string, unknown
     );
   }
   return overrides;
+}
+
+
+/* ─── Phase 2: versions / revert / test / executions / overview ─── */
+
+export async function listProxyVersions(options: ProxyRequestContext & {
+  proxyId: string;
+  page: number;
+  pageSize: number;
+}): Promise<unknown> {
+  let result: unknown;
+  try {
+    result = await blocksRequest<unknown>(
+      `${LOGIC_PROXIES_API}/${encodeURIComponent(options.proxyId)}/versions`,
+      {
+        ...apiCtx(options),
+        method: "GET",
+        query: {
+          Page: options.page,
+          page: options.page,
+          PageNumber: options.page,
+          pageNumber: options.page,
+          PageSize: options.pageSize,
+          pageSize: options.pageSize
+        }
+      }
+    );
+  } catch (error) {
+    ensureHttpOkOrMap(error);
+  }
+  if (isRecord(result) && result.isSuccess === false) {
+    throwProxyUpstreamError(result, "Failed to list proxy versions.");
+  }
+  return result;
+}
+
+export async function revertProxyVersion(options: ProxyRequestContext & {
+  proxyId: string;
+  versionId: string;
+}): Promise<{ itemId: string; revertedTo: string }> {
+  let result: Record<string, unknown>;
+  try {
+    result = await blocksRequest<Record<string, unknown>>(
+      `${LOGIC_PROXIES_API}/${encodeURIComponent(options.proxyId)}/versions/${encodeURIComponent(options.versionId)}/revert`,
+      {
+        ...apiCtx(options),
+        method: "POST",
+        body: {}
+      }
+    );
+  } catch (error) {
+    ensureHttpOkOrMap(error);
+  }
+
+  if (result && result.isSuccess === false) {
+    throwProxyUpstreamError(result, "Proxy revert failed.");
+  }
+
+  return { itemId: options.proxyId, revertedTo: options.versionId };
+}
+
+export async function testProxy(options: ProxyRequestContext & {
+  body: Record<string, unknown>;
+}): Promise<unknown> {
+  let result: Record<string, unknown>;
+  try {
+    result = await blocksRequest<Record<string, unknown>>(`${LOGIC_PROXIES_API}/test`, {
+      ...apiCtx(options),
+      method: "POST",
+      body: options.body
+    });
+  } catch (error) {
+    ensureHttpOkOrMap(error);
+  }
+
+  if (result && result.isSuccess === false) {
+    throwProxyUpstreamError(result, "Proxy test failed.");
+  }
+  return result;
+}
+
+export async function listProxyExecutions(options: ProxyRequestContext & {
+  proxyId: string;
+  statusClass?: string;
+  afterId?: string;
+  page: number;
+  pageSize: number;
+  asOf?: string;
+}): Promise<unknown> {
+  const query: Record<string, string | number | boolean | undefined> = {
+    PageSize: options.pageSize,
+    pageSize: options.pageSize,
+    StatusClass: options.statusClass,
+    statusClass: options.statusClass
+  };
+  if (options.afterId) {
+    query.AfterId = options.afterId;
+    query.afterId = options.afterId;
+  } else {
+    query.Page = options.page;
+    query.page = options.page;
+    query.PageNumber = options.page;
+    query.pageNumber = options.page;
+  }
+  if (options.asOf) {
+    query.AsOfUtc = options.asOf;
+    query.asOfUtc = options.asOf;
+    query.AsOf = options.asOf;
+    query.asOf = options.asOf;
+  }
+  let result: unknown;
+  try {
+    result = await blocksRequest<unknown>(
+      `${LOGIC_PROXIES_API}/${encodeURIComponent(options.proxyId)}/executions`,
+      {
+        ...apiCtx(options),
+        method: "GET",
+        query
+      }
+    );
+  } catch (error) {
+    ensureHttpOkOrMap(error);
+  }
+  if (isRecord(result) && result.isSuccess === false) {
+    throwProxyUpstreamError(result, "Failed to list proxy executions.");
+  }
+  return result;
+}
+
+export async function getProxyExecution(options: ProxyRequestContext & {
+  proxyId: string;
+  executionId: string;
+}): Promise<unknown> {
+  try {
+    return await blocksRequest<unknown>(
+      `${LOGIC_PROXIES_API}/${encodeURIComponent(options.proxyId)}/executions/${encodeURIComponent(options.executionId)}`,
+      {
+        ...apiCtx(options),
+        method: "GET"
+      }
+    );
+  } catch (error) {
+    // Spec: never a 404 — unknown/mismatch returns {data:null}. If the server
+    // still 404s, surface as data:null rather than failing the command.
+    const message = error instanceof Error ? error.message : String(error);
+    if (/\b404\b/.test(message) || /not found/i.test(message)) {
+      return { data: null };
+    }
+    ensureHttpOkOrMap(error);
+  }
+}
+
+export async function getProxyOverview(options: ProxyRequestContext & { proxyId: string }): Promise<unknown> {
+  let result: unknown;
+  try {
+    result = await blocksRequest<unknown>(
+      `${LOGIC_PROXIES_API}/${encodeURIComponent(options.proxyId)}/overview`,
+      {
+        ...apiCtx(options),
+        method: "GET"
+      }
+    );
+  } catch (error) {
+    ensureHttpOkOrMap(error);
+  }
+  if (isRecord(result) && result.isSuccess === false) {
+    throwProxyUpstreamError(result, "Failed to load proxy overview.");
+  }
+  return result;
+}
+
+export function parseProxyPageSize(flags: Flags, defaultSize: number): number {
+  const pageSize = integerFlag(flags, "page-size", defaultSize);
+  if (pageSize < 1 || pageSize > 200) {
+    throw new Error("--page-size must be between 1 and 200");
+  }
+  return pageSize;
+}
+
+export function parseZeroBasedPage(flags: Flags): number {
+  const page = integerFlag(flags, "page", 0);
+  if (page < 0) throw new Error("--page must be greater than or equal to 0");
+  return page;
 }

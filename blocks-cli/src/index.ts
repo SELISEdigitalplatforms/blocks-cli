@@ -134,6 +134,12 @@ import { logicProxyGet } from "./commands/logic/proxy/get.js";
 import { logicProxyUpdate } from "./commands/logic/proxy/update.js";
 import { logicProxyEnable, logicProxyDisable } from "./commands/logic/proxy/enable.js";
 import { logicProxyDelete } from "./commands/logic/proxy/delete.js";
+import { logicProxyVersions } from "./commands/logic/proxy/versions.js";
+import { logicProxyRevert } from "./commands/logic/proxy/revert.js";
+import { logicProxyTest } from "./commands/logic/proxy/test.js";
+import { logicProxyExecutions } from "./commands/logic/proxy/executions.js";
+import { logicProxyExecution } from "./commands/logic/proxy/execution.js";
+import { logicProxyOverview } from "./commands/logic/proxy/overview.js";
 import { gitInit } from "./commands/git/init.js";
 import { gitPull } from "./commands/git/pull.js";
 import { gitPush } from "./commands/git/push.js";
@@ -542,6 +548,12 @@ const commands: Partial<Record<string, CommandHandler>> = {
   "logic:proxy:enable": logicProxyEnable,
   "logic:proxy:disable": logicProxyDisable,
   "logic:proxy:delete": logicProxyDelete,
+  "logic:proxy:versions": logicProxyVersions,
+  "logic:proxy:revert": logicProxyRevert,
+  "logic:proxy:test": logicProxyTest,
+  "logic:proxy:executions": logicProxyExecutions,
+  "logic:proxy:execution": logicProxyExecution,
+  "logic:proxy:overview": logicProxyOverview,
   "new:web": newWeb,
 };
 
@@ -1555,6 +1567,28 @@ Logic (workflow-as-code → blocks-logic):
 
   blocks logic proxy delete <proxy-id> --yes [--json]
     Hard-delete a proxy. Requires confirmation (--yes).
+
+  blocks logic proxy versions <proxy-id> [--page <n>] [--page-size <n>] [--json]
+    Version history (newest first). Works even after the proxy was deleted.
+
+  blocks logic proxy revert <proxy-id> <version-id> [--dry-run] [--yes] [--json]
+    Revert configuration to a prior version (append-only history).
+
+  blocks logic proxy test (<proxy-id> | --draft-file <path.json>) --method <verb>
+                          [--path-suffix <s>] [--query <s>] [--body <s>]
+                          [--content-type <s>] [--json]
+    Exercise the proxy/draft against upstream without writing executions.
+
+  blocks logic proxy executions <proxy-id> [--status-class all|2xx|4xx|5xx]
+                                [--after-id <id>] [--page <n>] [--page-size <n>]
+                                [--as-of <ISO>] [--json]
+    Recent executions (rolling 24h). --after-id live-tails; --as-of pins paging.
+
+  blocks logic proxy execution <proxy-id> <execution-id> [--json]
+    One execution detail. Unknown/mismatch returns {"data":null} (exit 0).
+
+  blocks logic proxy overview <proxy-id> [--json]
+    Rolling-24h metrics overview (verbatim).
 
 Source control (GitHub, through the account connected via 'github connect' or the portal):
   blocks git status [--json]
