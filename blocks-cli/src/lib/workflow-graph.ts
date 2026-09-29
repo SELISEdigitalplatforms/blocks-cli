@@ -219,19 +219,45 @@ export function rewriteProjectIdentity(
 
 export const REDACTED = "__REDACTED__";
 
-/** Parameter fields that hold a live secret and are stripped on export by default. */
-const SECRET_PARAM_KEYS = ["clientSecret", "clientCredential_composite"];
-const SECRET_HEADER_KEYS = ["x-blocks-key"];
+/**
+ * Key names (compared case-insensitively) whose string value is a live secret and is
+ * stripped on export by default. Matched anywhere in a node's parameters, at any depth,
+ * so a secret is caught regardless of the container it sits in (`headers` vs `Headers`,
+ * a nested auth block, etc.) or the casing the service persisted it under.
+ */
+const SECRET_KEYS = new Set(
+  ["clientSecret", "clientCredential_composite", "x-blocks-key"].map((key) => key.toLowerCase()),
+);
 
 export interface RedactionResult {
   graph: WorkflowGraph;
   redactedCount: number;
 }
 
+/** Recursively replace any secret-shaped string value with the placeholder. */
+function redactSecretsDeep(value: unknown): number {
+  let redactedCount = 0;
+  if (Array.isArray(value)) {
+    for (const item of value) redactedCount += redactSecretsDeep(item);
+  } else if (isPlainObject(value)) {
+    for (const [key, child] of Object.entries(value)) {
+      if (SECRET_KEYS.has(key.toLowerCase()) && isNonEmptyString(child)) {
+        value[key] = REDACTED;
+        redactedCount += 1;
+      } else {
+        redactedCount += redactSecretsDeep(child);
+      }
+    }
+  }
+  return redactedCount;
+}
+
 /**
  * Return a copy of the graph with node-parameter secrets replaced by a placeholder:
  * `clientSecret`, `clientCredential_composite`, and the `x-blocks-key` header value.
- * Exports embed these verbatim, so this is on by default; `--include-secrets` skips it.
+ * Matching is case-insensitive and walks nested objects/arrays, since the service can
+ * persist these under differently-cased or nested containers. Exports embed the values
+ * verbatim, so this is on by default; `--include-secrets` skips it.
  */
 export function redactWorkflowSecrets(graph: WorkflowGraph): RedactionResult {
   let redactedCount = 0;
@@ -239,15 +265,7 @@ export function redactWorkflowSecrets(graph: WorkflowGraph): RedactionResult {
 
   for (const node of clone.nodes) {
     if (!isPlainObject(node.parameters)) continue;
-    const params = node.parameters;
-    for (const key of SECRET_PARAM_KEYS) {
-      if (isNonEmptyString(params[key])) { params[key] = REDACTED; redactedCount += 1; }
-    }
-    if (isPlainObject(params.headers)) {
-      for (const key of SECRET_HEADER_KEYS) {
-        if (isNonEmptyString(params.headers[key])) { params.headers[key] = REDACTED; redactedCount += 1; }
-      }
-    }
+    redactedCount += redactSecretsDeep(node.parameters);
   }
 
   return { graph: clone, redactedCount };
