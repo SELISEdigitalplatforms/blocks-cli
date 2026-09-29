@@ -4,6 +4,11 @@
 
 ### Added
 
+- `blocks logic proxy list|create|get|update|enable|disable|delete` — Phase 1
+  Proxies lifecycle against `/logic/v4/Proxies` (simple flags or `--file` for
+  nested config; update uses read-merge-write so partial Mode A edits do not
+  wipe routes/headers/access).
+
 - `blocks logic push <file>` — compile a YAML workflow-as-code file into
   blocks-logic's WorkflowExportFile shape (embedded 12-type catalog, auto-layout,
   safety fixups), upload via Storage presign, enqueue Workflow/Import, and poll

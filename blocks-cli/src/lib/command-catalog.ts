@@ -2408,6 +2408,76 @@ export const commandCatalog: readonly CommandEntry[] = [
     ]
   },
   {
+    "name": "logic proxy create",
+    "family": "logic",
+    "summary": "Create a logic proxy (simple flags or full --file body).",
+    "details": "Mode A: --name, --upstream (absolute https://), --methods (CSV of GET,POST,PUT,PATCH,DELETE), optional --enabled/--disabled (default enabled). Mode B: --file with a full ProxyCreateRequestDto (routes/headers/query/access/…). Modes are mutually exclusive. POSTs /logic/v4/Proxies, then GETs the new proxy and prints the full ProxyDetailDto (including server-derived slug). Surfaces PROXY_SLUG_CONFLICT and PROXY_VALIDATION verbatim. Mutating unless --dry-run.",
+    "scope": "project",
+    "mutating": true,
+    "flags": []
+  },
+  {
+    "name": "logic proxy delete",
+    "family": "logic",
+    "summary": "Hard-delete a logic proxy.",
+    "positional": "<proxy-id>",
+    "details": "DELETEs /logic/v4/Proxies/{id}. Requires --yes (or interactive confirmation). Reports {itemId, deleted:true}. Server retains version history and execution logs. Errors: proxy_not_found. Mutating.",
+    "scope": "project",
+    "mutating": true,
+    "flags": []
+  },
+  {
+    "name": "logic proxy disable",
+    "family": "logic",
+    "summary": "Disable a logic proxy via PATCH (Enabled=false).",
+    "positional": "<proxy-id>",
+    "details": "PATCHes /logic/v4/Proxies/{id} with {ItemId, Enabled:false}. Does not change any other field. Reports {itemId, enabled:false}. Errors: proxy_not_found. Mutating unless --dry-run.",
+    "scope": "project",
+    "mutating": true,
+    "flags": []
+  },
+  {
+    "name": "logic proxy enable",
+    "family": "logic",
+    "summary": "Enable a logic proxy via PATCH (Enabled=true).",
+    "positional": "<proxy-id>",
+    "details": "PATCHes /logic/v4/Proxies/{id} with {ItemId, Enabled:true}. Does not change any other field. Reports {itemId, enabled:true}. Errors: proxy_not_found. Mutating unless --dry-run.",
+    "scope": "project",
+    "mutating": true,
+    "flags": []
+  },
+  {
+    "name": "logic proxy get",
+    "family": "logic",
+    "summary": "Fetch one proxy from /logic/v4/Proxies/{id}.",
+    "positional": "<proxy-id>",
+    "details": "Returns the API response verbatim. Unknown or foreign ids return {\"data\":null} with exit 0 (matching the API contract), not an error. Read-only.",
+    "scope": "project",
+    "mutating": false,
+    "flags": []
+  },
+  {
+    "name": "logic proxy list",
+    "family": "logic",
+    "summary": "List Proxies from blocks-logic /logic/v4/Proxies.",
+    "details": "GETs /logic/v4/Proxies with Search, optional IsActive (--active/--inactive), Page (0-based, default 0), PageSize (1-200, default 20). Returns the API response verbatim (items + totalCount). Read-only.",
+    "scope": "project",
+    "mutating": false,
+    "flags": [
+      "search"
+    ]
+  },
+  {
+    "name": "logic proxy update",
+    "family": "logic",
+    "summary": "Update a logic proxy with read-before-write merge (or full --file replace).",
+    "positional": "<proxy-id>",
+    "details": "Mode A: any subset of --name/--upstream/--methods — CLI GETs the current ProxyDetailDto, merges only the supplied fields, and PUTs the complete body so routes/headers/access are not wiped. Mode B: --file supplies the full replacement body. Enabled and Slug are never sent (PATCH-only / immutable). Follow-up GET prints the stored detail. Errors: proxy_not_found (no PUT), PROXY_VALIDATION. Mutating unless --dry-run.",
+    "scope": "project",
+    "mutating": true,
+    "flags": []
+  },
+  {
     "name": "logic publish",
     "family": "logic",
     "summary": "Publish a draft workflow (or a named new version) in blocks-logic.",

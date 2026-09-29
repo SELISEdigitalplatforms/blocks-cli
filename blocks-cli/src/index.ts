@@ -128,6 +128,12 @@ import { logicPush } from "./commands/logic/push.js";
 import { logicPublish } from "./commands/logic/publish.js";
 import { logicList } from "./commands/logic/list.js";
 import { logicGet } from "./commands/logic/get.js";
+import { logicProxyList } from "./commands/logic/proxy/list.js";
+import { logicProxyCreate } from "./commands/logic/proxy/create.js";
+import { logicProxyGet } from "./commands/logic/proxy/get.js";
+import { logicProxyUpdate } from "./commands/logic/proxy/update.js";
+import { logicProxyEnable, logicProxyDisable } from "./commands/logic/proxy/enable.js";
+import { logicProxyDelete } from "./commands/logic/proxy/delete.js";
 import { gitInit } from "./commands/git/init.js";
 import { gitPull } from "./commands/git/pull.js";
 import { gitPush } from "./commands/git/push.js";
@@ -529,6 +535,13 @@ const commands: Partial<Record<string, CommandHandler>> = {
   "logic:publish": logicPublish,
   "logic:list": logicList,
   "logic:get": logicGet,
+  "logic:proxy:list": logicProxyList,
+  "logic:proxy:create": logicProxyCreate,
+  "logic:proxy:get": logicProxyGet,
+  "logic:proxy:update": logicProxyUpdate,
+  "logic:proxy:enable": logicProxyEnable,
+  "logic:proxy:disable": logicProxyDisable,
+  "logic:proxy:delete": logicProxyDelete,
   "new:web": newWeb,
 };
 
@@ -643,9 +656,14 @@ async function printVersion(): Promise<void> {
   console.log(pkg.version ?? "0.0.0");
 }
 
-function toCliError(error: unknown): { code: string; message: string; nextStep?: string } {
+function toCliError(error: unknown): { code: string; message: string; nextStep?: string; errors?: unknown } {
   if (error instanceof CliActionableError) {
-    return { code: error.code, message: error.message, nextStep: error.nextStep };
+    return {
+      code: error.code,
+      message: error.message,
+      nextStep: error.nextStep,
+      ...(error.errors !== undefined ? { errors: error.errors } : {})
+    };
   }
 
   const message = error instanceof Error ? error.message : String(error);
@@ -1515,6 +1533,28 @@ Logic (workflow-as-code → blocks-logic):
 
   blocks logic get <workflow-id> [--json]
     Fetch one workflow from Workflow/Get (verbatim).
+
+  blocks logic proxy list [--search <s>] [--active|--inactive] [--page <n>]
+                          [--page-size <n>] [--json]
+    List Proxies from /logic/v4/Proxies (verbatim). --page is 0-based.
+
+  blocks logic proxy create (--name/--upstream/--methods | --file <path.json>)
+                            [--enabled|--disabled] [--dry-run] [--yes] [--json]
+    Create a proxy (simple flags or full JSON file), then print the stored detail.
+
+  blocks logic proxy get <proxy-id> [--json]
+    Fetch one proxy. Unknown/foreign id returns {"data":null} (exit 0).
+
+  blocks logic proxy update <proxy-id> (--name/--upstream/--methods | --file)
+                                       [--dry-run] [--yes] [--json]
+    Read-merge-write update (PUT). Mode A merges only supplied fields.
+
+  blocks logic proxy enable <proxy-id> [--yes] [--json]
+  blocks logic proxy disable <proxy-id> [--yes] [--json]
+    Toggle Enabled via PATCH without changing other fields.
+
+  blocks logic proxy delete <proxy-id> --yes [--json]
+    Hard-delete a proxy. Requires confirmation (--yes).
 
 Source control (GitHub, through the account connected via 'github connect' or the portal):
   blocks git status [--json]
