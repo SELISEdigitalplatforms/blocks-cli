@@ -486,21 +486,10 @@ nodes: []
   }
 });
 
-test("logic push: already pushed (C6)", async () => {
-  const { cwd, configDir } = await makeWorkspace();
-  const server = await startServer({ successAfterPolls: 1 });
-  try {
-    await writeProjectAuth(configDir, server.url);
-    await writeFile(join(cwd, "workflow.yaml"), EXAMPLE1);
-    const env = testEnv(configDir, { BLOCKS_LOGIC_WEB_URL: server.url });
-    const first = await run(["logic", "push", "workflow.yaml", "--poll-interval", "1", ...ctx(server.url)], { cwd, env });
-    assert.equal(first.status, 0, first.stderr);
-    const second = await run(["logic", "push", "workflow.yaml", ...ctx(server.url)], { cwd, env });
-    assert.equal(second.status, 1);
-    assert.match(second.stderr, /logic_already_pushed/);
-  } finally {
-    await server.close();
-  }
+test("logic push: re-push deferred to lifecycle tests (Phase 2 update)", async () => {
+  // Phase 1 C6 (logic_already_pushed) was replaced by Phase 2 update-on-repush.
+  // Covered in test/logic-lifecycle.test.mjs.
+  assert.equal(true, true);
 });
 
 test("logic push: import timeout (C7)", async () => {

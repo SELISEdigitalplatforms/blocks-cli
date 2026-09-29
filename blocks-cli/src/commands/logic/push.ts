@@ -9,6 +9,7 @@ import {
   readWorkflowFile,
   recordWorkflowBinding,
   resolveProjectShortKey,
+  updateWorkflow,
   uploadAndImportWorkflow,
   workflowBindingKey
 } from "../../lib/logic-push.js";
@@ -17,8 +18,9 @@ import { writeOutput } from "../../lib/output.js";
 import { parseCommand, selectedProject } from "../../lib/workspace.js";
 
 /**
- * Compile a YAML (or JSON) workflow file and create it in blocks-logic via Import.
- * Phase 1: create only — refuses files already recorded in blocks.json.
+ * Compile a YAML (or JSON) workflow file and create or update it in blocks-logic.
+ * First push goes through Import; a re-push of a file recorded in blocks.json
+ * calls Workflow/Update synchronously.
  */
 export async function logicPush(argv: string[]): Promise<void> {
   const { args, flags } = parseCommand(argv);
@@ -40,15 +42,8 @@ export async function logicPush(argv: string[]): Promise<void> {
   const progress = (message: string): void => (flags.json ? console.error(message) : console.log(message));
 
   const existing = await getExistingWorkflowBinding(filePath);
-  if (existing && !dryRun) {
-    throw new CliActionableError(
-      `This file was already pushed as workflow '${existing}'. Updating it from the CLI isn't supported yet (coming in Phase 2) — edit it in the blocks-logic console for now, or remove its entry from blocks.json if you really want to create a second, separate workflow from this file.`,
-      "logic_already_pushed"
-    );
-  }
 
   const text = await readWorkflowFile(filePath);
-  // Peek types before resolving runtime config so dry-run of simple files needs no scrape.
   const peeked = parseWorkflowSource(text);
   const peekedTypes = collectTypes(peeked);
   const need = needsLogicRuntimeConfig(peekedTypes);
@@ -68,18 +63,36 @@ export async function logicPush(argv: string[]): Promise<void> {
   const { compiled, messageCoRelationId } = compileWorkflowFileText(text, fixupCtx);
 
   if (dryRun) {
-    writeOutput({ dryRun: true, compiled }, flags);
+    writeOutput(
+      {
+        dryRun: true,
+        ...(existing ? { workflowId: existing, updated: true } : {}),
+        compiled
+      },
+      flags
+    );
     return;
   }
 
   const projectKey = await selectedProject(flags);
-  // Re-check binding under selected project context (same key).
   const rebound = await getExistingWorkflowBinding(filePath);
+
   if (rebound) {
-    throw new CliActionableError(
-      `This file was already pushed as workflow '${rebound}'. Updating it from the CLI isn't supported yet (coming in Phase 2) — edit it in the blocks-logic console for now, or remove its entry from blocks.json if you really want to create a second, separate workflow from this file.`,
-      "logic_already_pushed"
+    await updateWorkflow({
+      workflowId: rebound,
+      compiled,
+      projectKey,
+      flags
+    });
+    writeOutput(
+      {
+        workflowId: rebound,
+        name: compiled.name,
+        updated: true
+      },
+      flags
     );
+    return;
   }
 
   const { fileId } = await uploadAndImportWorkflow({

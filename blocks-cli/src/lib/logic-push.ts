@@ -311,3 +311,266 @@ export async function readWorkflowFile(filePath: string): Promise<string> {
     throw error;
   }
 }
+
+export type LogicNodeDto = {
+  id: string;
+  name: string;
+  category: string;
+  type: string;
+  version: string;
+  position: { x: number; y: number };
+  parameters: Record<string, unknown>;
+  settings: Record<string, unknown>;
+  pinData: null;
+};
+
+export type LogicEdgeDto = {
+  source: string;
+  target: string;
+  sourceHandle: string;
+  targetHandle: string;
+};
+
+export type WorkflowUpdateBody = {
+  ItemId: string;
+  itemId: string;
+  Name: string;
+  name: string;
+  Nodes: LogicNodeDto[];
+  nodes: LogicNodeDto[];
+  Edges: LogicEdgeDto[];
+  edges: LogicEdgeDto[];
+  Settings: Record<string, unknown>;
+  settings: Record<string, unknown>;
+};
+
+/** Map a compiled export document into the dual-cased Update request body. */
+export function compiledToUpdateBody(workflowId: string, compiled: WorkflowExportFile): WorkflowUpdateBody {
+  const nodes: LogicNodeDto[] = compiled.nodes.map((node) => ({
+    id: node.id,
+    name: node.name,
+    category: node.category,
+    type: node.type,
+    version: node.version,
+    position: { x: node.position.x, y: node.position.y },
+    parameters: node.parameters,
+    settings: node.settings,
+    pinData: null
+  }));
+  const edges: LogicEdgeDto[] = compiled.edges.map((edge) => ({
+    source: edge.source,
+    target: edge.target,
+    sourceHandle: edge.sourceHandle,
+    targetHandle: edge.targetHandle
+  }));
+  return {
+    ItemId: workflowId,
+    itemId: workflowId,
+    Name: compiled.name,
+    name: compiled.name,
+    Nodes: nodes,
+    nodes,
+    Edges: edges,
+    edges,
+    Settings: compiled.settings,
+    settings: compiled.settings
+  };
+}
+
+export async function updateWorkflow(options: {
+  workflowId: string;
+  compiled: WorkflowExportFile;
+  projectKey: string;
+  flags: Flags;
+}): Promise<Record<string, unknown>> {
+  const body = compiledToUpdateBody(options.workflowId, options.compiled);
+  const ctx = {
+    acceptFailureEnvelope: true as const,
+    impersonatedProjectAuth: true as const,
+    ...requestContext(options.flags),
+    projectTenantId: options.projectKey
+  };
+  const result = await blocksRequest<Record<string, unknown>>("/logic/v4/Workflow/Update", {
+    ...ctx,
+    method: "PUT",
+    body
+  });
+  if (result && result.isSuccess === false) {
+    throw new CliActionableError(
+      `Workflow update failed: ${JSON.stringify(result)}`,
+      "logic_import_failed"
+    );
+  }
+  return result ?? {};
+}
+
+const FILE_LIKE = /\.(ya?ml|json)$/i;
+
+/**
+ * Resolve a publish target that may be a workflowId or a local file path whose
+ * workflowId is recorded in blocks.json.
+ */
+export async function resolveWorkflowIdOrFile(target: string): Promise<{ workflowId: string; fromFile?: string }> {
+  const looksLikeFile = FILE_LIKE.test(target) || target.includes("/") || target.includes("\\");
+  if (looksLikeFile) {
+    const bound = await getExistingWorkflowBinding(target);
+    if (!bound) {
+      throw new CliActionableError(
+        `'${target}' has no recorded workflowId. Push it first.`,
+        "logic_not_a_pushed_file"
+      );
+    }
+    return { workflowId: bound, fromFile: target };
+  }
+
+  // Prefer an explicit binding when the user passes a relative path without extension
+  // that happens to exist in blocks.json; otherwise treat as a raw id.
+  const maybeBound = await getExistingWorkflowBinding(target);
+  if (maybeBound) {
+    return { workflowId: maybeBound, fromFile: target };
+  }
+  return { workflowId: target };
+}
+
+export async function getWorkflowRecord(options: {
+  workflowId: string;
+  projectKey: string;
+  flags: Flags;
+}): Promise<unknown> {
+  const ctx = {
+    acceptFailureEnvelope: true as const,
+    impersonatedProjectAuth: true as const,
+    ...requestContext(options.flags),
+    projectTenantId: options.projectKey
+  };
+  let result: unknown;
+  try {
+    result = await blocksRequest<unknown>("/logic/v4/Workflow/Get", {
+      ...ctx,
+      query: { WorkflowId: options.workflowId, workflowId: options.workflowId, ItemId: options.workflowId, itemId: options.workflowId }
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (/\b404\b/.test(message) || /not found/i.test(message)) {
+      throw new CliActionableError(
+        `No workflow with id '${options.workflowId}'.`,
+        "logic_workflow_not_found"
+      );
+    }
+    throw error;
+  }
+
+  if (result == null || result === "") {
+    throw new CliActionableError(
+      `No workflow with id '${options.workflowId}'.`,
+      "logic_workflow_not_found"
+    );
+  }
+  if (isRecord(result) && result.isSuccess === false) {
+    throw new CliActionableError(
+      `No workflow with id '${options.workflowId}'.`,
+      "logic_workflow_not_found"
+    );
+  }
+  if (isRecord(result) && result.data === null) {
+    throw new CliActionableError(
+      `No workflow with id '${options.workflowId}'.`,
+      "logic_workflow_not_found"
+    );
+  }
+  return result;
+}
+
+export async function listWorkflows(options: {
+  projectKey: string;
+  flags: Flags;
+  search?: string;
+  publishedOnly?: boolean;
+  pageNumber: number;
+  pageSize: number;
+}): Promise<unknown> {
+  const ctx = {
+    impersonatedProjectAuth: true as const,
+    ...requestContext(options.flags),
+    projectTenantId: options.projectKey
+  };
+  return blocksRequest<unknown>("/logic/v4/Workflow/GetAll", {
+    ...ctx,
+    body: {
+      Search: options.search,
+      search: options.search,
+      IsPublished: options.publishedOnly === true ? true : undefined,
+      isPublished: options.publishedOnly === true ? true : undefined,
+      PageNumber: options.pageNumber,
+      pageNumber: options.pageNumber,
+      PageSize: options.pageSize,
+      pageSize: options.pageSize
+    }
+  });
+}
+
+export async function publishWorkflow(options: {
+  workflowId: string;
+  projectKey: string;
+  flags: Flags;
+  versionName?: string;
+}): Promise<{ workflowId: string; published: true; versionId?: string; raw: unknown }> {
+  // Confirm the workflow exists before publishing so missing ids surface as
+  // logic_workflow_not_found rather than a generic upstream envelope.
+  await getWorkflowRecord({
+    workflowId: options.workflowId,
+    projectKey: options.projectKey,
+    flags: options.flags
+  });
+
+  const ctx = {
+    acceptFailureEnvelope: true as const,
+    impersonatedProjectAuth: true as const,
+    ...requestContext(options.flags),
+    projectTenantId: options.projectKey
+  };
+
+  let result: Record<string, unknown>;
+  try {
+    if (options.versionName) {
+      result = await blocksRequest<Record<string, unknown>>("/logic/v4/Workflow/PublishNewVersion", {
+        ...ctx,
+        body: {
+          WorkflowId: options.workflowId,
+          workflowId: options.workflowId,
+          Name: options.versionName,
+          name: options.versionName
+        }
+      });
+    } else {
+      result = await blocksRequest<Record<string, unknown>>("/logic/v4/Workflow/PublishVersion", {
+        ...ctx,
+        body: {
+          WorkflowId: options.workflowId,
+          workflowId: options.workflowId
+        }
+      });
+    }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    throw new CliActionableError(message, "logic_publish_failed");
+  }
+
+  if (result && result.isSuccess === false) {
+    const upstream =
+      readString(result, "description", "Description", "message", "Message", "detail", "Detail") ??
+      JSON.stringify(result);
+    throw new CliActionableError(upstream, "logic_publish_failed");
+  }
+
+  const versionId =
+    readString(result ?? {}, "versionId", "VersionId") ??
+    (isRecord(result?.data) ? readString(result.data as Record<string, unknown>, "versionId", "VersionId") : undefined);
+
+  return {
+    workflowId: options.workflowId,
+    published: true,
+    ...(versionId && options.versionName ? { versionId } : {}),
+    raw: result
+  };
+}

@@ -2385,11 +2385,46 @@ export const commandCatalog: readonly CommandEntry[] = [
     ]
   },
   {
+    "name": "logic get",
+    "family": "logic",
+    "summary": "Fetch one workflow from blocks-logic Workflow/Get.",
+    "positional": "<workflow-id>",
+    "details": "GETs Workflow/Get?WorkflowId=<id> and returns the response verbatim. Missing workflows fail with logic_workflow_not_found. Read-only.",
+    "scope": "project",
+    "mutating": false,
+    "flags": []
+  },
+  {
+    "name": "logic list",
+    "family": "logic",
+    "summary": "List workflows from blocks-logic Workflow/GetAll.",
+    "details": "POSTs {Search, IsPublished, PageNumber, PageSize} to Workflow/GetAll and returns the response verbatim. --published-only sets IsPublished true; --page is 1-based (sent 0-based); --page-size defaults to 20. Read-only.",
+    "scope": "project",
+    "mutating": false,
+    "flags": [
+      "page",
+      "page-size",
+      "published-only"
+    ]
+  },
+  {
+    "name": "logic publish",
+    "family": "logic",
+    "summary": "Publish a draft workflow (or a named new version) in blocks-logic.",
+    "positional": "<workflow-id-or-file>",
+    "details": "Accepts a workflowId or a local file path whose workflowId is recorded in blocks.json. Without --version-name, POSTs Workflow/PublishVersion for the current draft. With --version-name, POSTs Workflow/PublishNewVersion and includes the resulting versionId. Confirms unless --yes. --dry-run shows the endpoint without calling it. Errors: logic_workflow_not_found, logic_not_a_pushed_file, logic_publish_failed. Mutating unless --dry-run.",
+    "scope": "project",
+    "mutating": true,
+    "flags": [
+      "version-name"
+    ]
+  },
+  {
     "name": "logic push",
     "family": "logic",
-    "summary": "Compile a YAML workflow file and create it in blocks-logic via Import.",
+    "summary": "Compile a YAML workflow file and create or update it in blocks-logic.",
     "positional": "<file>",
-    "details": "Reads a workflow-as-code YAML (or JSON) file, validates node types and edge handles against the embedded blocks-logic catalog, applies safety fixups (webhook authorizationMode, agent/dataAction base URLs, httpRequest auth default), auto-layouts nodes, uploads the compiled WorkflowExportFile through Storage/GetPreSignedUrlForUpload, enqueues Workflow/Import, and by default polls Notifier/GetNotifications until a notification whose CorrelationId matches this push's MessageCoRelationId arrives. Records the resulting workflowId in blocks.json under logic.workflows[<file>] and refuses to push the same file twice (Phase 1 create-only; update comes in Phase 2). --dry-run prints the compiled document without uploading. --no-wait submits and returns {submitted,fileId} immediately. --timeout (default 60) and --poll-interval (default 3) control wait. Mutating unless --dry-run.",
+    "details": "Reads a workflow-as-code YAML (or JSON) file, validates node types and edge handles against the embedded blocks-logic catalog, applies safety fixups, and auto-layouts nodes. When blocks.json has no workflowId for this file, uploads via Storage/GetPreSignedUrlForUpload, enqueues Workflow/Import, and by default polls Notifier/GetNotifications until the CorrelationId-matched result arrives, then records workflowId under logic.workflows[<file>]. When a workflowId is already recorded, compiles the same way and calls Workflow/Update synchronously with {ItemId, Name, Nodes, Edges, Settings}, reporting {workflowId, name, updated:true}. --dry-run prints the compiled document (and workflowId when updating) without calling the API. --no-wait applies only to the create/Import path. Mutating unless --dry-run.",
     "scope": "project",
     "mutating": false,
     "flags": [
