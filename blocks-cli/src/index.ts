@@ -122,6 +122,8 @@ import { releaseGitRepos } from "./commands/release/git/repos.js";
 import { gitClone } from "./commands/git/clone.js";
 import { gitConnect } from "./commands/git/connect.js";
 import { gitDisconnect } from "./commands/git/disconnect.js";
+import { githubConnect } from "./commands/github/connect.js";
+import { githubStatus } from "./commands/github/status.js";
 import { gitInit } from "./commands/git/init.js";
 import { gitPull } from "./commands/git/pull.js";
 import { gitPush } from "./commands/git/push.js";
@@ -236,6 +238,8 @@ import { captchaDisable, captchaEnable } from "./commands/captcha/enable.js";
 import { captchaGet } from "./commands/captcha/get.js";
 import { captchaList } from "./commands/captcha/list.js";
 import { captchaSave } from "./commands/captcha/save.js";
+import { certificateUpload } from "./commands/certificate/upload.js";
+import { domainConfigure } from "./commands/domain/configure.js";
 import { secretsAccess } from "./commands/secrets/access.js";
 import { secretsAudit } from "./commands/secrets/audit.js";
 import { secretsGet } from "./commands/secrets/get.js";
@@ -475,6 +479,8 @@ const commands: Partial<Record<string, CommandHandler>> = {
   "captcha:enable": captchaEnable,
   "captcha:disable": captchaDisable,
   "captcha:delete": captchaDelete,
+  "domain:configure": domainConfigure,
+  "certificate:upload": certificateUpload,
   "secrets:list": secretsList,
   "secrets:get": secretsGet,
   "secrets:set": secretsSet,
@@ -513,6 +519,8 @@ const commands: Partial<Record<string, CommandHandler>> = {
   "git:pull": gitPull,
   "git:push": gitPush,
   "git:disconnect": gitDisconnect,
+  "github:connect": githubConnect,
+  "github:status": githubStatus,
   "new:web": newWeb,
 };
 
@@ -971,6 +979,17 @@ Storage (/os/v4/Storage/* — project-scoped: requires a selected project, imper
     Upsert: omit --item-id to create; pass --update to update. Once a configuration exists only
     the upload settings can change; the provider and its credentials are fixed.
   blocks storage config delete <name> [--dry-run] [--yes] [--json]
+
+Domain (/os/v4/Domain/* — project-scoped: requires a selected project, impersonated project token only):
+  blocks domain configure --cookie-domain <hostname> [--dry-run] [--yes] [--json]
+    Set the tenant cookie/custom domain via Domain/Configure. There is no CLI
+    read-back or remove today (blocks-os exposes configure only). Mutating.
+
+Certificate (/os/v4/Certificate/* — project-scoped: requires a selected project, impersonated project token only):
+  blocks certificate upload --file <path.pem> [--third-party] [--provider-ref <id>] [--dry-run] [--yes] [--json]
+    Upload a public certificate (multipart) via Certificate/UploadCertificate.
+    --third-party targets an external IdP slot; --provider-ref names that provider.
+    Permission: mutate-token-validation-params. Mutating.
 
 Captcha (/os/v4/captcha/* — project-scoped: requires a selected project, impersonated project token only):
   blocks captcha list [--json]
@@ -1459,7 +1478,18 @@ Release:
     Kubernetes namespace. Requires the repo named explicitly; not undoable.
     Mutating.
 
-Source control (GitHub, through the account connected in the Blocks portal):
+GitHub account:
+  blocks github connect [--timeout <seconds>] [--dry-run] [--json]
+    Open the GitHub OAuth authorize page (same client id / scopes as the Blocks
+    portal Connect GitHub button) and poll until Github/credential succeeds.
+    Default timeout 300s. Mutating only on the GitHub/Blocks side -- stores
+    nothing new locally.
+
+  blocks github status [--json]
+    Whether this Blocks account has a GitHub connection, and the GitHub login
+    when connected. Read-only; never opens a browser.
+
+Source control (GitHub, through the account connected via 'github connect' or the portal):
   blocks git status [--json]
     Connected repository, branch, uncommitted files, commits ahead/behind the
     last fetch. Local and read-only; exit 0 even when nothing is connected.

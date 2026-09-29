@@ -207,7 +207,7 @@ test("git init: without a GitHub connection it fails before touching the directo
     const result = await run(["git", "init", "--yes", ...ctx(server.url)], { cwd, env: testEnv(configDir, ghRoot) });
     assert.equal(result.status, 1);
     assert.match(result.stderr, /github_not_connected/);
-    assert.match(result.stderr, /Blocks portal/);
+    assert.match(result.stderr, /blocks github connect/);
     assert.equal(await exists(join(cwd, ".git")), false, "git init ran despite no credential");
     assert.equal(server.calls.created.length, 0);
   } finally {
