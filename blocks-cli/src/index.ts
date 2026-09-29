@@ -124,6 +124,7 @@ import { gitConnect } from "./commands/git/connect.js";
 import { gitDisconnect } from "./commands/git/disconnect.js";
 import { githubConnect } from "./commands/github/connect.js";
 import { githubStatus } from "./commands/github/status.js";
+import { logicPush } from "./commands/logic/push.js";
 import { gitInit } from "./commands/git/init.js";
 import { gitPull } from "./commands/git/pull.js";
 import { gitPush } from "./commands/git/push.js";
@@ -521,6 +522,7 @@ const commands: Partial<Record<string, CommandHandler>> = {
   "git:disconnect": gitDisconnect,
   "github:connect": githubConnect,
   "github:status": githubStatus,
+  "logic:push": logicPush,
   "new:web": newWeb,
 };
 
@@ -1488,6 +1490,13 @@ GitHub account:
   blocks github status [--json]
     Whether this Blocks account has a GitHub connection, and the GitHub login
     when connected. Read-only; never opens a browser.
+
+Logic (workflow-as-code → blocks-logic Import):
+  blocks logic push <file> [--dry-run] [--wait|--no-wait] [--timeout <seconds>]
+                         [--poll-interval <seconds>] [--json]
+    Compile a YAML workflow file into blocks-logic's import shape, upload it,
+    enqueue Import, and wait for the CorrelationId-matched notifier result.
+    Records workflowId in blocks.json; refuses to re-push the same file (Phase 1).
 
 Source control (GitHub, through the account connected via 'github connect' or the portal):
   blocks git status [--json]

@@ -1,5 +1,16 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- `blocks logic push <file>` — compile a YAML workflow-as-code file into
+  blocks-logic's WorkflowExportFile shape (embedded 12-type catalog, auto-layout,
+  safety fixups), upload via Storage presign, enqueue Workflow/Import, and poll
+  Notifier by CorrelationId. Records workflowId in `blocks.json` and refuses
+  re-push (Phase 1 create-only).
+
+
 All notable changes to `@seliseblocks/cli-os`.
 
 This project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).

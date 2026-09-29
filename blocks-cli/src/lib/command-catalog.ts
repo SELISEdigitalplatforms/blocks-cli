@@ -2385,6 +2385,21 @@ export const commandCatalog: readonly CommandEntry[] = [
     ]
   },
   {
+    "name": "logic push",
+    "family": "logic",
+    "summary": "Compile a YAML workflow file and create it in blocks-logic via Import.",
+    "positional": "<file>",
+    "details": "Reads a workflow-as-code YAML (or JSON) file, validates node types and edge handles against the embedded blocks-logic catalog, applies safety fixups (webhook authorizationMode, agent/dataAction base URLs, httpRequest auth default), auto-layouts nodes, uploads the compiled WorkflowExportFile through Storage/GetPreSignedUrlForUpload, enqueues Workflow/Import, and by default polls Notifier/GetNotifications until a notification whose CorrelationId matches this push's MessageCoRelationId arrives. Records the resulting workflowId in blocks.json under logic.workflows[<file>] and refuses to push the same file twice (Phase 1 create-only; update comes in Phase 2). --dry-run prints the compiled document without uploading. --no-wait submits and returns {submitted,fileId} immediately. --timeout (default 60) and --poll-interval (default 3) control wait. Mutating unless --dry-run.",
+    "scope": "project",
+    "mutating": false,
+    "flags": [
+      "no-wait",
+      "poll-interval",
+      "timeout",
+      "wait"
+    ]
+  },
+  {
     "name": "login",
     "family": "login",
     "summary": "Device-code login.",

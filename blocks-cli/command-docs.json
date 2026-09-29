@@ -1008,5 +1008,10 @@
   "certificate upload": {
     "summary": "Upload a public certificate for token validation via Certificate/UploadCertificate.",
     "details": "Requires --file pointing at an existing non-empty PEM/CRT. Sends multipart form field 'certificate' plus query isThirdParty (--third-party) and optional providerRef (--provider-ref). Defaults isThirdParty to false and omits providerRef when empty. When --provider-ref is set without --third-party, the query is still sent and JSON notes providerRefIgnoredWhenNotThirdParty. Permission: blocks-os::project::mutate-token-validation-params. Mutating."
+  },
+  "logic push": {
+    "summary": "Compile a YAML workflow file and create it in blocks-logic via Import.",
+    "positional": "<file>",
+    "details": "Reads a workflow-as-code YAML (or JSON) file, validates node types and edge handles against the embedded blocks-logic catalog, applies safety fixups (webhook authorizationMode, agent/dataAction base URLs, httpRequest auth default), auto-layouts nodes, uploads the compiled WorkflowExportFile through Storage/GetPreSignedUrlForUpload, enqueues Workflow/Import, and by default polls Notifier/GetNotifications until a notification whose CorrelationId matches this push's MessageCoRelationId arrives. Records the resulting workflowId in blocks.json under logic.workflows[<file>] and refuses to push the same file twice (Phase 1 create-only; update comes in Phase 2). --dry-run prints the compiled document without uploading. --no-wait submits and returns {submitted,fileId} immediately. --timeout (default 60) and --poll-interval (default 3) control wait. Mutating unless --dry-run."
   }
 }
