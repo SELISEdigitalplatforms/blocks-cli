@@ -124,6 +124,10 @@ import { gitConnect } from "./commands/git/connect.js";
 import { gitDisconnect } from "./commands/git/disconnect.js";
 import { githubConnect } from "./commands/github/connect.js";
 import { githubStatus } from "./commands/github/status.js";
+import { logicPush } from "./commands/logic/push.js";
+import { logicPublish } from "./commands/logic/publish.js";
+import { logicList } from "./commands/logic/list.js";
+import { logicGet } from "./commands/logic/get.js";
 import { gitInit } from "./commands/git/init.js";
 import { gitPull } from "./commands/git/pull.js";
 import { gitPush } from "./commands/git/push.js";
@@ -521,6 +525,10 @@ const commands: Partial<Record<string, CommandHandler>> = {
   "git:disconnect": gitDisconnect,
   "github:connect": githubConnect,
   "github:status": githubStatus,
+  "logic:push": logicPush,
+  "logic:publish": logicPublish,
+  "logic:list": logicList,
+  "logic:get": logicGet,
   "new:web": newWeb,
 };
 
@@ -1488,6 +1496,25 @@ GitHub account:
   blocks github status [--json]
     Whether this Blocks account has a GitHub connection, and the GitHub login
     when connected. Read-only; never opens a browser.
+
+Logic (workflow-as-code → blocks-logic):
+  blocks logic push <file> [--dry-run] [--wait|--no-wait] [--timeout <seconds>]
+                         [--poll-interval <seconds>] [--json]
+    Compile a YAML workflow file into blocks-logic's import shape. First push
+    uploads and enqueues Import; a re-push of a file recorded in blocks.json
+    calls Workflow/Update synchronously.
+
+  blocks logic publish <workflow-id-or-file> [--version-name <string>]
+                                           [--dry-run] [--yes] [--json]
+    Publish a draft workflow (PublishVersion), or PublishNewVersion when
+    --version-name is set. File paths resolve via blocks.json bindings.
+
+  blocks logic list [--search <string>] [--published-only] [--page <n>]
+                    [--page-size <n>] [--json]
+    List workflows from Workflow/GetAll (verbatim).
+
+  blocks logic get <workflow-id> [--json]
+    Fetch one workflow from Workflow/Get (verbatim).
 
 Source control (GitHub, through the account connected via 'github connect' or the portal):
   blocks git status [--json]

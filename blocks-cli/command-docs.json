@@ -1008,5 +1008,24 @@
   "certificate upload": {
     "summary": "Upload a public certificate for token validation via Certificate/UploadCertificate.",
     "details": "Requires --file pointing at an existing non-empty PEM/CRT. Sends multipart form field 'certificate' plus query isThirdParty (--third-party) and optional providerRef (--provider-ref). Defaults isThirdParty to false and omits providerRef when empty. When --provider-ref is set without --third-party, the query is still sent and JSON notes providerRefIgnoredWhenNotThirdParty. Permission: blocks-os::project::mutate-token-validation-params. Mutating."
+  },
+  "logic push": {
+    "summary": "Compile a YAML workflow file and create or update it in blocks-logic.",
+    "positional": "<file>",
+    "details": "Reads a workflow-as-code YAML (or JSON) file, validates node types and edge handles against the embedded blocks-logic catalog, applies safety fixups, and auto-layouts nodes. When blocks.json has no workflowId for this file, uploads via Storage/GetPreSignedUrlForUpload, enqueues Workflow/Import, and by default polls Notifier/GetNotifications until the CorrelationId-matched result arrives, then records workflowId under logic.workflows[<file>]. When a workflowId is already recorded, compiles the same way and calls Workflow/Update synchronously with {ItemId, Name, Nodes, Edges, Settings}, reporting {workflowId, name, updated:true}. --dry-run prints the compiled document (and workflowId when updating) without calling the API. --no-wait applies only to the create/Import path. Mutating unless --dry-run."
+  },
+  "logic publish": {
+    "summary": "Publish a draft workflow (or a named new version) in blocks-logic.",
+    "positional": "<workflow-id-or-file>",
+    "details": "Accepts a workflowId or a local file path whose workflowId is recorded in blocks.json. Without --version-name, POSTs Workflow/PublishVersion for the current draft. With --version-name, POSTs Workflow/PublishNewVersion and includes the resulting versionId. Confirms unless --yes. --dry-run shows the endpoint without calling it. Errors: logic_workflow_not_found, logic_not_a_pushed_file, logic_publish_failed. Mutating unless --dry-run."
+  },
+  "logic list": {
+    "summary": "List workflows from blocks-logic Workflow/GetAll.",
+    "details": "POSTs {Search, IsPublished, PageNumber, PageSize} to Workflow/GetAll and returns the response verbatim. --published-only sets IsPublished true; --page is 1-based (sent 0-based); --page-size defaults to 20. Read-only."
+  },
+  "logic get": {
+    "summary": "Fetch one workflow from blocks-logic Workflow/Get.",
+    "positional": "<workflow-id>",
+    "details": "GETs Workflow/Get?WorkflowId=<id> and returns the response verbatim. Missing workflows fail with logic_workflow_not_found. Read-only."
   }
 }
