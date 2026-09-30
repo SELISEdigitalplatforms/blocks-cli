@@ -2726,7 +2726,7 @@ export const commandCatalog: readonly CommandEntry[] = [
     "family": "new",
     "summary": "Create a Vite React starter app that talks to Blocks exclusively through @seliseblocks/client (a single createBlocksClient() instance) using the...",
     "positional": "<name>",
-    "details": "Create a Vite React starter app that talks to Blocks exclusively through @seliseblocks/client (a single createBlocksClient() instance) using the SDK hosted IdP flow: blocksClient.auth.idp.redirectToProvider() on login click and blocksClient.auth.idp.callback() on /login/callback. Includes route guards, auto-refresh through auth.oidc.refreshToken(), live auth/iam/localization SDK examples, a Profile landing page, environment config, and safe .gitignore defaults. Uses the selected project (see 'use') unless --x-blocks-key overrides it. --app-domain and --client-id are resolved from the project when omitted: if the project has one domain it's used automatically, otherwise you're prompted to choose; the OIDC client is picked from a list of the project's existing clients, or you can create a minimal one (display name + redirect URI, active, registered as a Blocks OIDC identity provider) on the spot, or skip and register one later from the portal or 'auth oidc-clients save'. Non-interactive callers must provide --app-domain and --client-id or receive interactive_input_required. When a client id resolves, the command checks AuthController and may enable OIDC login. In non-interactive runs, pass --yes only after approving that possible tenant mutation; failure stops before scaffold files are written. If --blocks-api-url is omitted, it is derived from the app domain: https://blocksapi.<registrable-domain> (for example, app domain https://dqrsf.slsblx.com uses https://blocksapi.slsblx.com). Pass a different Data/IAM/Localization/OS gateway URL explicitly only if your project uses a non-default one. --oidc-url defaults to https://iam.seliseblocks.com. The Vite dev server's port defaults to 5173 and is baked into .env, vite.config.ts (strictPort), and the local OIDC redirect URI registered for a newly created client, so all three stay consistent. If port 5173 is already bound (for example by another Blocks app's own 'npm run dev'), the command automatically picks the next free port and warns about it; pass --dev-port to choose one explicitly instead, which fails fast with dev_port_in_use if that port is already taken.",
+    "details": "Create a Vite React starter app that talks to Blocks exclusively through @seliseblocks/client (a single createBlocksClient() instance) using the SDK hosted IdP flow: blocksClient.auth.idp.redirectToProvider() on login click and blocksClient.auth.idp.callback() on /login/callback. Includes route guards, auto-refresh through auth.oidc.refreshToken(), live auth/iam/localization SDK examples, a Profile landing page, environment config, and safe .gitignore defaults. Uses the selected project (see 'use') unless --x-blocks-key overrides it. --app-domain and --client-id are resolved from the project when omitted: if the project has one domain it's used automatically, otherwise you're prompted to choose; the OIDC client is picked from a list of the project's existing clients, or you can create a minimal one (display name + redirect URI, active, registered as a Blocks OIDC identity provider) on the spot, or skip and register one later from the portal or 'auth oidc-clients save'. Non-interactive callers must provide --app-domain and --client-id or receive interactive_input_required. When a client id resolves, the command checks AuthController and may enable OIDC login. In non-interactive runs, pass --yes only after approving that possible tenant mutation; failure stops before scaffold files are written. If --blocks-api-url is omitted, it is derived from the app domain: https://blocksapi.<registrable-domain> (for example, app domain https://dqrsf.slsblx.com uses https://blocksapi.slsblx.com). Pass a different Data/IAM/Localization/OS gateway URL explicitly only if your project uses a non-default one. --oidc-url defaults to https://iam.seliseblocks.com.",
     "scope": "project",
     "mutating": true,
     "flags": [
@@ -3422,5 +3422,113 @@ export const commandCatalog: readonly CommandEntry[] = [
     "scope": "local",
     "mutating": false,
     "flags": []
+  },
+  {
+    "name": "workflow delete",
+    "family": "workflow",
+    "summary": "Delete a workflow.",
+    "positional": "<id>",
+    "details": "Mutating.",
+    "scope": "project",
+    "mutating": true,
+    "flags": [
+      "id"
+    ]
+  },
+  {
+    "name": "workflow export",
+    "family": "workflow",
+    "summary": "Export one workflow (by id) or all (--all) to portable JSON files.",
+    "details": "Writes files that 'workflow import' can consume. Secrets in node parameters (client secrets, the x-blocks-key header) are stripped to __REDACTED__ unless --include-secrets is passed. --out <path> sets the file for a single export; --out-dir <dir> sets the directory; the default is blocks/workflows/. Read-only on the server; writes local files.",
+    "scope": "project",
+    "mutating": false,
+    "flags": [
+      "all",
+      "id",
+      "include-secrets",
+      "out",
+      "out-dir",
+      "page-size"
+    ]
+  },
+  {
+    "name": "workflow get",
+    "family": "workflow",
+    "summary": "Read one workflow, including its full node/edge graph.",
+    "positional": "<id>",
+    "scope": "project",
+    "mutating": false,
+    "flags": [
+      "id"
+    ]
+  },
+  {
+    "name": "workflow import",
+    "family": "workflow",
+    "summary": "Import an exported workflow file into the selected project.",
+    "details": "Reads a workflow export (--file <path.json>), assigns fresh node ids, rewrites edges, and re-points tenant-scoped keys (dataAction/dataGateway/sendMail) at this project. Upserts by name -- never trusts the file's id -- using Update when a workflow of the same name exists, Create otherwise. --publish activates it afterwards; --project-slug <slug> updates projectShortKey references; --name overrides the imported name. Warns about dropped nodes/edges and any __REDACTED__ secret placeholders that must be filled before the workflow will run. Mutating.",
+    "scope": "project",
+    "mutating": true,
+    "flags": [
+      "file",
+      "name",
+      "project-slug",
+      "publish"
+    ]
+  },
+  {
+    "name": "workflow list",
+    "family": "workflow",
+    "summary": "List workflows in the selected project.",
+    "details": "Filter by name with --search and by state with --is-published; page with --page-number (1-based) and --page-size. Read-only.",
+    "scope": "project",
+    "mutating": false,
+    "flags": [
+      "is-published",
+      "page-number",
+      "page-size",
+      "search"
+    ]
+  },
+  {
+    "name": "workflow publish",
+    "family": "workflow",
+    "summary": "Publish a new version, activating the workflow.",
+    "positional": "<id>",
+    "details": "This is what makes a workflow run: its webhook becomes reachable and schedule triggers are registered. A created or imported workflow stays inactive until published. --name defaults to the workflow's current name; --description is optional. Mutating.",
+    "scope": "project",
+    "mutating": true,
+    "flags": [
+      "description",
+      "id",
+      "name"
+    ]
+  },
+  {
+    "name": "workflow save",
+    "family": "workflow",
+    "summary": "Create or update a workflow from a JSON payload.",
+    "details": "Low-level. Provide the graph with --file <path.json> or --body '<json>'. Omit --item-id to create (POST), pass it to update (PUT). To turn an exported file into a live workflow with id remapping and tenant rewrite, use 'workflow import' instead. Mutating.",
+    "scope": "project",
+    "mutating": true,
+    "flags": [
+      "body",
+      "description",
+      "file",
+      "item-id",
+      "name"
+    ]
+  },
+  {
+    "name": "workflow unpublish",
+    "family": "workflow",
+    "summary": "Take a workflow out of service.",
+    "positional": "<id>",
+    "details": "Stops the webhook and removes schedule triggers; the workflow and its draft are kept. Re-publish to reactivate. Mutating.",
+    "scope": "project",
+    "mutating": true,
+    "flags": [
+      "id"
+    ]
   }
 ];
