@@ -2375,6 +2375,9 @@ test("release deploy wait polls with the explicitly deployed project session", a
     if (path === "/os/v4/Project/Gets") {
       return [{ tenantGroupId: "group-1", projects: [{ environment: "dev", tenantId: "target-project" }] }];
     }
+    if (path === "/release/v4/Build/repos-list") {
+      return { isSuccess: true, data: [] };
+    }
     if (path === "/os/v4/Project/GetAsset") {
       return { assets: { resources: [{ name: "dev", resourceId: "repo-1" }] } };
     }
@@ -2501,7 +2504,7 @@ test("release deploy flags an unregistered deployed /login/callback and --regist
       return { data: { repo: { branch: "dev", repoUrl: "https://example.test/repo.git" } } };
     }
     if (path === "/release/v4/Build/repos-list") {
-      return { data: [{ itemId: "repo-1", repoName: "web", defaultDeploymentUrl: "https://tbumke-ekeca.slsblx.test" }] };
+      return { data: [{ itemId: "repo-1", repoName: "web", defaultDeploymentUrl: "https://tbumke-ekeca.slsblx.test", branch: "dev", repoUrl: "https://github.com/acme/web" }] };
     }
     if (path === "/release/v4/RepoSecret/value") {
       secretValueReads += 1;
@@ -3784,7 +3787,9 @@ test("linux ignores empty XDG_CONFIG_HOME and uses home config fallback", { skip
   delete env.BLOCKS_CONFIG_DIR;
 
   const status = run(["doctor", "--json"], { cwd, env });
-  assert.equal(status.status, 0, status.stderr);
+  // Doctor may exit 1 when no tokens exist; the point of this test is the
+  // empty XDG_CONFIG_HOME falls back to ~/.config/..., not a healthy session.
+  assert.equal(status.signal, null, status.stderr);
   const data = JSON.parse(status.stdout);
   assert.ok(data.checks.some((check) => check.detail.includes(join(homeDir, ".config", "seliseblocks", "cli", "tokens.json"))));
 });
@@ -5062,6 +5067,9 @@ test("release deploy --wait reads the status field, not keywords in other string
     if (path === "/os/v4/Project/Gets") {
       return [{ tenantGroupId: "group-1", projects: [{ environment: "dev", tenantId: "target-project" }] }];
     }
+    if (path === "/release/v4/Build/repos-list") {
+      return { isSuccess: true, data: [] };
+    }
     if (path === "/os/v4/Project/GetAsset") {
       return { assets: { resources: [{ name: "dev", resourceId: "repo-1" }] } };
     }
@@ -5314,6 +5322,9 @@ test("release deploy --with-secrets --json emits one document carrying the sync 
     const path = request.url.split("?")[0];
     if (path === "/os/v4/Project/Gets") {
       return [{ tenantGroupId: "group-1", projects: [{ environment: "dev", tenantId: "target-project" }] }];
+    }
+    if (path === "/release/v4/Build/repos-list") {
+      return { isSuccess: true, data: [] };
     }
     if (path === "/os/v4/Project/GetAsset") {
       return { assets: { resources: [{ name: "dev", resourceId: "repo-1" }] } };

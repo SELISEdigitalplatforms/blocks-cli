@@ -387,6 +387,19 @@ export const commandCatalog: readonly CommandEntry[] = [
     ]
   },
   {
+    "name": "certificate upload",
+    "family": "certificate",
+    "summary": "Upload a public certificate for token validation via Certificate/UploadCertificate.",
+    "details": "Requires --file pointing at an existing non-empty PEM/CRT. Sends multipart form field 'certificate' plus query isThirdParty (--third-party) and optional providerRef (--provider-ref). Defaults isThirdParty to false and omits providerRef when empty. When --provider-ref is set without --third-party, the query is still sent and JSON notes providerRefIgnoredWhenNotThirdParty. Permission: blocks-os::project::mutate-token-validation-params. Mutating.",
+    "scope": "project",
+    "mutating": true,
+    "flags": [
+      "file",
+      "provider-ref",
+      "third-party"
+    ]
+  },
+  {
     "name": "data config create",
     "family": "data",
     "summary": "Point the Data Gateway at an external database.",
@@ -1222,6 +1235,17 @@ export const commandCatalog: readonly CommandEntry[] = [
     "flags": []
   },
   {
+    "name": "domain configure",
+    "family": "domain",
+    "summary": "Set the project's cookie/custom domain via blocks-os Domain/Configure.",
+    "details": "Requires --cookie-domain (non-empty). POSTs { cookieDomain } to /os/v4/Domain/Configure and reports { configured, cookieDomain } because the API does not echo the value. Empty domain fails client-side with domain_missing_required_fields (\"domain name is missing\"), matching the server. No get/remove exists on blocks-os yet. Mutating.",
+    "scope": "project",
+    "mutating": true,
+    "flags": [
+      "cookie-domain"
+    ]
+  },
+  {
     "name": "git clone",
     "family": "git",
     "summary": "Clone a GitHub repository and bind it to the selected project.",
@@ -1263,7 +1287,7 @@ export const commandCatalog: readonly CommandEntry[] = [
     "name": "git init",
     "family": "git",
     "summary": "Create a GitHub repository for code that exists only here, push it, and connect it.",
-    "details": "Creates the repository through blocks-release using the GitHub account connected in the portal (private unless --public; --org places it under an organisation the account belongs to; --repo <owner/name> uses an existing empty repository instead). Runs git init if needed, ensures a .gitignore, commits everything, pushes --branch (default main, or the current branch) and writes the repo binding to blocks.json. Refuses with repo_already_bound when a repository is already connected -- run 'git disconnect' first. github_not_connected means the Blocks account has no GitHub connection. Mutating.",
+    "details": "Creates the repository through blocks-release using the GitHub account connected via 'blocks github connect' (or the portal) (private unless --public; --org places it under an organisation the account belongs to; --repo <owner/name> uses an existing empty repository instead). Runs git init if needed, ensures a .gitignore, commits everything, pushes --branch (default main, or the current branch) and writes the repo binding to blocks.json. Refuses with repo_already_bound when a repository is already connected -- run 'git disconnect' first. github_not_connected means the Blocks account has no GitHub connection -- run 'blocks github connect'. Mutating.",
     "scope": "project",
     "mutating": true,
     "flags": [
@@ -1304,6 +1328,26 @@ export const commandCatalog: readonly CommandEntry[] = [
     "summary": "Connected repository, branch, uncommitted files and ahead/behind counts for this workspace.",
     "details": "Local and read-only -- never fetches, so behind reflects the last fetch or pull. Exits 0 with bound:null / isRepository:false when nothing is connected, so a caller branches on the JSON rather than on an error.",
     "scope": "local",
+    "mutating": false,
+    "flags": []
+  },
+  {
+    "name": "github connect",
+    "family": "github",
+    "summary": "Connect this Blocks account to GitHub via OAuth (open browser, then poll).",
+    "details": "Resolves the public BLOCKS_GITHUB_SSO_CLIENT_ID from blocks-release's served SPA (or BLOCKS_GITHUB_SSO_CLIENT_ID env), opens the GitHub authorize URL with scopes repo, user:email, read:user, read:repo_hook, then polls GET /release/v4/Github/credential every 5s until connected or --timeout (default 300). --dry-run prints the authorize URL and plan without opening a browser or polling. Stores nothing new locally -- blocks-release persists the token. Mutating (GitHub consent / server-side token).",
+    "scope": "project",
+    "mutating": false,
+    "flags": [
+      "timeout"
+    ]
+  },
+  {
+    "name": "github status",
+    "family": "github",
+    "summary": "Show whether this Blocks account has a GitHub connection.",
+    "details": "Calls GET /release/v4/Github/credential. Reports {connected:false} on 404, or {connected:true,login} when a credential exists. Read-only; never opens a browser.",
+    "scope": "project",
     "mutating": false,
     "flags": []
   },
@@ -2341,6 +2385,299 @@ export const commandCatalog: readonly CommandEntry[] = [
     ]
   },
   {
+    "name": "logic proxy create",
+    "family": "logic",
+    "summary": "Create a logic proxy (simple flags or full --file body).",
+    "details": "Mode A: --name, --upstream (absolute https://), --methods (CSV of GET,POST,PUT,PATCH,DELETE), optional --enabled/--disabled (default enabled). Mode B: --file with a full ProxyCreateRequestDto (routes/headers/query/access/…). Modes are mutually exclusive. POSTs /logic/v4/Proxies, then GETs the new proxy and prints the full ProxyDetailDto (including server-derived slug). Surfaces PROXY_SLUG_CONFLICT and PROXY_VALIDATION verbatim. Mutating unless --dry-run.",
+    "scope": "project",
+    "mutating": true,
+    "flags": []
+  },
+  {
+    "name": "logic proxy delete",
+    "family": "logic",
+    "summary": "Hard-delete a logic proxy.",
+    "positional": "<proxy-id>",
+    "details": "DELETEs /logic/v4/Proxies/{id}. Requires --yes (or interactive confirmation). Reports {itemId, deleted:true}. Server retains version history and execution logs. Errors: proxy_not_found. Mutating.",
+    "scope": "project",
+    "mutating": true,
+    "flags": []
+  },
+  {
+    "name": "logic proxy disable",
+    "family": "logic",
+    "summary": "Disable a logic proxy via PATCH (Enabled=false).",
+    "positional": "<proxy-id>",
+    "details": "PATCHes /logic/v4/Proxies/{id} with {ItemId, Enabled:false}. Does not change any other field. Reports {itemId, enabled:false}. Errors: proxy_not_found. Mutating unless --dry-run.",
+    "scope": "project",
+    "mutating": true,
+    "flags": []
+  },
+  {
+    "name": "logic proxy enable",
+    "family": "logic",
+    "summary": "Enable a logic proxy via PATCH (Enabled=true).",
+    "positional": "<proxy-id>",
+    "details": "PATCHes /logic/v4/Proxies/{id} with {ItemId, Enabled:true}. Does not change any other field. Reports {itemId, enabled:true}. Errors: proxy_not_found. Mutating unless --dry-run.",
+    "scope": "project",
+    "mutating": true,
+    "flags": []
+  },
+  {
+    "name": "logic proxy execution",
+    "family": "logic",
+    "summary": "Fetch one proxy execution detail.",
+    "positional": "<proxy-id> <execution-id>",
+    "details": "GETs /logic/v4/Proxies/{id}/executions/{executionId}. Returns ProxyExecutionDetailDto verbatim, or {\"data\":null} (exit 0) for unknown/mismatched/foreign ids — never a 404. Read-only.",
+    "scope": "project",
+    "mutating": false,
+    "flags": []
+  },
+  {
+    "name": "logic proxy executions",
+    "family": "logic",
+    "summary": "List recent proxy executions (rolling 24h window).",
+    "positional": "<proxy-id>",
+    "details": "GETs /logic/v4/Proxies/{id}/executions. --status-class all|2xx|4xx|5xx (default all). --after-id live-tails (ignores --page). --as-of pins the window across pages (echo asOfUtc). Page 0-based; page-size default 25. Errors: PROXY_NOT_FOUND, PROXY_VALIDATION. Read-only.",
+    "scope": "project",
+    "mutating": false,
+    "flags": [
+      "after-id",
+      "as-of",
+      "status-class"
+    ]
+  },
+  {
+    "name": "logic proxy get",
+    "family": "logic",
+    "summary": "Fetch one proxy from /logic/v4/Proxies/{id}.",
+    "positional": "<proxy-id>",
+    "details": "Returns the API response verbatim. Unknown or foreign ids return {\"data\":null} with exit 0 (matching the API contract), not an error. Read-only.",
+    "scope": "project",
+    "mutating": false,
+    "flags": []
+  },
+  {
+    "name": "logic proxy list",
+    "family": "logic",
+    "summary": "List Proxies from blocks-logic /logic/v4/Proxies.",
+    "details": "GETs /logic/v4/Proxies with Search, optional IsActive (--active/--inactive), Page (0-based, default 0), PageSize (1-200, default 20). Returns the API response verbatim (items + totalCount). Read-only.",
+    "scope": "project",
+    "mutating": false,
+    "flags": [
+      "search"
+    ]
+  },
+  {
+    "name": "logic proxy overview",
+    "family": "logic",
+    "summary": "Proxy metrics overview (rolling 24h / all-time).",
+    "positional": "<proxy-id>",
+    "details": "GETs /logic/v4/Proxies/{id}/overview and returns ProxyOverviewDto verbatim (calls24h, avgLatencyMs, errorRatePct, …). Errors: PROXY_NOT_FOUND only when the proxy is unknown AND has no execution rows. Read-only.",
+    "scope": "project",
+    "mutating": false,
+    "flags": []
+  },
+  {
+    "name": "logic proxy revert",
+    "family": "logic",
+    "summary": "Revert a proxy to a prior version.",
+    "positional": "<proxy-id> <version-id>",
+    "details": "POSTs /logic/v4/Proxies/{id}/versions/{versionId}/revert. Reports {itemId, revertedTo}. History is append-only (a Revert row is recorded). Errors: PROXY_NOT_FOUND, PROXY_VERSION_NOT_FOUND, PROXY_DELETED, PROXY_REVERT_CONFLICT, PROXY_VERSION_NOT_REVERTABLE. Mutating unless --dry-run.",
+    "scope": "project",
+    "mutating": true,
+    "flags": []
+  },
+  {
+    "name": "logic proxy test",
+    "family": "logic",
+    "summary": "Test a saved proxy or an unsaved draft against upstream without writing logs.",
+    "positional": "<proxy-id>",
+    "details": "Exactly one of a positional proxy id or --draft-file (create-shaped JSON). Requires --method. Optional --path-suffix, --query, --body, --content-type. POSTs /logic/v4/Proxies/test and returns ProxyTestResponseDto verbatim. Creates no ProxyExecutions row and mutates nothing. Errors: PROXY_VALIDATION (client-side for both/neither target; server-side for bad method etc.).",
+    "scope": "project",
+    "mutating": false,
+    "flags": [
+      "body",
+      "content-type",
+      "draft-file",
+      "method",
+      "path-suffix",
+      "query"
+    ]
+  },
+  {
+    "name": "logic proxy update",
+    "family": "logic",
+    "summary": "Update a logic proxy with read-before-write merge (or full --file replace).",
+    "positional": "<proxy-id>",
+    "details": "Mode A: any subset of --name/--upstream/--methods — CLI GETs the current ProxyDetailDto, merges only the supplied fields, and PUTs the complete body so routes/headers/access are not wiped. Mode B: --file supplies the full replacement body. Enabled and Slug are never sent (PATCH-only / immutable). Follow-up GET prints the stored detail. Errors: proxy_not_found (no PUT), PROXY_VALIDATION. Mutating unless --dry-run.",
+    "scope": "project",
+    "mutating": true,
+    "flags": []
+  },
+  {
+    "name": "logic proxy versions",
+    "family": "logic",
+    "summary": "List a proxy's version history (newest first).",
+    "positional": "<proxy-id>",
+    "details": "GETs /logic/v4/Proxies/{id}/versions with Page (0-based) and PageSize (default 50). Returns ProxyVersionDto rows + totalCount verbatim. Works for proxies that were later deleted. Errors: PROXY_NOT_FOUND when the id never existed for this tenant. Read-only.",
+    "scope": "project",
+    "mutating": false,
+    "flags": []
+  },
+  {
+    "name": "logic scheduler create",
+    "family": "logic",
+    "summary": "Create a cron-triggered webhook schedule in blocks-logic.",
+    "details": "Requires --name, --cron (5-field), --url (absolute), or supply the full body via --file. Optional --method (default POST), repeatable --header key=value, --payload, --signing-secret (sent, never echoed), --description, --start-date, --end-date. POSTs Scheduler/CreateSchedule. Reports {itemId,name,cronExpression,isActive:true}. Mutating unless --dry-run.",
+    "scope": "project",
+    "mutating": true,
+    "flags": [
+      "file"
+    ]
+  },
+  {
+    "name": "logic scheduler delete",
+    "family": "logic",
+    "summary": "Delete a logic schedule.",
+    "positional": "<schedule-id>",
+    "details": "Confirms the schedule exists via GetSchedules, then POSTs Scheduler/DeleteSchedule. Requires --yes. Reports {itemId, deleted:true}. Errors: scheduler_not_found. Mutating.",
+    "scope": "project",
+    "mutating": true,
+    "flags": []
+  },
+  {
+    "name": "logic scheduler list",
+    "family": "logic",
+    "summary": "List logic schedules from Scheduler/GetSchedules.",
+    "details": "POSTs {Search, PageNumber (0-based), PageSize (default 10)} to GetSchedules and returns the response with signingSecret fields stripped. Read-only.",
+    "scope": "project",
+    "mutating": false,
+    "flags": [
+      "search"
+    ]
+  },
+  {
+    "name": "logic scheduler update",
+    "family": "logic",
+    "summary": "Update a schedule with read-before-write merge.",
+    "positional": "<schedule-id>",
+    "details": "Lists schedules and filters by id (no GetById), merges supplied flags (or --file body), POSTs Scheduler/UpdateSchedule. --active/--inactive toggles IsActive. Errors: scheduler_not_found (no Update call). Mutating unless --dry-run.",
+    "scope": "project",
+    "mutating": true,
+    "flags": [
+      "file"
+    ]
+  },
+  {
+    "name": "logic workflow delete",
+    "family": "logic",
+    "summary": "Delete a workflow.",
+    "positional": "<id>",
+    "details": "Mutating.",
+    "scope": "project",
+    "mutating": true,
+    "flags": [
+      "id"
+    ]
+  },
+  {
+    "name": "logic workflow export",
+    "family": "logic",
+    "summary": "Export one workflow (by id) or all (--all) to portable JSON files.",
+    "details": "Writes files that 'logic workflow import' can consume. Secrets in node parameters (client secrets, the x-blocks-key header) are stripped to __REDACTED__ unless --include-secrets is passed. --out <path> sets the file for a single export; --out-dir <dir> sets the directory; the default is blocks/workflows/. Read-only on the server; writes local files.",
+    "scope": "project",
+    "mutating": false,
+    "flags": [
+      "all",
+      "id",
+      "include-secrets",
+      "out",
+      "out-dir",
+      "page-size"
+    ]
+  },
+  {
+    "name": "logic workflow get",
+    "family": "logic",
+    "summary": "Read one workflow, including its full node/edge graph.",
+    "positional": "<id>",
+    "scope": "project",
+    "mutating": false,
+    "flags": [
+      "id"
+    ]
+  },
+  {
+    "name": "logic workflow import",
+    "family": "logic",
+    "summary": "Import an exported workflow file into the selected project.",
+    "details": "Reads a workflow export (--file <path.json>), assigns fresh node ids, rewrites edges, and re-points tenant-scoped keys (dataAction/dataGateway/sendMail) at this project. Upserts by name -- never trusts the file's id -- using Update when a workflow of the same name exists, Create otherwise. --publish activates it afterwards; --project-slug <slug> updates projectShortKey references; --name overrides the imported name. Warns about dropped nodes/edges and any __REDACTED__ secret placeholders that must be filled before the workflow will run. Mutating.",
+    "scope": "project",
+    "mutating": true,
+    "flags": [
+      "file",
+      "name",
+      "project-slug",
+      "publish"
+    ]
+  },
+  {
+    "name": "logic workflow list",
+    "family": "logic",
+    "summary": "List workflows in the selected project.",
+    "details": "Filter by name with --search and by state with --is-published; page with --page-number (1-based) and --page-size. Read-only.",
+    "scope": "project",
+    "mutating": false,
+    "flags": [
+      "is-published",
+      "page-number",
+      "page-size",
+      "search"
+    ]
+  },
+  {
+    "name": "logic workflow publish",
+    "family": "logic",
+    "summary": "Publish a new version, activating the workflow.",
+    "positional": "<id>",
+    "details": "This is what makes a workflow run: its webhook becomes reachable and schedule triggers are registered. A created or imported workflow stays inactive until published. --name defaults to the workflow's current name; --description is optional. Mutating.",
+    "scope": "project",
+    "mutating": true,
+    "flags": [
+      "description",
+      "id",
+      "name"
+    ]
+  },
+  {
+    "name": "logic workflow save",
+    "family": "logic",
+    "summary": "Create or update a workflow from a JSON payload.",
+    "details": "Low-level. Provide the graph with --file <path.json> or --body '<json>'. Omit --item-id to create (POST), pass it to update (PUT). To turn an exported file into a live workflow with id remapping and tenant rewrite, use 'logic workflow import' instead. Mutating.",
+    "scope": "project",
+    "mutating": true,
+    "flags": [
+      "body",
+      "description",
+      "file",
+      "item-id",
+      "name"
+    ]
+  },
+  {
+    "name": "logic workflow unpublish",
+    "family": "logic",
+    "summary": "Take a workflow out of service.",
+    "positional": "<id>",
+    "details": "Stops the webhook and removes schedule triggers; the workflow and its draft are kept. Re-publish to reactivate. Mutating.",
+    "scope": "project",
+    "mutating": true,
+    "flags": [
+      "id"
+    ]
+  },
+  {
     "name": "login",
     "family": "login",
     "summary": "Device-code login.",
@@ -2917,7 +3254,7 @@ export const commandCatalog: readonly CommandEntry[] = [
     "name": "release deploy",
     "family": "release",
     "summary": "Deploy the selected project's environment (Build/manual), optionally syncing secrets and setting the domain first.",
-    "details": "Resolves the repo from --repo (name or id via Build/repos-list) or, when omitted, from the project's linked assets (Project/GetAsset) and that repo's connected branch (Build/repo-details). Aborts if the connected branch doesn't match this environment's name. --with-secrets <dotenvFile> first runs release secrets sync for that file and folds its summary into the final document as secretsSync; --domain also sets the custom deployment domain before deploying. --wait polls the build's status FIELD until a server terminal value (Succeeded/Failed/Cancelled/...; or --timeout elapses, default 900s); --follow implies --wait and streams build events to stderr. All progress goes to stderr, so --json stdout stays one parseable verdict document ({buildId, status, verdict, build}). Mutating; no artifact upload is performed by this CLI.",
+    "details": "Resolves the repo from --repo (name or id via Build/repos-list) or, when omitted, in order: (1) this workspace's blocks.json repo binding matched against Build/repos-list on the environment branch, (2) the single Build/repos-list entry whose branch equals the environment, (3) the project's linked OS assets (Project/GetAsset) as a legacy fallback. Labels the choice as repoSource: explicit | workspace-binding | repos-list-match | project-asset. Aborts with repo_ambiguous when multiple env-branch matches exist and none is the workspace binding; repo_not_linked when nothing matches (nextStep suggests git init/connect or --repo). Aborts if the connected branch doesn't match this environment's name. --with-secrets <dotenvFile> first runs release secrets sync for that file and folds its summary into the final document as secretsSync; --domain also sets the custom deployment domain before deploying. --wait polls the build's status FIELD until a server terminal value (Succeeded/Failed/Cancelled/...; or --timeout elapses, default 900s); --follow implies --wait and streams build events to stderr. All progress goes to stderr, so --json stdout stays one parseable verdict document ({buildId, status, verdict, build, repoSource}). Mutating; no artifact upload is performed by this CLI.",
     "scope": "project",
     "mutating": true,
     "flags": [
@@ -3423,112 +3760,5 @@ export const commandCatalog: readonly CommandEntry[] = [
     "mutating": false,
     "flags": []
   },
-  {
-    "name": "workflow delete",
-    "family": "workflow",
-    "summary": "Delete a workflow.",
-    "positional": "<id>",
-    "details": "Mutating.",
-    "scope": "project",
-    "mutating": true,
-    "flags": [
-      "id"
-    ]
-  },
-  {
-    "name": "workflow export",
-    "family": "workflow",
-    "summary": "Export one workflow (by id) or all (--all) to portable JSON files.",
-    "details": "Writes files that 'workflow import' can consume. Secrets in node parameters (client secrets, the x-blocks-key header) are stripped to __REDACTED__ unless --include-secrets is passed. --out <path> sets the file for a single export; --out-dir <dir> sets the directory; the default is blocks/workflows/. Read-only on the server; writes local files.",
-    "scope": "project",
-    "mutating": false,
-    "flags": [
-      "all",
-      "id",
-      "include-secrets",
-      "out",
-      "out-dir",
-      "page-size"
-    ]
-  },
-  {
-    "name": "workflow get",
-    "family": "workflow",
-    "summary": "Read one workflow, including its full node/edge graph.",
-    "positional": "<id>",
-    "scope": "project",
-    "mutating": false,
-    "flags": [
-      "id"
-    ]
-  },
-  {
-    "name": "workflow import",
-    "family": "workflow",
-    "summary": "Import an exported workflow file into the selected project.",
-    "details": "Reads a workflow export (--file <path.json>), assigns fresh node ids, rewrites edges, and re-points tenant-scoped keys (dataAction/dataGateway/sendMail) at this project. Upserts by name -- never trusts the file's id -- using Update when a workflow of the same name exists, Create otherwise. --publish activates it afterwards; --project-slug <slug> updates projectShortKey references; --name overrides the imported name. Warns about dropped nodes/edges and any __REDACTED__ secret placeholders that must be filled before the workflow will run. Mutating.",
-    "scope": "project",
-    "mutating": true,
-    "flags": [
-      "file",
-      "name",
-      "project-slug",
-      "publish"
-    ]
-  },
-  {
-    "name": "workflow list",
-    "family": "workflow",
-    "summary": "List workflows in the selected project.",
-    "details": "Filter by name with --search and by state with --is-published; page with --page-number (1-based) and --page-size. Read-only.",
-    "scope": "project",
-    "mutating": false,
-    "flags": [
-      "is-published",
-      "page-number",
-      "page-size",
-      "search"
-    ]
-  },
-  {
-    "name": "workflow publish",
-    "family": "workflow",
-    "summary": "Publish a new version, activating the workflow.",
-    "positional": "<id>",
-    "details": "This is what makes a workflow run: its webhook becomes reachable and schedule triggers are registered. A created or imported workflow stays inactive until published. --name defaults to the workflow's current name; --description is optional. Mutating.",
-    "scope": "project",
-    "mutating": true,
-    "flags": [
-      "description",
-      "id",
-      "name"
-    ]
-  },
-  {
-    "name": "workflow save",
-    "family": "workflow",
-    "summary": "Create or update a workflow from a JSON payload.",
-    "details": "Low-level. Provide the graph with --file <path.json> or --body '<json>'. Omit --item-id to create (POST), pass it to update (PUT). To turn an exported file into a live workflow with id remapping and tenant rewrite, use 'workflow import' instead. Mutating.",
-    "scope": "project",
-    "mutating": true,
-    "flags": [
-      "body",
-      "description",
-      "file",
-      "item-id",
-      "name"
-    ]
-  },
-  {
-    "name": "workflow unpublish",
-    "family": "workflow",
-    "summary": "Take a workflow out of service.",
-    "positional": "<id>",
-    "details": "Stops the webhook and removes schedule triggers; the workflow and its draft are kept. Re-publish to reactivate. Mutating.",
-    "scope": "project",
-    "mutating": true,
-    "flags": [
-      "id"
-    ]
-  }
+
 ];

@@ -47,11 +47,11 @@ Patterns worth copying:
 
 ## Using these
 
-Export either workflow from a project with `blocks workflow export <id>` to see the full JSON, then adapt. To load an adapted file into a project:
+Export either workflow from a project with `blocks logic workflow export <id>` to see the full JSON, then adapt. To load an adapted file into a project:
 
 ```
-blocks workflow import --file my-workflow.json --project-slug <slug> --dry-run --json
-blocks workflow import --file my-workflow.json --project-slug <slug> --publish --yes --json
+blocks logic workflow import --file my-workflow.json --project-slug <slug> --dry-run --json
+blocks logic workflow import --file my-workflow.json --project-slug <slug> --publish --yes --json
 ```
 
 `import` assigns fresh node ids, rewrites edges, re-points tenant-scoped keys, and (with `--publish`) activates it.

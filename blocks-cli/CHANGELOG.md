@@ -1,5 +1,19 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- `blocks logic proxy list|create|get|update|enable|disable|delete` — Phase 1
+  Proxies lifecycle against `/logic/v4/Proxies` (simple flags or `--file` for
+  nested config; update uses read-merge-write so partial Mode A edits do not
+  wipe routes/headers/access).
+- `blocks logic proxy versions|revert|test|executions|execution|overview` —
+  Phase 2 history, controlled revert, non-mutating test, and request-log/metrics
+  reads against `/logic/v4/Proxies/*`.
+- `blocks logic scheduler create|update|delete|list` — cron-triggered webhook
+  schedules against `/logic/v4/Scheduler/*` (read-merge-write updates; secrets never echoed).
+
 All notable changes to `@seliseblocks/cli-os`.
 
 This project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
@@ -8,28 +22,32 @@ repository's git log.
 
 ## 0.8.0
 
-Adds a `workflow` command group so the Workflow service (blocks-logic) can be managed
-from the CLI, and so agents can author workflows as JSON and load them into a project.
+Adds a `logic workflow` command group so the Workflow service (blocks-logic) can be
+managed from the CLI, and so agents can author workflows as JSON and load them into
+a project.
 
 ### Added
 
-- `workflow list`, `workflow get`, `workflow save`, `workflow delete`: CRUD for the
-  workflows in the selected project. `save` is the low-level create/update from a JSON
-  payload (`--file`/`--body`; `--item-id` switches Create to Update).
-- `workflow import`: turn an exported workflow file into a live workflow. It validates
-  the graph, assigns fresh node ids, rewrites edges, and re-points tenant-scoped keys
-  (dataAction/dataGateway/sendMail `projectKey`, sendMail `EmailTemplate`) at the
-  destination project -- the same normalization the portal's import does server-side.
-  It upserts by name (never trusting the file's own id, like `data schema push`),
-  optionally publishes with `--publish`, and warns about dropped nodes/edges and any
-  `__REDACTED__` secret placeholders that must be filled before the workflow will run.
-- `workflow export`: export one workflow (by id) or all (`--all`) to portable JSON that
-  `workflow import` can consume. Secrets in node parameters (client secrets, the
-  `x-blocks-key` header) are stripped to `__REDACTED__` by default; `--include-secrets`
-  writes them verbatim (with a warning), since a workflow export embeds them in cleartext.
-- `workflow publish` / `workflow unpublish`: activate or deactivate a workflow. A created
-  or imported workflow is inactive until published; publishing registers its webhook and
-  schedule triggers.
+- `logic workflow list`, `logic workflow get`, `logic workflow save`,
+  `logic workflow delete`: CRUD for the workflows in the selected project. `save` is
+  the low-level create/update from a JSON payload (`--file`/`--body`; `--item-id`
+  switches Create to Update).
+- `logic workflow import`: turn an exported workflow file into a live workflow. It
+  validates the graph, assigns fresh node ids, rewrites edges, and re-points
+  tenant-scoped keys (dataAction/dataGateway/sendMail `projectKey`, sendMail
+  `EmailTemplate`) at the destination project -- the same normalization the portal's
+  import does server-side. It upserts by name (never trusting the file's own id,
+  like `data schema push`), optionally publishes with `--publish`, and warns about
+  dropped nodes/edges and any `__REDACTED__` secret placeholders that must be filled
+  before the workflow will run.
+- `logic workflow export`: export one workflow (by id) or all (`--all`) to portable
+  JSON that `logic workflow import` can consume. Secrets in node parameters (client
+  secrets, the `x-blocks-key` header) are stripped to `__REDACTED__` by default;
+  `--include-secrets` writes them verbatim (with a warning), since a workflow export
+  embeds them in cleartext.
+- `logic workflow publish` / `logic workflow unpublish`: activate or deactivate a
+  workflow. A created or imported workflow is inactive until published; publishing
+  registers its webhook and schedule triggers.
 
 ## 0.7.0
 

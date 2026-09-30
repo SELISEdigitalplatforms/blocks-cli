@@ -20,6 +20,7 @@ coverage/
 .nyc_output/
 .claude
 device-login.pid
+blocks-session-log.md
 
 # --- local AI / scan workspace (do not commit) ---
 graphify-out/

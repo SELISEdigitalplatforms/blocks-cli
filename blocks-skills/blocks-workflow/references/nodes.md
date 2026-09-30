@@ -142,4 +142,4 @@ A webhook that branches on a number and calls one of two endpoints:
 }
 ```
 
-Node ids here are illustrative; `blocks workflow import` assigns fresh ids and rewrites the edges to match, so you never have to make ids globally unique yourself — just keep them consistent within the file.
+Node ids here are illustrative; `blocks logic workflow import` assigns fresh ids and rewrites the edges to match, so you never have to make ids globally unique yourself — just keep them consistent within the file.
