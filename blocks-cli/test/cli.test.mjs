@@ -23,6 +23,7 @@ import { CliActionableError } from "../dist/lib/errors.js";
 import { oidcRedirectUrisFromAppDomain } from "../dist/lib/domains.js";
 import { findAvailablePort, isPortFree } from "../dist/lib/port.js";
 import { isNewerVersion } from "../dist/lib/update-check.js";
+import { redactWorkflowSecrets, REDACTED } from "../dist/lib/workflow-graph.js";
 
 const repoRoot = resolve(import.meta.dirname, "..");
 const bin = join(repoRoot, "bin", "run.js");
@@ -5592,4 +5593,42 @@ test("captcha save requires an explicit enable choice on create and redacts the 
   } finally {
     await new Promise((resolveClose) => server.close(resolveClose));
   }
+});
+
+test("workflow export redaction strips x-blocks-key regardless of header container casing", () => {
+  const graph = {
+    nodes: [
+      {
+        id: "n1",
+        parameters: {
+          // Service persists the header dictionary as PascalCase "Headers".
+          Headers: { "x-blocks-key": "shhh-this-is-secret-12345", "content-type": "application/json" },
+          clientSecret: "blxsk_live_secret",
+        },
+      },
+      {
+        id: "n2",
+        parameters: {
+          // Nested auth block with a differently-cased key name.
+          auth: { "X-Blocks-Key": "nested-secret", clientId: "public-id" },
+        },
+      },
+    ],
+    edges: [],
+    settings: {},
+  };
+
+  const { graph: redacted, redactedCount } = redactWorkflowSecrets(graph);
+
+  assert.equal(redacted.nodes[0].parameters.Headers["x-blocks-key"], REDACTED);
+  assert.equal(redacted.nodes[0].parameters.Headers["content-type"], "application/json");
+  assert.equal(redacted.nodes[0].parameters.clientSecret, REDACTED);
+  assert.equal(redacted.nodes[1].parameters.auth["X-Blocks-Key"], REDACTED);
+  assert.equal(redacted.nodes[1].parameters.auth.clientId, "public-id");
+  assert.equal(redactedCount, 3);
+
+  const serialized = JSON.stringify(redacted);
+  assert.ok(!serialized.includes("shhh-this-is-secret-12345"), "x-blocks-key value leaked in cleartext");
+  assert.ok(!serialized.includes("nested-secret"), "nested x-blocks-key value leaked in cleartext");
+  assert.ok(!serialized.includes("blxsk_live_secret"), "clientSecret value leaked in cleartext");
 });

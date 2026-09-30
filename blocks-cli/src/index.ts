@@ -227,6 +227,14 @@ import { mailTemplateDelete } from "./commands/mail/template/delete.js";
 import { mailTemplateGet } from "./commands/mail/template/get.js";
 import { mailTemplateList } from "./commands/mail/template/list.js";
 import { mailTemplateSave } from "./commands/mail/template/save.js";
+import { workflowDelete } from "./commands/workflow/delete.js";
+import { workflowExport } from "./commands/workflow/export.js";
+import { workflowGet } from "./commands/workflow/get.js";
+import { workflowImport } from "./commands/workflow/import.js";
+import { workflowList } from "./commands/workflow/list.js";
+import { workflowPublish } from "./commands/workflow/publish.js";
+import { workflowSave } from "./commands/workflow/save.js";
+import { workflowUnpublish } from "./commands/workflow/unpublish.js";
 import { mfaBackupCodesGenerate } from "./commands/mfa/backup-codes/generate.js";
 import { mfaBackupCodesList } from "./commands/mfa/backup-codes/list.js";
 import { mfaBackupCodesUse } from "./commands/mfa/backup-codes/use.js";
@@ -563,6 +571,14 @@ const commands: Partial<Record<string, CommandHandler>> = {
   "logic:scheduler:delete": logicSchedulerDelete,
   "logic:scheduler:list": logicSchedulerList,
   "new:web": newWeb,
+  "workflow:list": workflowList,
+  "workflow:get": workflowGet,
+  "workflow:save": workflowSave,
+  "workflow:delete": workflowDelete,
+  "workflow:import": workflowImport,
+  "workflow:export": workflowExport,
+  "workflow:publish": workflowPublish,
+  "workflow:unpublish": workflowUnpublish,
 };
 
 const MAX_COMMAND_WORDS = 4;

@@ -3701,5 +3701,113 @@ export const commandCatalog: readonly CommandEntry[] = [
     "scope": "local",
     "mutating": false,
     "flags": []
+  },
+  {
+    "name": "workflow delete",
+    "family": "workflow",
+    "summary": "Delete a workflow.",
+    "positional": "<id>",
+    "details": "Mutating.",
+    "scope": "project",
+    "mutating": true,
+    "flags": [
+      "id"
+    ]
+  },
+  {
+    "name": "workflow export",
+    "family": "workflow",
+    "summary": "Export one workflow (by id) or all (--all) to portable JSON files.",
+    "details": "Writes files that 'workflow import' can consume. Secrets in node parameters (client secrets, the x-blocks-key header) are stripped to __REDACTED__ unless --include-secrets is passed. --out <path> sets the file for a single export; --out-dir <dir> sets the directory; the default is blocks/workflows/. Read-only on the server; writes local files.",
+    "scope": "project",
+    "mutating": false,
+    "flags": [
+      "all",
+      "id",
+      "include-secrets",
+      "out",
+      "out-dir",
+      "page-size"
+    ]
+  },
+  {
+    "name": "workflow get",
+    "family": "workflow",
+    "summary": "Read one workflow, including its full node/edge graph.",
+    "positional": "<id>",
+    "scope": "project",
+    "mutating": false,
+    "flags": [
+      "id"
+    ]
+  },
+  {
+    "name": "workflow import",
+    "family": "workflow",
+    "summary": "Import an exported workflow file into the selected project.",
+    "details": "Reads a workflow export (--file <path.json>), assigns fresh node ids, rewrites edges, and re-points tenant-scoped keys (dataAction/dataGateway/sendMail) at this project. Upserts by name -- never trusts the file's id -- using Update when a workflow of the same name exists, Create otherwise. --publish activates it afterwards; --project-slug <slug> updates projectShortKey references; --name overrides the imported name. Warns about dropped nodes/edges and any __REDACTED__ secret placeholders that must be filled before the workflow will run. Mutating.",
+    "scope": "project",
+    "mutating": true,
+    "flags": [
+      "file",
+      "name",
+      "project-slug",
+      "publish"
+    ]
+  },
+  {
+    "name": "workflow list",
+    "family": "workflow",
+    "summary": "List workflows in the selected project.",
+    "details": "Filter by name with --search and by state with --is-published; page with --page-number (1-based) and --page-size. Read-only.",
+    "scope": "project",
+    "mutating": false,
+    "flags": [
+      "is-published",
+      "page-number",
+      "page-size",
+      "search"
+    ]
+  },
+  {
+    "name": "workflow publish",
+    "family": "workflow",
+    "summary": "Publish a new version, activating the workflow.",
+    "positional": "<id>",
+    "details": "This is what makes a workflow run: its webhook becomes reachable and schedule triggers are registered. A created or imported workflow stays inactive until published. --name defaults to the workflow's current name; --description is optional. Mutating.",
+    "scope": "project",
+    "mutating": true,
+    "flags": [
+      "description",
+      "id",
+      "name"
+    ]
+  },
+  {
+    "name": "workflow save",
+    "family": "workflow",
+    "summary": "Create or update a workflow from a JSON payload.",
+    "details": "Low-level. Provide the graph with --file <path.json> or --body '<json>'. Omit --item-id to create (POST), pass it to update (PUT). To turn an exported file into a live workflow with id remapping and tenant rewrite, use 'workflow import' instead. Mutating.",
+    "scope": "project",
+    "mutating": true,
+    "flags": [
+      "body",
+      "description",
+      "file",
+      "item-id",
+      "name"
+    ]
+  },
+  {
+    "name": "workflow unpublish",
+    "family": "workflow",
+    "summary": "Take a workflow out of service.",
+    "positional": "<id>",
+    "details": "Stops the webhook and removes schedule triggers; the workflow and its draft are kept. Re-publish to reactivate. Mutating.",
+    "scope": "project",
+    "mutating": true,
+    "flags": [
+      "id"
+    ]
   }
 ];
