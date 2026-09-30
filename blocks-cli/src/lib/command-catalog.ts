@@ -2408,6 +2408,147 @@ export const commandCatalog: readonly CommandEntry[] = [
     ]
   },
   {
+    "name": "logic proxy create",
+    "family": "logic",
+    "summary": "Create a logic proxy (simple flags or full --file body).",
+    "details": "Mode A: --name, --upstream (absolute https://), --methods (CSV of GET,POST,PUT,PATCH,DELETE), optional --enabled/--disabled (default enabled). Mode B: --file with a full ProxyCreateRequestDto (routes/headers/query/access/…). Modes are mutually exclusive. POSTs /logic/v4/Proxies, then GETs the new proxy and prints the full ProxyDetailDto (including server-derived slug). Surfaces PROXY_SLUG_CONFLICT and PROXY_VALIDATION verbatim. Mutating unless --dry-run.",
+    "scope": "project",
+    "mutating": true,
+    "flags": []
+  },
+  {
+    "name": "logic proxy delete",
+    "family": "logic",
+    "summary": "Hard-delete a logic proxy.",
+    "positional": "<proxy-id>",
+    "details": "DELETEs /logic/v4/Proxies/{id}. Requires --yes (or interactive confirmation). Reports {itemId, deleted:true}. Server retains version history and execution logs. Errors: proxy_not_found. Mutating.",
+    "scope": "project",
+    "mutating": true,
+    "flags": []
+  },
+  {
+    "name": "logic proxy disable",
+    "family": "logic",
+    "summary": "Disable a logic proxy via PATCH (Enabled=false).",
+    "positional": "<proxy-id>",
+    "details": "PATCHes /logic/v4/Proxies/{id} with {ItemId, Enabled:false}. Does not change any other field. Reports {itemId, enabled:false}. Errors: proxy_not_found. Mutating unless --dry-run.",
+    "scope": "project",
+    "mutating": true,
+    "flags": []
+  },
+  {
+    "name": "logic proxy enable",
+    "family": "logic",
+    "summary": "Enable a logic proxy via PATCH (Enabled=true).",
+    "positional": "<proxy-id>",
+    "details": "PATCHes /logic/v4/Proxies/{id} with {ItemId, Enabled:true}. Does not change any other field. Reports {itemId, enabled:true}. Errors: proxy_not_found. Mutating unless --dry-run.",
+    "scope": "project",
+    "mutating": true,
+    "flags": []
+  },
+  {
+    "name": "logic proxy execution",
+    "family": "logic",
+    "summary": "Fetch one proxy execution detail.",
+    "positional": "<proxy-id> <execution-id>",
+    "details": "GETs /logic/v4/Proxies/{id}/executions/{executionId}. Returns ProxyExecutionDetailDto verbatim, or {\"data\":null} (exit 0) for unknown/mismatched/foreign ids — never a 404. Read-only.",
+    "scope": "project",
+    "mutating": false,
+    "flags": []
+  },
+  {
+    "name": "logic proxy executions",
+    "family": "logic",
+    "summary": "List recent proxy executions (rolling 24h window).",
+    "positional": "<proxy-id>",
+    "details": "GETs /logic/v4/Proxies/{id}/executions. --status-class all|2xx|4xx|5xx (default all). --after-id live-tails (ignores --page). --as-of pins the window across pages (echo asOfUtc). Page 0-based; page-size default 25. Errors: PROXY_NOT_FOUND, PROXY_VALIDATION. Read-only.",
+    "scope": "project",
+    "mutating": false,
+    "flags": [
+      "after-id",
+      "as-of",
+      "status-class"
+    ]
+  },
+  {
+    "name": "logic proxy get",
+    "family": "logic",
+    "summary": "Fetch one proxy from /logic/v4/Proxies/{id}.",
+    "positional": "<proxy-id>",
+    "details": "Returns the API response verbatim. Unknown or foreign ids return {\"data\":null} with exit 0 (matching the API contract), not an error. Read-only.",
+    "scope": "project",
+    "mutating": false,
+    "flags": []
+  },
+  {
+    "name": "logic proxy list",
+    "family": "logic",
+    "summary": "List Proxies from blocks-logic /logic/v4/Proxies.",
+    "details": "GETs /logic/v4/Proxies with Search, optional IsActive (--active/--inactive), Page (0-based, default 0), PageSize (1-200, default 20). Returns the API response verbatim (items + totalCount). Read-only.",
+    "scope": "project",
+    "mutating": false,
+    "flags": [
+      "search"
+    ]
+  },
+  {
+    "name": "logic proxy overview",
+    "family": "logic",
+    "summary": "Proxy metrics overview (rolling 24h / all-time).",
+    "positional": "<proxy-id>",
+    "details": "GETs /logic/v4/Proxies/{id}/overview and returns ProxyOverviewDto verbatim (calls24h, avgLatencyMs, errorRatePct, …). Errors: PROXY_NOT_FOUND only when the proxy is unknown AND has no execution rows. Read-only.",
+    "scope": "project",
+    "mutating": false,
+    "flags": []
+  },
+  {
+    "name": "logic proxy revert",
+    "family": "logic",
+    "summary": "Revert a proxy to a prior version.",
+    "positional": "<proxy-id> <version-id>",
+    "details": "POSTs /logic/v4/Proxies/{id}/versions/{versionId}/revert. Reports {itemId, revertedTo}. History is append-only (a Revert row is recorded). Errors: PROXY_NOT_FOUND, PROXY_VERSION_NOT_FOUND, PROXY_DELETED, PROXY_REVERT_CONFLICT, PROXY_VERSION_NOT_REVERTABLE. Mutating unless --dry-run.",
+    "scope": "project",
+    "mutating": true,
+    "flags": []
+  },
+  {
+    "name": "logic proxy test",
+    "family": "logic",
+    "summary": "Test a saved proxy or an unsaved draft against upstream without writing logs.",
+    "positional": "<proxy-id>",
+    "details": "Exactly one of a positional proxy id or --draft-file (create-shaped JSON). Requires --method. Optional --path-suffix, --query, --body, --content-type. POSTs /logic/v4/Proxies/test and returns ProxyTestResponseDto verbatim. Creates no ProxyExecutions row and mutates nothing. Errors: PROXY_VALIDATION (client-side for both/neither target; server-side for bad method etc.).",
+    "scope": "project",
+    "mutating": false,
+    "flags": [
+      "body",
+      "content-type",
+      "draft-file",
+      "method",
+      "path-suffix",
+      "query"
+    ]
+  },
+  {
+    "name": "logic proxy update",
+    "family": "logic",
+    "summary": "Update a logic proxy with read-before-write merge (or full --file replace).",
+    "positional": "<proxy-id>",
+    "details": "Mode A: any subset of --name/--upstream/--methods — CLI GETs the current ProxyDetailDto, merges only the supplied fields, and PUTs the complete body so routes/headers/access are not wiped. Mode B: --file supplies the full replacement body. Enabled and Slug are never sent (PATCH-only / immutable). Follow-up GET prints the stored detail. Errors: proxy_not_found (no PUT), PROXY_VALIDATION. Mutating unless --dry-run.",
+    "scope": "project",
+    "mutating": true,
+    "flags": []
+  },
+  {
+    "name": "logic proxy versions",
+    "family": "logic",
+    "summary": "List a proxy's version history (newest first).",
+    "positional": "<proxy-id>",
+    "details": "GETs /logic/v4/Proxies/{id}/versions with Page (0-based) and PageSize (default 50). Returns ProxyVersionDto rows + totalCount verbatim. Works for proxies that were later deleted. Errors: PROXY_NOT_FOUND when the id never existed for this tenant. Read-only.",
+    "scope": "project",
+    "mutating": false,
+    "flags": []
+  },
+  {
     "name": "logic publish",
     "family": "logic",
     "summary": "Publish a draft workflow (or a named new version) in blocks-logic.",
@@ -2432,6 +2573,50 @@ export const commandCatalog: readonly CommandEntry[] = [
       "poll-interval",
       "timeout",
       "wait"
+    ]
+  },
+  {
+    "name": "logic scheduler create",
+    "family": "logic",
+    "summary": "Create a cron-triggered webhook schedule in blocks-logic.",
+    "details": "Requires --name, --cron (5-field), --url (absolute), or supply the full body via --file. Optional --method (default POST), repeatable --header key=value, --payload, --signing-secret (sent, never echoed), --description, --start-date, --end-date. POSTs Scheduler/CreateSchedule. Reports {itemId,name,cronExpression,isActive:true}. Mutating unless --dry-run.",
+    "scope": "project",
+    "mutating": true,
+    "flags": [
+      "file"
+    ]
+  },
+  {
+    "name": "logic scheduler delete",
+    "family": "logic",
+    "summary": "Delete a logic schedule.",
+    "positional": "<schedule-id>",
+    "details": "Confirms the schedule exists via GetSchedules, then POSTs Scheduler/DeleteSchedule. Requires --yes. Reports {itemId, deleted:true}. Errors: scheduler_not_found. Mutating.",
+    "scope": "project",
+    "mutating": true,
+    "flags": []
+  },
+  {
+    "name": "logic scheduler list",
+    "family": "logic",
+    "summary": "List logic schedules from Scheduler/GetSchedules.",
+    "details": "POSTs {Search, PageNumber (0-based), PageSize (default 10)} to GetSchedules and returns the response with signingSecret fields stripped. Read-only.",
+    "scope": "project",
+    "mutating": false,
+    "flags": [
+      "search"
+    ]
+  },
+  {
+    "name": "logic scheduler update",
+    "family": "logic",
+    "summary": "Update a schedule with read-before-write merge.",
+    "positional": "<schedule-id>",
+    "details": "Lists schedules and filters by id (no GetById), merges supplied flags (or --file body), POSTs Scheduler/UpdateSchedule. --active/--inactive toggles IsActive. Errors: scheduler_not_found (no Update call). Mutating unless --dry-run.",
+    "scope": "project",
+    "mutating": true,
+    "flags": [
+      "file"
     ]
   },
   {
