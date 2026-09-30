@@ -25,7 +25,7 @@ Produce a `{ name, settings, nodes[], edges[] }` file. Rules:
 ## 4. Dry-run the import
 
 ```
-blocks workflow import --file my-workflow.json --project-slug <slug> --dry-run --json
+blocks logic workflow import --file my-workflow.json --project-slug <slug> --dry-run --json
 ```
 
 Read the output: `action` (create vs update-by-name), `nodeCount`/`edgeCount`, and any `warnings` (dropped nodes/edges, unresolved `projectShortKey`, or `__REDACTED__` placeholders that must be filled first). Fix the file until the dry-run is clean.
@@ -33,23 +33,23 @@ Read the output: `action` (create vs update-by-name), `nodeCount`/`edgeCount`, a
 ## 5. Import (and optionally publish)
 
 ```
-blocks workflow import --file my-workflow.json --project-slug <slug> --publish --yes --json
+blocks logic workflow import --file my-workflow.json --project-slug <slug> --publish --yes --json
 ```
 
-Without `--publish` the workflow is created but **inactive**; publish later with `blocks workflow publish <id> --dry-run` then `--yes`.
+Without `--publish` the workflow is created but **inactive**; publish later with `blocks logic workflow publish <id> --dry-run` then `--yes`.
 
 ## 6. Verify
 
-- `blocks workflow list --search "<name>" --json` — confirm it exists and its published state.
-- `blocks workflow get <id> --json` — confirm the graph imported as intended.
+- `blocks logic workflow list --search "<name>" --json` — confirm it exists and its published state.
+- `blocks logic workflow get <id> --json` — confirm the graph imported as intended.
 - For a `webhook` workflow, trigger it and check the result. For a `dataGateway` or `schedule` workflow, cause the event / wait for the schedule.
-- To hand the workflow to another project or the repo: `blocks workflow export <id> --json` (secrets redacted).
+- To hand the workflow to another project or the repo: `blocks logic workflow export <id> --json` (secrets redacted).
 
 ## Branches
 
 - **Updating an existing workflow:** keep the same `name`; `import` will update the same-named workflow in place rather than create a duplicate.
 - **Moving between projects:** export from the source, then import into the destination with `--project-slug <slug>` so tenant-scoped keys re-point correctly.
-- **Turning one off:** `blocks workflow unpublish <id>` keeps the draft; re-publish to reactivate.
+- **Turning one off:** `blocks logic workflow unpublish <id>` keeps the draft; re-publish to reactivate.
 
 ## Gotchas
 

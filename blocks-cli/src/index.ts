@@ -562,15 +562,15 @@ const commands: Partial<Record<string, CommandHandler>> = {
   "logic:scheduler:update": logicSchedulerUpdate,
   "logic:scheduler:delete": logicSchedulerDelete,
   "logic:scheduler:list": logicSchedulerList,
+  "logic:workflow:list": workflowList,
+  "logic:workflow:get": workflowGet,
+  "logic:workflow:save": workflowSave,
+  "logic:workflow:delete": workflowDelete,
+  "logic:workflow:import": workflowImport,
+  "logic:workflow:export": workflowExport,
+  "logic:workflow:publish": workflowPublish,
+  "logic:workflow:unpublish": workflowUnpublish,
   "new:web": newWeb,
-  "workflow:list": workflowList,
-  "workflow:get": workflowGet,
-  "workflow:save": workflowSave,
-  "workflow:delete": workflowDelete,
-  "workflow:import": workflowImport,
-  "workflow:export": workflowExport,
-  "workflow:publish": workflowPublish,
-  "workflow:unpublish": workflowUnpublish,
 };
 
 const MAX_COMMAND_WORDS = 4;

@@ -1,6 +1,6 @@
 ---
 name: blocks-workflow
-description: "Design SELISE Blocks Workflows and manage them from the terminal with `blocks workflow list|get|save|delete|import|export|publish|unpublish`. Covers authoring a workflow graph as JSON (triggers, if/code/set-field, http/data/mail actions), importing it into a project with `workflow import [--publish]`, exporting with secrets redacted, and activating with `workflow publish`. Use to build event-driven backend logic — data triggers, webhooks, schedules — without standing up a separate backend, and to judge when a workflow is the right tool versus when it is not. Not for runtime record CRUD (blocks-data-gateway-crud) or sending mail from app code (blocks-mail)."
+description: "Design SELISE Blocks Workflows and manage them from the terminal with `blocks logic workflow list|get|save|delete|import|export|publish|unpublish`. Covers authoring a workflow graph as JSON (triggers, if/code/set-field, http/data/mail actions), importing it into a project with `logic workflow import [--publish]`, exporting with secrets redacted, and activating with `logic workflow publish`. Use to build event-driven backend logic — data triggers, webhooks, schedules — without standing up a separate backend, and to judge when a workflow is the right tool versus when it is not. Not for runtime record CRUD (blocks-data-gateway-crud) or sending mail from app code (blocks-mail)."
 ---
 
 When invoking a project-scoped `blocks` command, either use the resolved account's saved selection or pass `--project <tenantId>` for that one command without changing saved state.
@@ -44,15 +44,15 @@ There are **12 node types**. The full catalogue — every type, its exact `param
 
 All workflow commands are project-scoped (they use the resolved project selection or `--project <tenantId>`). Reads take no confirmation; every mutation takes `--dry-run` first, then `--yes`.
 
-- **`blocks workflow list [--search <q>] [--is-published[=false]] [--page-number 1] [--page-size 20] [--json]`** — read-only.
-- **`blocks workflow get <id> [--json]`** — read-only; returns the full node/edge graph.
-- **`blocks workflow import --file <path.json> [--publish] [--project-slug <slug>] [--name <n>] [--dry-run] [--yes] [--json]`** — the main authoring path. Validates the file, assigns fresh node ids, rewrites edges, and re-points tenant-scoped keys at this project. It upserts **by name** (updates a same-named workflow, otherwise creates), never trusting the file's own id. `--publish` activates it in the same step.
-- **`blocks workflow export [<id>] [--all] [--include-secrets] [--out <path>] [--out-dir <dir>] [--json]`** — writes portable JSON that `import` can consume. Redacts secrets by default.
-- **`blocks workflow save [--item-id <id>] [--name <n>] [--description <d>] [--body '<json>'|--file <path>] [--dry-run] [--yes] [--json]`** — low-level create/update from a payload; omit `--item-id` to create, pass it to update. Prefer `import` for whole exported files (it does the id-remap and tenant rewrite; `save` does not).
-- **`blocks workflow publish <id> [--name <n>] [--description <d>] [--dry-run] [--yes] [--json]`** — publishes a new version, which is what actually **activates** the workflow: its webhook becomes reachable and schedule triggers are registered.
-- **`blocks workflow unpublish <id> [--dry-run] [--yes] [--json]`** — takes it out of service; the draft is kept, re-publish to reactivate.
+- **`blocks logic workflow list [--search <q>] [--is-published[=false]] [--page-number 1] [--page-size 20] [--json]`** — read-only.
+- **`blocks logic workflow get <id> [--json]`** — read-only; returns the full node/edge graph.
+- **`blocks logic workflow import --file <path.json> [--publish] [--project-slug <slug>] [--name <n>] [--dry-run] [--yes] [--json]`** — the main authoring path. Validates the file, assigns fresh node ids, rewrites edges, and re-points tenant-scoped keys at this project. It upserts **by name** (updates a same-named workflow, otherwise creates), never trusting the file's own id. `--publish` activates it in the same step.
+- **`blocks logic workflow export [<id>] [--all] [--include-secrets] [--out <path>] [--out-dir <dir>] [--json]`** — writes portable JSON that `import` can consume. Redacts secrets by default.
+- **`blocks logic workflow save [--item-id <id>] [--name <n>] [--description <d>] [--body '<json>'|--file <path>] [--dry-run] [--yes] [--json]`** — low-level create/update from a payload; omit `--item-id` to create, pass it to update. Prefer `import` for whole exported files (it does the id-remap and tenant rewrite; `save` does not).
+- **`blocks logic workflow publish <id> [--name <n>] [--description <d>] [--dry-run] [--yes] [--json]`** — publishes a new version, which is what actually **activates** the workflow: its webhook becomes reachable and schedule triggers are registered.
+- **`blocks logic workflow unpublish <id> [--dry-run] [--yes] [--json]`** — takes it out of service; the draft is kept, re-publish to reactivate.
 
-The normal loop is: design the graph → write the JSON → `workflow import --file ... --dry-run` → `--yes` → `workflow publish`. See [flows/author-and-import.md](flows/author-and-import.md).
+The normal loop is: design the graph → write the JSON → `logic workflow import --file ... --dry-run` → `--yes` → `logic workflow publish`. See [flows/author-and-import.md](flows/author-and-import.md).
 
 ## Secrets
 
@@ -67,7 +67,7 @@ A workflow export embeds live credentials in cleartext — client secrets, the `
 
 ## Gotchas
 
-- **A created or imported workflow is inactive.** It won't run until `workflow publish`. Import with `--publish` to do both at once.
+- **A created or imported workflow is inactive.** It won't run until `logic workflow publish`. Import with `--publish` to do both at once.
 - **Import matches by name, not id.** A file's node/workflow ids belong to whatever project produced it; `import` assigns fresh ids and finds the destination workflow by name. Two workflows you want kept separate must have different names.
 - **Tenant-scoped nodes get re-pointed on import.** `dataAction`, `dataGateway`, and `sendMail` nodes have their `projectKey` set to the destination project automatically; `sendMail` templates are namespaced per tenant. A `projectShortKey` reference can only be updated if you pass `--project-slug <slug>` — otherwise `import` warns and leaves it.
 - **`version` is always `"v1"`.** Don't invent other version strings; the engine matches nodes by `type`, and every real node is `v1`.
@@ -76,10 +76,10 @@ A workflow export embeds live credentials in cleartext — client secrets, the `
 
 ## Example trigger prompts
 
-- "When a row is added to the Orders collection, call our fulfilment API." → a `dataGateway` (Inserted) trigger → `httpRequest` action; author JSON, `workflow import --file ... --publish --dry-run`, then `--yes`.
+- "When a row is added to the Orders collection, call our fulfilment API." → a `dataGateway` (Inserted) trigger → `httpRequest` action; author JSON, `logic workflow import --file ... --publish --dry-run`, then `--yes`.
 - "Give me a webhook that creates a user only if we're under our seat limit." → `webhook` trigger → `httpRequest`/`code`/`if` → `httpRequest` create; see references/examples.md.
 - "Email a daily summary every morning." → `schedule` trigger → `dataAction` read → `sendMail`.
 - "Should this be a workflow or app code?" → apply the decision list above; a single SDK call or a data rule is usually better than a workflow.
-- "Back up all our workflows to the repo." → `blocks workflow export --all --json` (secrets redacted by default).
-- "Move this workflow to the staging project." → `blocks workflow export <id>`, then in the staging project `blocks workflow import --file <path> --project-slug <slug>`.
-- "Turn this workflow off without deleting it." → `blocks workflow unpublish <id> --dry-run`, then `--yes`.
+- "Back up all our workflows to the repo." → `blocks logic workflow export --all --json` (secrets redacted by default).
+- "Move this workflow to the staging project." → `blocks logic workflow export <id>`, then in the staging project `blocks logic workflow import --file <path> --project-slug <slug>`.
+- "Turn this workflow off without deleting it." → `blocks logic workflow unpublish <id> --dry-run`, then `--yes`.
