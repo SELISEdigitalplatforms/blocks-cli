@@ -14,17 +14,6 @@
 - `blocks logic scheduler create|update|delete|list` — cron-triggered webhook
   schedules against `/logic/v4/Scheduler/*` (read-merge-write updates; secrets never echoed).
 
-- `blocks logic push <file>` — compile a YAML workflow-as-code file into
-  blocks-logic's WorkflowExportFile shape (embedded 12-type catalog, auto-layout,
-  safety fixups), upload via Storage presign, enqueue Workflow/Import, and poll
-  Notifier by CorrelationId. Records workflowId in `blocks.json`. A re-push of a
-  recorded file calls Workflow/Update synchronously (Phase 2).
-- `blocks logic publish <workflow-id-or-file>` — PublishVersion (or
-  PublishNewVersion with `--version-name`).
-- `blocks logic list` / `blocks logic get <workflow-id>` — Workflow/GetAll and
-  Workflow/Get, returned verbatim.
-
-
 All notable changes to `@seliseblocks/cli-os`.
 
 This project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
