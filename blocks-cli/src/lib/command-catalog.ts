@@ -1293,10 +1293,12 @@ export const commandCatalog: readonly CommandEntry[] = [
     "name": "git pull",
     "family": "git",
     "summary": "Pull the connected branch from GitHub.",
-    "details": "Requires a connected repository (repo_not_bound). Refuses when the working tree has uncommitted changes (working_tree_dirty) rather than stashing them. A conflicting pull is aborted and reported as merge_conflict. --rebase rebases instead of merging.",
+    "details": "Requires a connected repository (repo_not_bound). Refuses when the working tree has uncommitted changes (working_tree_dirty) rather than stashing them. A conflicting pull is aborted and reported as merge_conflict, with details.conflictedFiles naming the files both sides changed. --rebase rebases instead of merging. --keep-conflicts (merge only) leaves the conflict in place for the caller to resolve, then 'blocks git push' commits the merge; --abort gives up on such a merge and restores the workspace.",
     "scope": "project",
     "mutating": false,
     "flags": [
+      "abort",
+      "keep-conflicts",
       "rebase"
     ]
   },

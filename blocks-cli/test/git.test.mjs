@@ -406,6 +406,53 @@ test("git pull: refuses a dirty tree, then brings remote commits in; disconnect 
   }
 });
 
+test("git pull: a conflict names its files; --keep-conflicts leaves it in place, --abort restores the workspace", async () => {
+  const { base, cwd, configDir, ghRoot } = await makeWorkspace();
+  const server = await startReleaseServer(ghRoot);
+  try {
+    await writeProjectAuth(configDir, server.url);
+    const env = testEnv(configDir, ghRoot);
+    await writeFile(join(cwd, "index.html"), "v1\n");
+    assert.equal((await run(["git", "init", "--yes", ...ctx(server.url)], { cwd, env })).status, 0);
+    const bare = join(ghRoot, "octo", "workspace.git");
+
+    const elsewhere = join(base, "elsewhere");
+    sh(base, ["clone", "-q", `file://${bare}`, elsewhere]);
+    await writeFile(join(elsewhere, "index.html"), "from elsewhere\n");
+    sh(elsewhere, ["add", "-A"]);
+    sh(elsewhere, ["commit", "-q", "-m", "Elsewhere"]);
+    sh(elsewhere, ["push", "-q", "origin", "main"]);
+
+    await writeFile(join(cwd, "index.html"), "from here\n");
+    sh(cwd, ["add", "-A"]);
+    sh(cwd, ["commit", "-q", "-m", "Here"]);
+
+    const aborted = await run(["git", "pull", ...ctx(server.url)], { cwd, env });
+    assert.equal(aborted.status, 1);
+    const abortedError = JSON.parse(aborted.stderr.slice(aborted.stderr.indexOf("{")));
+    assert.equal(abortedError.code, "merge_conflict");
+    assert.deepEqual(abortedError.details, { conflictedFiles: ["index.html"], kept: false });
+    assert.equal(await exists(join(cwd, ".git", "MERGE_HEAD")), false, "a plain pull must abort the merge");
+
+    const kept = await run(["git", "pull", "--keep-conflicts", ...ctx(server.url)], { cwd, env });
+    assert.equal(kept.status, 1);
+    assert.deepEqual(JSON.parse(kept.stderr.slice(kept.stderr.indexOf("{"))).details, { conflictedFiles: ["index.html"], kept: true });
+    assert.equal(await exists(join(cwd, ".git", "MERGE_HEAD")), true, "--keep-conflicts must leave the merge in place");
+    assert.match(await readFile(join(cwd, "index.html"), "utf8"), /<<<<<<<[\s\S]*=======[\s\S]*>>>>>>>/);
+
+    const abort = await run(["git", "pull", "--abort", "--json"], { cwd, env });
+    assert.equal(abort.status, 0, abort.stderr);
+    assert.equal(JSON.parse(abort.stdout).aborted, true);
+    assert.equal(await exists(join(cwd, ".git", "MERGE_HEAD")), false);
+    assert.equal(await readFile(join(cwd, "index.html"), "utf8"), "from here\n");
+
+    const nothingToAbort = await run(["git", "pull", "--abort", "--json"], { cwd, env });
+    assert.equal(JSON.parse(nothingToAbort.stdout).aborted, false);
+  } finally {
+    await server.close();
+  }
+});
+
 test("git branch create: creates and pushes a branch without switching HEAD or the binding", async () => {
   const { cwd, configDir, ghRoot } = await makeWorkspace();
   const server = await startReleaseServer(ghRoot);

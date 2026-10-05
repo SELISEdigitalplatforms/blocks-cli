@@ -629,9 +629,11 @@ async function printVersion(): Promise<void> {
   console.log(pkg.version ?? "0.0.0");
 }
 
-function toCliError(error: unknown): { code: string; message: string; nextStep?: string } {
+function toCliError(error: unknown): { code: string; message: string; nextStep?: string; details?: Record<string, unknown> } {
   if (error instanceof CliActionableError) {
-    return { code: error.code, message: error.message, nextStep: error.nextStep };
+    return error.details
+      ? { code: error.code, message: error.message, nextStep: error.nextStep, details: error.details }
+      : { code: error.code, message: error.message, nextStep: error.nextStep };
   }
 
   const message = error instanceof Error ? error.message : String(error);
