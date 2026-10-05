@@ -1235,6 +1235,19 @@ export const commandCatalog: readonly CommandEntry[] = [
     "flags": []
   },
   {
+    "name": "git branch create",
+    "family": "git",
+    "summary": "Create a new branch from the connected repository and push it.",
+    "positional": "<name>",
+    "details": "Requires a connected repository (repo_not_bound). --from names the starting point (default: the connected branch). Uses 'git branch', never 'git checkout -b' -- the workspace's checked-out HEAD is never touched, so 'git push'/'git pull' keep targeting the connected branch exactly as before. branch_create_failed if the name already exists locally; push_rejected if the remote branch already exists. Mutating.",
+    "scope": "project",
+    "mutating": true,
+    "flags": [
+      "from",
+      "name"
+    ]
+  },
+  {
     "name": "domain configure",
     "family": "domain",
     "summary": "Set the project's cookie/custom domain via blocks-os Domain/Configure.",
@@ -1304,10 +1317,12 @@ export const commandCatalog: readonly CommandEntry[] = [
     "name": "git pull",
     "family": "git",
     "summary": "Pull the connected branch from GitHub.",
-    "details": "Requires a connected repository (repo_not_bound). Refuses when the working tree has uncommitted changes (working_tree_dirty) rather than stashing them. A conflicting pull is aborted and reported as merge_conflict. --rebase rebases instead of merging.",
+    "details": "Requires a connected repository (repo_not_bound). Refuses when the working tree has uncommitted changes (working_tree_dirty) rather than stashing them. A conflicting pull is aborted and reported as merge_conflict, with errors.conflictedFiles naming the files both sides changed. --rebase rebases instead of merging. --keep-conflicts (merge only) leaves the conflict in place for the caller to resolve, then 'blocks git push' commits the merge; --abort gives up on such a merge and restores the workspace.",
     "scope": "project",
     "mutating": false,
     "flags": [
+      "abort",
+      "keep-conflicts",
       "rebase"
     ]
   },

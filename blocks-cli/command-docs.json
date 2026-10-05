@@ -978,7 +978,7 @@
   },
   "git pull": {
     "summary": "Pull the connected branch from GitHub.",
-    "details": "Requires a connected repository (repo_not_bound). Refuses when the working tree has uncommitted changes (working_tree_dirty) rather than stashing them. A conflicting pull is aborted and reported as merge_conflict. --rebase rebases instead of merging."
+    "details": "Requires a connected repository (repo_not_bound). Refuses when the working tree has uncommitted changes (working_tree_dirty) rather than stashing them. A conflicting pull is aborted and reported as merge_conflict, with errors.conflictedFiles naming the files both sides changed. --rebase rebases instead of merging. --keep-conflicts (merge only) leaves the conflict in place for the caller to resolve, then 'blocks git push' commits the merge; --abort gives up on such a merge and restores the workspace."
   },
   "git push": {
     "summary": "Commit what changed and push the connected branch to GitHub.",
@@ -987,6 +987,11 @@
   "git disconnect": {
     "summary": "Forget the connected repository without touching git history or GitHub.",
     "details": "Removes only the repo entry from blocks.json; .git, its remotes, every commit and the GitHub repository are left as they are. Undo with 'git connect <owner/name> --strategy keep-local'. Mutating."
+  },
+  "git branch create": {
+    "summary": "Create a new branch from the connected repository and push it.",
+    "positional": "<name>",
+    "details": "Requires a connected repository (repo_not_bound). --from names the starting point (default: the connected branch). Uses 'git branch', never 'git checkout -b' -- the workspace's checked-out HEAD is never touched, so 'git push'/'git pull' keep targeting the connected branch exactly as before. branch_create_failed if the name already exists locally; push_rejected if the remote branch already exists. Mutating."
   },
   "data files complete-upload": {
     "summary": "Verify and promote a quarantined upload (cloud upload step 3).",

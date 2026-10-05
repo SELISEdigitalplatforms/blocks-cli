@@ -119,6 +119,7 @@ import { releaseDeploy } from "./commands/release/deploy.js";
 import { releaseDomainSet } from "./commands/release/domain/set.js";
 import { releaseGitBranches } from "./commands/release/git/branches.js";
 import { releaseGitRepos } from "./commands/release/git/repos.js";
+import { gitBranchCreate } from "./commands/git/branch/create.js";
 import { gitClone } from "./commands/git/clone.js";
 import { gitConnect } from "./commands/git/connect.js";
 import { gitDisconnect } from "./commands/git/disconnect.js";
@@ -538,6 +539,7 @@ const commands: Partial<Record<string, CommandHandler>> = {
   "projects:get": getProject,
   "git:status": gitStatus,
   "git:init": gitInit,
+  "git:branch:create": gitBranchCreate,
   "git:clone": gitClone,
   "git:connect": gitConnect,
   "git:pull": gitPull,
