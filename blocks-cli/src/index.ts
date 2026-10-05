@@ -22,6 +22,9 @@ import { dataSchemaDelete } from "./commands/data/schema/delete.js";
 import { dataSchemaFields } from "./commands/data/schema/fields.js";
 import { dataSchemaGet } from "./commands/data/schema/get.js";
 import { dataSchemaGetByName } from "./commands/data/schema/get-by-name.js";
+import { dataSchemaIndexesCreate } from "./commands/data/schema/indexes/create.js";
+import { dataSchemaIndexesDelete } from "./commands/data/schema/indexes/delete.js";
+import { dataSchemaIndexesList } from "./commands/data/schema/indexes/list.js";
 import { dataSchemaInfoList } from "./commands/data/schema/info/list.js";
 import { dataSchemaInfoSave } from "./commands/data/schema/info/save.js";
 import { dataSchemaInfoUpdate } from "./commands/data/schema/info/update.js";
@@ -119,6 +122,7 @@ import { releaseDeploy } from "./commands/release/deploy.js";
 import { releaseDomainSet } from "./commands/release/domain/set.js";
 import { releaseGitBranches } from "./commands/release/git/branches.js";
 import { releaseGitRepos } from "./commands/release/git/repos.js";
+import { gitBranchCreate } from "./commands/git/branch/create.js";
 import { gitClone } from "./commands/git/clone.js";
 import { gitConnect } from "./commands/git/connect.js";
 import { gitDisconnect } from "./commands/git/disconnect.js";
@@ -320,6 +324,9 @@ const commands: Partial<Record<string, CommandHandler>> = {
   "data:schema:change-logs": dataSchemaChangeLogs,
   "data:schema:delete": dataSchemaDelete,
   "data:schema:fields": dataSchemaFields,
+  "data:schema:indexes:list": dataSchemaIndexesList,
+  "data:schema:indexes:create": dataSchemaIndexesCreate,
+  "data:schema:indexes:delete": dataSchemaIndexesDelete,
   "data:schema:info:list": dataSchemaInfoList,
   "data:schema:info:save": dataSchemaInfoSave,
   "data:schema:info:update": dataSchemaInfoUpdate,
@@ -538,6 +545,7 @@ const commands: Partial<Record<string, CommandHandler>> = {
   "projects:get": getProject,
   "git:status": gitStatus,
   "git:init": gitInit,
+  "git:branch:create": gitBranchCreate,
   "git:clone": gitClone,
   "git:connect": gitConnect,
   "git:pull": gitPull,
@@ -1253,7 +1261,17 @@ Data:
                               [--body '<json>'|--file <path>] [--dry-run] [--yes] [--json]
       Add/update field definitions; the 'fields' array (name/type/isArray/isPIIData/
       isUniqueData/description) goes in --body/--file, e.g.
-      --body '{"fields":[{"name":"email","type":"string"}]}'.
+      --body '{"fields":[{"name":"email","type":"String"}]}'.
+      type is case-sensitive: String, Int, Float, Boolean, DateTime, ID, GeoJson, or
+      another schema's name. A non-array GeoJson field gets an automatic 2dsphere index.
+    blocks data schema indexes list <schemaDefinitionItemId> [--json]
+      User indexes (indexes, max 15) plus read-only systemIndexes (GeoJson 2dsphere).
+    blocks data schema indexes create --schema-id <id> --fields name[:asc|desc],...
+                              [--name <n>] [--unique] [--body '<json>'|--file <path>]
+                              [--dry-run] [--yes] [--json]
+      Entity schemas, scalar fields only; GeoJson fields are indexed automatically.
+    blocks data schema indexes delete <indexItemId> [--dry-run] [--yes] [--json]
+      Drops the MongoDB index. system:* ids (GeoJson) are refused.
 
   Data-access policies, single-item ops (beyond the file-oriented rules pull/deploy above):
     blocks data rules policy get <schemaName> [--json]

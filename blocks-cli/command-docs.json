@@ -467,8 +467,22 @@
     "summary": "Update schema metadata without touching field definitions."
   },
   "data schema fields": {
-    "summary": "Add/update field definitions; the 'fields' array (name/type/isArray/isPIIData/ isUniqueData/description) goes in --body/--file, e.g.",
-    "details": "--body '{\"fields\":[{\"name\":\"email\",\"type\":\"string\"}]}'."
+    "summary": "Add/update field definitions; the 'fields' array (name/type/isArray/isPIIData/isUniqueData/description) goes in --body/--file.",
+    "details": "e.g. --body '{\"fields\":[{\"name\":\"email\",\"type\":\"String\"}]}'. type is case-sensitive: String, Int, Float, Boolean, DateTime, ID, GeoJson, or another schema's name; a miscased scalar is refused locally. A non-array GeoJson field on an Entity schema gets an automatic 2dsphere index (dropped when the field is deleted or changes type)."
+  },
+  "data schema indexes list": {
+    "summary": "List a schema's indexes: user-managed indexes plus read-only systemIndexes (automatic GeoJson 2dsphere).",
+    "positional": "<schemaDefinitionItemId>",
+    "details": "GET /data/v4/schemas/indexes. systemIndexes have ids of the form system:<field>_2dsphere, cannot be deleted, and do not count against the 15-index limit."
+  },
+  "data schema indexes create": {
+    "summary": "Create a single-field or compound index on an Entity schema's collection.",
+    "details": "POST /data/v4/schemas/indexes. --fields name[:asc|desc],... (1-10 distinct fields, default asc); --name defaults to field_1_other_-1; --unique for a unique index. Scalar fields only: GeoJson fields are refused (FIELD_NOT_INDEXABLE) because their 2dsphere index is automatic. Max 15 user indexes per schema. Mutating; reloads the gateway."
+  },
+  "data schema indexes delete": {
+    "summary": "Delete a user-managed schema index and drop the MongoDB index.",
+    "positional": "<indexItemId>",
+    "details": "DELETE /data/v4/schemas/indexes?itemId=. system:* (GeoJson) ids are refused locally. Mutating; reloads the gateway."
   },
   "data rules policy get": {
     "summary": "Read all data-access policies for one schema.",
@@ -978,7 +992,7 @@
   },
   "git pull": {
     "summary": "Pull the connected branch from GitHub.",
-    "details": "Requires a connected repository (repo_not_bound). Refuses when the working tree has uncommitted changes (working_tree_dirty) rather than stashing them. A conflicting pull is aborted and reported as merge_conflict. --rebase rebases instead of merging."
+    "details": "Requires a connected repository (repo_not_bound). Refuses when the working tree has uncommitted changes (working_tree_dirty) rather than stashing them. A conflicting pull is aborted and reported as merge_conflict, with errors.conflictedFiles naming the files both sides changed. --rebase rebases instead of merging. --keep-conflicts (merge only) leaves the conflict in place for the caller to resolve, then 'blocks git push' commits the merge; --abort gives up on such a merge and restores the workspace."
   },
   "git push": {
     "summary": "Commit what changed and push the connected branch to GitHub.",
@@ -987,6 +1001,11 @@
   "git disconnect": {
     "summary": "Forget the connected repository without touching git history or GitHub.",
     "details": "Removes only the repo entry from blocks.json; .git, its remotes, every commit and the GitHub repository are left as they are. Undo with 'git connect <owner/name> --strategy keep-local'. Mutating."
+  },
+  "git branch create": {
+    "summary": "Create a new branch from the connected repository and push it.",
+    "positional": "<name>",
+    "details": "Requires a connected repository (repo_not_bound). --from names the starting point (default: the connected branch). Uses 'git branch', never 'git checkout -b' -- the workspace's checked-out HEAD is never touched, so 'git push'/'git pull' keep targeting the connected branch exactly as before. branch_create_failed if the name already exists locally; push_rejected if the remote branch already exists. Mutating."
   },
   "data files complete-upload": {
     "summary": "Verify and promote a quarantined upload (cloud upload step 3).",
@@ -1015,7 +1034,7 @@
   },
   "logic proxy create": {
     "summary": "Create a logic proxy (simple flags or full --file body).",
-    "details": "Mode A: --name, --upstream (absolute https://), --methods (CSV of GET,POST,PUT,PATCH,DELETE), optional --enabled/--disabled (default enabled). Mode B: --file with a full ProxyCreateRequestDto (routes/headers/query/access/\u2026). Modes are mutually exclusive. POSTs /logic/v4/Proxies, then GETs the new proxy and prints the full ProxyDetailDto (including server-derived slug). Surfaces PROXY_SLUG_CONFLICT and PROXY_VALIDATION verbatim. Mutating unless --dry-run."
+    "details": "Mode A: --name, --upstream (absolute https://), --methods (CSV of GET,POST,PUT,PATCH,DELETE), optional --enabled/--disabled (default enabled). Mode B: --file with a full ProxyCreateRequestDto (routes/headers/query/access/…). Modes are mutually exclusive. POSTs /logic/v4/Proxies, then GETs the new proxy and prints the full ProxyDetailDto (including server-derived slug). Surfaces PROXY_SLUG_CONFLICT and PROXY_VALIDATION verbatim. Mutating unless --dry-run."
   },
   "logic proxy get": {
     "summary": "Fetch one proxy from /logic/v4/Proxies/{id}.",
@@ -1025,7 +1044,7 @@
   "logic proxy update": {
     "summary": "Update a logic proxy with read-before-write merge (or full --file replace).",
     "positional": "<proxy-id>",
-    "details": "Mode A: any subset of --name/--upstream/--methods \u2014 CLI GETs the current ProxyDetailDto, merges only the supplied fields, and PUTs the complete body so routes/headers/access are not wiped. Mode B: --file supplies the full replacement body. Enabled and Slug are never sent (PATCH-only / immutable). Follow-up GET prints the stored detail. Errors: proxy_not_found (no PUT), PROXY_VALIDATION. Mutating unless --dry-run."
+    "details": "Mode A: any subset of --name/--upstream/--methods — CLI GETs the current ProxyDetailDto, merges only the supplied fields, and PUTs the complete body so routes/headers/access are not wiped. Mode B: --file supplies the full replacement body. Enabled and Slug are never sent (PATCH-only / immutable). Follow-up GET prints the stored detail. Errors: proxy_not_found (no PUT), PROXY_VALIDATION. Mutating unless --dry-run."
   },
   "logic proxy enable": {
     "summary": "Enable a logic proxy via PATCH (Enabled=true).",
@@ -1065,12 +1084,12 @@
   "logic proxy execution": {
     "summary": "Fetch one proxy execution detail.",
     "positional": "<proxy-id> <execution-id>",
-    "details": "GETs /logic/v4/Proxies/{id}/executions/{executionId}. Returns ProxyExecutionDetailDto verbatim, or {\"data\":null} (exit 0) for unknown/mismatched/foreign ids \u2014 never a 404. Read-only."
+    "details": "GETs /logic/v4/Proxies/{id}/executions/{executionId}. Returns ProxyExecutionDetailDto verbatim, or {\"data\":null} (exit 0) for unknown/mismatched/foreign ids — never a 404. Read-only."
   },
   "logic proxy overview": {
     "summary": "Proxy metrics overview (rolling 24h / all-time).",
     "positional": "<proxy-id>",
-    "details": "GETs /logic/v4/Proxies/{id}/overview and returns ProxyOverviewDto verbatim (calls24h, avgLatencyMs, errorRatePct, \u2026). Errors: PROXY_NOT_FOUND only when the proxy is unknown AND has no execution rows. Read-only."
+    "details": "GETs /logic/v4/Proxies/{id}/overview and returns ProxyOverviewDto verbatim (calls24h, avgLatencyMs, errorRatePct, …). Errors: PROXY_NOT_FOUND only when the proxy is unknown AND has no execution rows. Read-only."
   },
   "logic scheduler create": {
     "summary": "Create a cron-triggered webhook schedule in blocks-logic.",

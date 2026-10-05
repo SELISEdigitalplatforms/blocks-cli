@@ -1015,8 +1015,8 @@ export const commandCatalog: readonly CommandEntry[] = [
   {
     "name": "data schema fields",
     "family": "data",
-    "summary": "Add/update field definitions; the 'fields' array (name/type/isArray/isPIIData/ isUniqueData/description) goes in --body/--file, e.g.",
-    "details": "--body '{\"fields\":[{\"name\":\"email\",\"type\":\"string\"}]}'.",
+    "summary": "Add/update field definitions; the 'fields' array (name/type/isArray/isPIIData/isUniqueData/description) goes in --body/--file.",
+    "details": "e.g. --body '{\"fields\":[{\"name\":\"email\",\"type\":\"String\"}]}'. type is case-sensitive: String, Int, Float, Boolean, DateTime, ID, GeoJson, or another schema's name; a miscased scalar is refused locally. A non-array GeoJson field on an Entity schema gets an automatic 2dsphere index (dropped when the field is deleted or changes type).",
     "scope": "project",
     "mutating": true,
     "flags": [
@@ -1047,6 +1047,46 @@ export const commandCatalog: readonly CommandEntry[] = [
     "mutating": false,
     "flags": [
       "schema-name"
+    ]
+  },
+  {
+    "name": "data schema indexes create",
+    "family": "data",
+    "summary": "Create a single-field or compound index on an Entity schema's collection.",
+    "details": "POST /data/v4/schemas/indexes. --fields name[:asc|desc],... (1-10 distinct fields, default asc); --name defaults to field_1_other_-1; --unique for a unique index. Scalar fields only: GeoJson fields are refused (FIELD_NOT_INDEXABLE) because their 2dsphere index is automatic. Max 15 user indexes per schema. Mutating; reloads the gateway.",
+    "scope": "project",
+    "mutating": true,
+    "flags": [
+      "body",
+      "fields",
+      "file",
+      "name",
+      "schema-id",
+      "unique"
+    ]
+  },
+  {
+    "name": "data schema indexes delete",
+    "family": "data",
+    "summary": "Delete a user-managed schema index and drop the MongoDB index.",
+    "positional": "<indexItemId>",
+    "details": "DELETE /data/v4/schemas/indexes?itemId=. system:* (GeoJson) ids are refused locally. Mutating; reloads the gateway.",
+    "scope": "project",
+    "mutating": true,
+    "flags": [
+      "item-id"
+    ]
+  },
+  {
+    "name": "data schema indexes list",
+    "family": "data",
+    "summary": "List a schema's indexes: user-managed indexes plus read-only systemIndexes (automatic GeoJson 2dsphere).",
+    "positional": "<schemaDefinitionItemId>",
+    "details": "GET /data/v4/schemas/indexes. systemIndexes have ids of the form system:<field>_2dsphere, cannot be deleted, and do not count against the 15-index limit.",
+    "scope": "project",
+    "mutating": false,
+    "flags": [
+      "schema-id"
     ]
   },
   {
@@ -1246,6 +1286,19 @@ export const commandCatalog: readonly CommandEntry[] = [
     ]
   },
   {
+    "name": "git branch create",
+    "family": "git",
+    "summary": "Create a new branch from the connected repository and push it.",
+    "positional": "<name>",
+    "details": "Requires a connected repository (repo_not_bound). --from names the starting point (default: the connected branch). Uses 'git branch', never 'git checkout -b' -- the workspace's checked-out HEAD is never touched, so 'git push'/'git pull' keep targeting the connected branch exactly as before. branch_create_failed if the name already exists locally; push_rejected if the remote branch already exists. Mutating.",
+    "scope": "project",
+    "mutating": true,
+    "flags": [
+      "from",
+      "name"
+    ]
+  },
+  {
     "name": "git clone",
     "family": "git",
     "summary": "Clone a GitHub repository and bind it to the selected project.",
@@ -1304,10 +1357,12 @@ export const commandCatalog: readonly CommandEntry[] = [
     "name": "git pull",
     "family": "git",
     "summary": "Pull the connected branch from GitHub.",
-    "details": "Requires a connected repository (repo_not_bound). Refuses when the working tree has uncommitted changes (working_tree_dirty) rather than stashing them. A conflicting pull is aborted and reported as merge_conflict. --rebase rebases instead of merging.",
+    "details": "Requires a connected repository (repo_not_bound). Refuses when the working tree has uncommitted changes (working_tree_dirty) rather than stashing them. A conflicting pull is aborted and reported as merge_conflict, with errors.conflictedFiles naming the files both sides changed. --rebase rebases instead of merging. --keep-conflicts (merge only) leaves the conflict in place for the caller to resolve, then 'blocks git push' commits the merge; --abort gives up on such a merge and restores the workspace.",
     "scope": "project",
     "mutating": false,
     "flags": [
+      "abort",
+      "keep-conflicts",
       "rebase"
     ]
   },
@@ -3759,6 +3814,5 @@ export const commandCatalog: readonly CommandEntry[] = [
     "scope": "local",
     "mutating": false,
     "flags": []
-  },
-
+  }
 ];
