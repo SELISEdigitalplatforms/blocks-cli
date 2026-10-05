@@ -1015,8 +1015,8 @@ export const commandCatalog: readonly CommandEntry[] = [
   {
     "name": "data schema fields",
     "family": "data",
-    "summary": "Add/update field definitions; the 'fields' array (name/type/isArray/isPIIData/ isUniqueData/description) goes in --body/--file, e.g.",
-    "details": "--body '{\"fields\":[{\"name\":\"email\",\"type\":\"string\"}]}'.",
+    "summary": "Add/update field definitions; the 'fields' array (name/type/isArray/isPIIData/isUniqueData/description) goes in --body/--file.",
+    "details": "e.g. --body '{\"fields\":[{\"name\":\"email\",\"type\":\"String\"}]}'. type is case-sensitive: String, Int, Float, Boolean, DateTime, ID, GeoJson, or another schema's name; a miscased scalar is refused locally. A non-array GeoJson field on an Entity schema gets an automatic 2dsphere index (dropped when the field is deleted or changes type).",
     "scope": "project",
     "mutating": true,
     "flags": [
@@ -1047,6 +1047,46 @@ export const commandCatalog: readonly CommandEntry[] = [
     "mutating": false,
     "flags": [
       "schema-name"
+    ]
+  },
+  {
+    "name": "data schema indexes create",
+    "family": "data",
+    "summary": "Create a single-field or compound index on an Entity schema's collection.",
+    "details": "POST /data/v4/schemas/indexes. --fields name[:asc|desc],... (1-10 distinct fields, default asc); --name defaults to field_1_other_-1; --unique for a unique index. Scalar fields only: GeoJson fields are refused (FIELD_NOT_INDEXABLE) because their 2dsphere index is automatic. Max 15 user indexes per schema. Mutating; reloads the gateway.",
+    "scope": "project",
+    "mutating": true,
+    "flags": [
+      "body",
+      "fields",
+      "file",
+      "name",
+      "schema-id",
+      "unique"
+    ]
+  },
+  {
+    "name": "data schema indexes delete",
+    "family": "data",
+    "summary": "Delete a user-managed schema index and drop the MongoDB index.",
+    "positional": "<indexItemId>",
+    "details": "DELETE /data/v4/schemas/indexes?itemId=. system:* (GeoJson) ids are refused locally. Mutating; reloads the gateway.",
+    "scope": "project",
+    "mutating": true,
+    "flags": [
+      "item-id"
+    ]
+  },
+  {
+    "name": "data schema indexes list",
+    "family": "data",
+    "summary": "List a schema's indexes: user-managed indexes plus read-only systemIndexes (automatic GeoJson 2dsphere).",
+    "positional": "<schemaDefinitionItemId>",
+    "details": "GET /data/v4/schemas/indexes. systemIndexes have ids of the form system:<field>_2dsphere, cannot be deleted, and do not count against the 15-index limit.",
+    "scope": "project",
+    "mutating": false,
+    "flags": [
+      "schema-id"
     ]
   },
   {
@@ -1235,6 +1275,17 @@ export const commandCatalog: readonly CommandEntry[] = [
     "flags": []
   },
   {
+    "name": "domain configure",
+    "family": "domain",
+    "summary": "Set the project's cookie/custom domain via blocks-os Domain/Configure.",
+    "details": "Requires --cookie-domain (non-empty). POSTs { cookieDomain } to /os/v4/Domain/Configure and reports { configured, cookieDomain } because the API does not echo the value. Empty domain fails client-side with domain_missing_required_fields (\"domain name is missing\"), matching the server. No get/remove exists on blocks-os yet. Mutating.",
+    "scope": "project",
+    "mutating": true,
+    "flags": [
+      "cookie-domain"
+    ]
+  },
+  {
     "name": "git branch create",
     "family": "git",
     "summary": "Create a new branch from the connected repository and push it.",
@@ -1245,17 +1296,6 @@ export const commandCatalog: readonly CommandEntry[] = [
     "flags": [
       "from",
       "name"
-    ]
-  },
-  {
-    "name": "domain configure",
-    "family": "domain",
-    "summary": "Set the project's cookie/custom domain via blocks-os Domain/Configure.",
-    "details": "Requires --cookie-domain (non-empty). POSTs { cookieDomain } to /os/v4/Domain/Configure and reports { configured, cookieDomain } because the API does not echo the value. Empty domain fails client-side with domain_missing_required_fields (\"domain name is missing\"), matching the server. No get/remove exists on blocks-os yet. Mutating.",
-    "scope": "project",
-    "mutating": true,
-    "flags": [
-      "cookie-domain"
     ]
   },
   {
@@ -3774,6 +3814,5 @@ export const commandCatalog: readonly CommandEntry[] = [
     "scope": "local",
     "mutating": false,
     "flags": []
-  },
-
+  }
 ];

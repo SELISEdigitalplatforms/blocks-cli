@@ -13,6 +13,27 @@
   reads against `/logic/v4/Proxies/*`.
 - `blocks logic scheduler create|update|delete|list` — cron-triggered webhook
   schedules against `/logic/v4/Scheduler/*` (read-merge-write updates; secrets never echoed).
+- `blocks data schema indexes list|create|delete` — schema index management
+  against `/data/v4/schemas/indexes`, for the Data Gateway's GeoJson field type.
+  A non-array GeoJson field on an Entity schema now gets a MongoDB `2dsphere`
+  index automatically, and the server reports it separately from user indexes as
+  `systemIndexes` (ids `system:<field>_2dsphere`). `list` shows both and says why
+  the system ones are read-only; `create` takes `--fields name[:asc|desc],...`,
+  `--name`, `--unique` (1-10 distinct scalar fields, max 15 user indexes) and
+  explains a `FIELD_NOT_INDEXABLE` rejection on a GeoJson field, whose index is
+  automatic and never manual; `delete` refuses `system:*` ids locally, since the
+  server could only answer `INDEX_NOT_FOUND`. Writes reload the gateway like every
+  other data mutation.
+
+### Fixed
+
+- Field types are case-sensitive on the server (`String`, `Int`, `Float`,
+  `Boolean`, `DateTime`, `ID`, `GeoJson`, or another schema's name), but nothing
+  said so, and the `data schema fields` help example used `"type":"string"`,
+  which the server rejects as `Field_Type_Is_Not_Valid`. `data validate`,
+  `data schema push` and `data schema fields` now refuse a miscased scalar
+  (`string`, `GeoJSON`, `geojson`) locally and name the right spelling; the help
+  example and the data-gateway skills are corrected.
 
 All notable changes to `@seliseblocks/cli-os`.
 

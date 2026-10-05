@@ -380,6 +380,23 @@ blocks data schema push --dry-run --json
 blocks data schema push --yes --json
 ```
 
+Field `type` is case-sensitive: `String`, `Int`, `Float`, `Boolean`, `DateTime`, `ID`,
+`GeoJson`, or another schema's name. A miscased scalar fails `data validate` / `data schema push`
+locally (`field types are case-sensitive -- use 'GeoJson'`). A non-array `GeoJson` field on an
+Entity schema gets an automatic `2dsphere` index; never create one by hand.
+
+Schema indexes (Entity schemas, scalar fields, max 15 user indexes):
+
+```bash
+blocks data schema indexes list <schemaId> --json
+blocks data schema indexes create --schema-id <id> --fields status,createdDate:desc [--unique] [--name <n>] --dry-run --json
+blocks data schema indexes delete <indexItemId> --dry-run --json
+```
+
+`list` returns `indexes` plus read-only `systemIndexes` (GeoJson 2dsphere, ids `system:<field>_2dsphere`).
+Failure codes: `invalid_index_field` (bad `--fields` entry), `invalid_index_fields` (0 or >10 fields),
+`field_not_indexable` (non-scalar or GeoJson field), `system_index_not_deletable` (`system:*` id).
+
 Pull rules:
 
 ```bash

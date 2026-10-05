@@ -164,6 +164,19 @@ export async function writeRulesFile(data: unknown): Promise<string> {
   return rules;
 }
 
+/**
+ * The Data Gateway's scalar field types (GraphQlTypeHelper.IsScalar), matched
+ * case-sensitively by the server. Anything else must name another schema, so a
+ * miscased scalar ("string", "GeoJSON") is rejected as Field_Type_Is_Not_Valid.
+ */
+const SCALAR_FIELD_TYPES = ["String", "Int", "Float", "Boolean", "DateTime", "ID", "GeoJson"];
+
+export function miscasedScalarType(type: unknown): string | undefined {
+  if (typeof type !== "string") return undefined;
+  const match = SCALAR_FIELD_TYPES.find((scalar) => scalar.toLowerCase() === type.toLowerCase());
+  return match && match !== type ? match : undefined;
+}
+
 export function validateSchemas(schemas: Array<{ file: string; schema: SchemaDocument }>): string[] {
   const errors: string[] = [];
 
@@ -178,6 +191,10 @@ export function validateSchemas(schemas: Array<{ file: string; schema: SchemaDoc
       const name = field.name;
       if (typeof name === "string" && SYSTEM_FIELDS.has(name)) {
         errors.push(`${file}: field '${name}' is platform-managed and must not be defined`);
+      }
+      const scalar = miscasedScalarType(field.type);
+      if (scalar) {
+        errors.push(`${file}: field '${String(name)}' has type '${String(field.type)}'; field types are case-sensitive -- use '${scalar}'`);
       }
     }
   }

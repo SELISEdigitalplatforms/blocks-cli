@@ -1,6 +1,6 @@
 ---
 name: blocks-data-gateway-configuration
-description: "Configure a SELISE Blocks project's data model via the blocks CLI — never raw fetch/curl against api.seliseblocks.com. Covers data-source config (data config get/create/update), schema authoring and push (data schema list/pull/push, plus granular get/fields/info commands), data-access policies (data rules pull/deploy/policy), field-level validation rules (data validation *), and reloading so changes go live (data reload, or the composed data sync). Use for defining, editing, securing, validating, or reloading a project's DATA MODEL — schema fields, access policies, and validation rules."
+description: "Configure a SELISE Blocks project's data model via the blocks CLI — never raw fetch/curl against api.seliseblocks.com. Covers data-source config (data config get/create/update), schema authoring and push (data schema list/pull/push, plus granular get/fields/info/indexes commands), data-access policies (data rules pull/deploy/policy), field-level validation rules (data validation *), and reloading so changes go live (data reload, or the composed data sync). Use for defining, editing, securing, validating, or reloading a project's DATA MODEL — schema fields, access policies, and validation rules."
 ---
 
 When invoking a project-scoped `blocks` command, either use the resolved account's saved selection or pass `--project <tenantId>` for that one command without changing saved state. `--project` applies to CLI commands only, never SDK calls.
@@ -147,6 +147,29 @@ The separate `--schema-type` flag on the `data schema *` commands is a *differen
 
 Prefer `--type <name>` over the numbers: the API publishes no named constants for this enum, so a number written from memory can store a different rule than the one asked for without any error.
 
+## Field types (including GeoJson)
+
+A field's `type` is **case-sensitive** and must be exactly one of the scalars `String`, `Int`, `Float`, `Boolean`, `DateTime`, `ID`, `GeoJson` — or the name of another schema (a reference/Dto field). `string` or `GeoJSON` is not a scalar to the server; `data validate`, `data schema push` and `data schema fields` refuse a miscased scalar locally and name the correct spelling.
+
+`GeoJson` holds an RFC 7946 geometry (`Point`, `MultiPoint`, `LineString`, `MultiLineString`, `Polygon`, `MultiPolygon`, `GeometryCollection`; coordinates are `[longitude, latitude]`), validated on write. On an **Entity** schema, a non-array `GeoJson` field gets a MongoDB `2dsphere` index **automatically** when the field is saved, and loses it when the field is deleted or its type changes — you never create it yourself. Array GeoJson fields (`isArray: true`) are deliberately not indexed (MongoDB can't), so geo queries on them still work but scan. Querying geo fields (`near`/`within`/`intersects`) is covered by the `blocks-data-gateway-crud` skill.
+
+```json
+{ "name": "location", "type": "GeoJson", "isArray": false }
+```
+
+## Schema indexes
+
+User-managed MongoDB indexes on an Entity schema's collection (single-field or compound, optionally unique, max 15 per schema):
+
+```bash
+blocks data schema indexes list <schemaId> --json                                   # indexes + read-only systemIndexes
+blocks data schema indexes create --schema-id <id> --fields status,createdDate:desc --dry-run --json
+blocks data schema indexes create --schema-id <id> --fields email --unique --yes --json
+blocks data schema indexes delete <indexItemId> --dry-run --json
+```
+
+`list` returns `indexes` (yours: deletable, counted against the 15) and `systemIndexes` — the automatic `2dsphere` index of each GeoJson field, with ids like `system:location_2dsphere`. System indexes cannot be deleted (the CLI refuses `system:*` ids) and GeoJson fields cannot be given a manual index (`FIELD_NOT_INDEXABLE`); both follow the field definition. `--fields` takes `name[:asc|desc]` (default `asc`), 1–10 distinct scalar fields.
+
 ## More granular Schema commands
 
 `data schema list/pull/push` cover the everyday file-based workflow above. For one-off lookups or advanced schema metadata, these go straight to the API without touching local files:
@@ -209,6 +232,8 @@ Once you have the pattern, put it into the relevant field's validation in `block
 - "What database is this project actually using?" → `data config get`.
 - "Add a validation rule so the `phone` field only accepts digits." → `data validation save`.
 - "What validation rules exist on the `Order` schema?" → `data validation by-schema`.
+- "Add a location field to my `Store` schema so I can search nearby stores." → a `GeoJson` field; its 2dsphere index is automatic.
+- "Add a unique index on `email`." / "What indexes does `Order` have?" → `data schema indexes create|list`.
 - "Delete this one data-access policy without touching the rest of my rules file." → `data rules policy delete`.
 - "Can you wipe the demo/sample data from my project?" → explain this isn't supported by the CLI or SDK today; point to the portal.
 - "Copy my dev project's schemas over to staging." → explain export/import isn't supported by current tooling; point to the portal or manual recreation.
