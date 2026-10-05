@@ -207,7 +207,7 @@ test("git init: without a GitHub connection it fails before touching the directo
     const result = await run(["git", "init", "--yes", ...ctx(server.url)], { cwd, env: testEnv(configDir, ghRoot) });
     assert.equal(result.status, 1);
     assert.match(result.stderr, /github_not_connected/);
-    assert.match(result.stderr, /Blocks portal/);
+    assert.match(result.stderr, /blocks github connect/);
     assert.equal(await exists(join(cwd, ".git")), false, "git init ran despite no credential");
     assert.equal(server.calls.created.length, 0);
   } finally {
@@ -431,12 +431,12 @@ test("git pull: a conflict names its files; --keep-conflicts leaves it in place,
     assert.equal(aborted.status, 1);
     const abortedError = JSON.parse(aborted.stderr.slice(aborted.stderr.indexOf("{")));
     assert.equal(abortedError.code, "merge_conflict");
-    assert.deepEqual(abortedError.details, { conflictedFiles: ["index.html"], kept: false });
+    assert.deepEqual(abortedError.errors, { conflictedFiles: ["index.html"], kept: false });
     assert.equal(await exists(join(cwd, ".git", "MERGE_HEAD")), false, "a plain pull must abort the merge");
 
     const kept = await run(["git", "pull", "--keep-conflicts", ...ctx(server.url)], { cwd, env });
     assert.equal(kept.status, 1);
-    assert.deepEqual(JSON.parse(kept.stderr.slice(kept.stderr.indexOf("{"))).details, { conflictedFiles: ["index.html"], kept: true });
+    assert.deepEqual(JSON.parse(kept.stderr.slice(kept.stderr.indexOf("{"))).errors, { conflictedFiles: ["index.html"], kept: true });
     assert.equal(await exists(join(cwd, ".git", "MERGE_HEAD")), true, "--keep-conflicts must leave the merge in place");
     assert.match(await readFile(join(cwd, "index.html"), "utf8"), /<<<<<<<[\s\S]*=======[\s\S]*>>>>>>>/);
 

@@ -13,11 +13,17 @@ export type BlocksWorkspaceConfig = {
   localization?: {
     dictionaries?: string;
   };
+  /** Logic workflow bindings: relative file path → workflowId (Phase 1 create-only). */
+  logic?: {
+    workflows?: Record<string, string>;
+  };
   project?: {
     apiUrl?: string;
     appDomain?: string;
     tenantId?: string;
   };
+  /** Optional git repo binding written by `blocks git init/connect`. */
+  repo?: Record<string, unknown>;
 };
 
 export async function readWorkspaceConfig(): Promise<BlocksWorkspaceConfig> {

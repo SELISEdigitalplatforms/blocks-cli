@@ -9,7 +9,7 @@ import { parseCommand, selectedProject } from "../../lib/workspace.js";
  * Scenario D — bring the connected branch's remote changes here. Refuses on
  * uncommitted changes rather than stashing them: a stash nobody asked for
  * is where work goes missing. Conflicts abort cleanly with `merge_conflict`,
- * whose `details.conflictedFiles` names the files both sides changed.
+ * whose `errors.conflictedFiles` names the files both sides changed.
  *
  * `--keep-conflicts` (merge only) stops with the conflict left in place
  * instead, for a caller that resolves it itself and then runs

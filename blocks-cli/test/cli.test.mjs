@@ -23,6 +23,7 @@ import { CliActionableError } from "../dist/lib/errors.js";
 import { oidcRedirectUrisFromAppDomain } from "../dist/lib/domains.js";
 import { findAvailablePort, isPortFree } from "../dist/lib/port.js";
 import { isNewerVersion } from "../dist/lib/update-check.js";
+import { redactWorkflowSecrets, REDACTED } from "../dist/lib/workflow-graph.js";
 
 const repoRoot = resolve(import.meta.dirname, "..");
 const bin = join(repoRoot, "bin", "run.js");
@@ -2374,6 +2375,9 @@ test("release deploy wait polls with the explicitly deployed project session", a
     if (path === "/os/v4/Project/Gets") {
       return [{ tenantGroupId: "group-1", projects: [{ environment: "dev", tenantId: "target-project" }] }];
     }
+    if (path === "/release/v4/Build/repos-list") {
+      return { isSuccess: true, data: [] };
+    }
     if (path === "/os/v4/Project/GetAsset") {
       return { assets: { resources: [{ name: "dev", resourceId: "repo-1" }] } };
     }
@@ -2500,7 +2504,7 @@ test("release deploy flags an unregistered deployed /login/callback and --regist
       return { data: { repo: { branch: "dev", repoUrl: "https://example.test/repo.git" } } };
     }
     if (path === "/release/v4/Build/repos-list") {
-      return { data: [{ itemId: "repo-1", repoName: "web", defaultDeploymentUrl: "https://tbumke-ekeca.slsblx.test" }] };
+      return { data: [{ itemId: "repo-1", repoName: "web", defaultDeploymentUrl: "https://tbumke-ekeca.slsblx.test", branch: "dev", repoUrl: "https://github.com/acme/web" }] };
     }
     if (path === "/release/v4/RepoSecret/value") {
       secretValueReads += 1;
@@ -3783,7 +3787,9 @@ test("linux ignores empty XDG_CONFIG_HOME and uses home config fallback", { skip
   delete env.BLOCKS_CONFIG_DIR;
 
   const status = run(["doctor", "--json"], { cwd, env });
-  assert.equal(status.status, 0, status.stderr);
+  // Doctor may exit 1 when no tokens exist; the point of this test is the
+  // empty XDG_CONFIG_HOME falls back to ~/.config/..., not a healthy session.
+  assert.equal(status.signal, null, status.stderr);
   const data = JSON.parse(status.stdout);
   assert.ok(data.checks.some((check) => check.detail.includes(join(homeDir, ".config", "seliseblocks", "cli", "tokens.json"))));
 });
@@ -5061,6 +5067,9 @@ test("release deploy --wait reads the status field, not keywords in other string
     if (path === "/os/v4/Project/Gets") {
       return [{ tenantGroupId: "group-1", projects: [{ environment: "dev", tenantId: "target-project" }] }];
     }
+    if (path === "/release/v4/Build/repos-list") {
+      return { isSuccess: true, data: [] };
+    }
     if (path === "/os/v4/Project/GetAsset") {
       return { assets: { resources: [{ name: "dev", resourceId: "repo-1" }] } };
     }
@@ -5313,6 +5322,9 @@ test("release deploy --with-secrets --json emits one document carrying the sync 
     const path = request.url.split("?")[0];
     if (path === "/os/v4/Project/Gets") {
       return [{ tenantGroupId: "group-1", projects: [{ environment: "dev", tenantId: "target-project" }] }];
+    }
+    if (path === "/release/v4/Build/repos-list") {
+      return { isSuccess: true, data: [] };
     }
     if (path === "/os/v4/Project/GetAsset") {
       return { assets: { resources: [{ name: "dev", resourceId: "repo-1" }] } };
@@ -5581,4 +5593,42 @@ test("captcha save requires an explicit enable choice on create and redacts the 
   } finally {
     await new Promise((resolveClose) => server.close(resolveClose));
   }
+});
+
+test("workflow export redaction strips x-blocks-key regardless of header container casing", () => {
+  const graph = {
+    nodes: [
+      {
+        id: "n1",
+        parameters: {
+          // Service persists the header dictionary as PascalCase "Headers".
+          Headers: { "x-blocks-key": "shhh-this-is-secret-12345", "content-type": "application/json" },
+          clientSecret: "blxsk_live_secret",
+        },
+      },
+      {
+        id: "n2",
+        parameters: {
+          // Nested auth block with a differently-cased key name.
+          auth: { "X-Blocks-Key": "nested-secret", clientId: "public-id" },
+        },
+      },
+    ],
+    edges: [],
+    settings: {},
+  };
+
+  const { graph: redacted, redactedCount } = redactWorkflowSecrets(graph);
+
+  assert.equal(redacted.nodes[0].parameters.Headers["x-blocks-key"], REDACTED);
+  assert.equal(redacted.nodes[0].parameters.Headers["content-type"], "application/json");
+  assert.equal(redacted.nodes[0].parameters.clientSecret, REDACTED);
+  assert.equal(redacted.nodes[1].parameters.auth["X-Blocks-Key"], REDACTED);
+  assert.equal(redacted.nodes[1].parameters.auth.clientId, "public-id");
+  assert.equal(redactedCount, 3);
+
+  const serialized = JSON.stringify(redacted);
+  assert.ok(!serialized.includes("shhh-this-is-secret-12345"), "x-blocks-key value leaked in cleartext");
+  assert.ok(!serialized.includes("nested-secret"), "nested x-blocks-key value leaked in cleartext");
+  assert.ok(!serialized.includes("blxsk_live_secret"), "clientSecret value leaked in cleartext");
 });

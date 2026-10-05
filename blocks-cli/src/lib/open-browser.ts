@@ -3,7 +3,19 @@ import { platform } from "node:os";
 
 const LAUNCH_GRACE_PERIOD_MS = 500;
 
+/**
+ * Opens `url` in the system browser.
+ *
+ * Test / headless seam (never log secrets):
+ * - BLOCKS_OPEN_BROWSER=0|off|false|no — skip launch, return true
+ *
+ * Callers that need the URL in tests should print it (e.g. to stderr) and
+ * assert that output — do not write authorize URLs to disk from this helper.
+ */
 export async function openBrowser(url: string): Promise<boolean> {
+  const mode = (process.env.BLOCKS_OPEN_BROWSER ?? "").trim().toLowerCase();
+  if (mode === "0" || mode === "off" || mode === "false" || mode === "no") return true;
+
   const os = platform();
   const command = os === "win32" ? "rundll32" : os === "darwin" ? "open" : "xdg-open";
   const args = os === "win32" ? ["url.dll,FileProtocolHandler", url] : [url];

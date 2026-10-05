@@ -2,13 +2,16 @@ import { booleanFlag, integerFlag, stringFlag } from "../../lib/args.js";
 import { blocksRequest } from "../../lib/api.js";
 import { confirmMutation } from "../../lib/confirm.js";
 import { CliActionableError } from "../../lib/errors.js";
+import { readRepoBinding } from "../../lib/git.js";
 import { writeOutput } from "../../lib/output.js";
 import { getProjectAssets, resolveSelectedProject } from "../../lib/project-info.js";
 import {
   DEFAULT_POLL_INTERVAL_SECONDS,
   DEFAULT_WAIT_TIMEOUT_SECONDS,
   RELEASE_API,
+  ReleaseRepo,
   firstNonEmptyString,
+  listReleaseRepos,
   repoIdOf,
   resolveRepoBySelector,
   waitForBuild
@@ -22,6 +25,16 @@ type RepoDetailsResponse = {
   data?: {
     repo?: { branch?: string; repoUrl?: string };
   };
+};
+
+export type RepoSource = "explicit" | "workspace-binding" | "repos-list-match" | "project-asset";
+
+type ResolvedDeployRepo = {
+  branch: string;
+  repoId: string;
+  repoLabel: string;
+  repoSource: RepoSource;
+  repoUrl: string;
 };
 
 export async function releaseDeploy(argv: string[]): Promise<void> {
@@ -43,27 +56,14 @@ export async function releaseDeploy(argv: string[]): Promise<void> {
     throw new Error(`Project '${projectKey}' was not found in Project/Gets.`);
   }
 
-  let repoId: string;
-  let branch: string;
-  let repoUrl: string;
-  if (repoSelector) {
-    const repo = await resolveRepoBySelector(repoSelector, projectKey, flags);
-    const resolvedId = repoIdOf(repo);
-    if (!resolvedId) throw new Error(`Repo '${repoSelector}' has no id in Build/repos-list.`);
-    repoId = resolvedId;
-    branch = repo.branch ?? "";
-    repoUrl = repo.repoUrl ?? "";
-    if (!branch) {
-      const details = await resolveRepoBranch(repoId, projectKey, flags);
-      branch = details.branch;
-      repoUrl = repoUrl || details.repoUrl;
-    }
-  } else {
-    repoId = await resolveRepoId(tenantGroupId, environment, flags);
-    const details = await resolveRepoBranch(repoId, projectKey, flags);
-    branch = details.branch;
-    repoUrl = details.repoUrl;
-  }
+  const resolved = await resolveDeployRepo({
+    environment,
+    flags,
+    projectKey,
+    repoSelector: repoSelector || undefined,
+    tenantGroupId
+  });
+  const { repoId, branch, repoUrl, repoSource, repoLabel } = resolved;
 
   if (branch.toLowerCase() !== environment.toLowerCase()) {
     throw new CliActionableError(
@@ -89,6 +89,8 @@ export async function releaseDeploy(argv: string[]): Promise<void> {
         environment,
         projectKey,
         repoId,
+        repoLabel,
+        repoSource,
         secretsFile: secretsFile || undefined,
         steps
       },
@@ -100,7 +102,9 @@ export async function releaseDeploy(argv: string[]): Promise<void> {
   const actions = [
     ...(secretsFile ? [`sync secrets from '${secretsFile}'`] : []),
     ...(domain ? [`set custom domain '${domain}'`] : []),
-    `deploy '${environment}' (repo ${repoId}, branch ${branch})`
+    repoSource === "explicit"
+      ? `deploy '${environment}' (repo ${repoLabel}, branch ${branch})`
+      : `deploy '${environment}' using repo ${repoLabel} (resolved from ${repoSourceLabel(repoSource)}), branch ${branch}`
   ];
   await confirmMutation(flags, `${actions.join(", then ")}.`);
 
@@ -143,14 +147,14 @@ export async function releaseDeploy(argv: string[]): Promise<void> {
   await checkDeployedOidcCallback(repoId, projectKey, flags, { register: registerCallback });
 
   if (!wait && !follow) {
-    writeOutput(withSecrets(result), flags);
+    writeOutput(withSecrets({ ...result, repoSource }), flags);
     return;
   }
 
   const buildId = extractBuildId(result);
   if (!buildId) {
     console.error(`Warning: could not find a buildId in the deploy response to wait on. Response: ${JSON.stringify(result)}`);
-    writeOutput(withSecrets(result), flags);
+    writeOutput(withSecrets({ ...result, repoSource }), flags);
     return;
   }
 
@@ -159,7 +163,20 @@ export async function releaseDeploy(argv: string[]): Promise<void> {
     pollIntervalSeconds,
     timeoutSeconds
   });
-  writeOutput(withSecrets({ build, buildId, status, verdict }), flags);
+  writeOutput(withSecrets({ build, buildId, repoSource, status, verdict }), flags);
+}
+
+function repoSourceLabel(source: RepoSource): string {
+  switch (source) {
+    case "workspace-binding":
+      return "this workspace's connected repository";
+    case "repos-list-match":
+      return "the single registered repo matching this environment";
+    case "project-asset":
+      return "this project's linked portal asset";
+    default:
+      return source;
+  }
 }
 
 function extractBuildId(result: Record<string, unknown>): string | undefined {
@@ -172,21 +189,124 @@ function extractBuildId(result: Record<string, unknown>): string | undefined {
   return undefined;
 }
 
-async function resolveRepoId(
+async function resolveDeployRepo(args: {
+  environment: string;
+  flags: Record<string, string | boolean>;
+  projectKey: string;
+  repoSelector?: string;
+  tenantGroupId: string;
+}): Promise<ResolvedDeployRepo> {
+  const { environment, flags, projectKey, repoSelector, tenantGroupId } = args;
+
+  if (repoSelector) {
+    const repo = await resolveRepoBySelector(repoSelector, projectKey, flags);
+    const resolvedId = repoIdOf(repo);
+    if (!resolvedId) throw new Error(`Repo '${repoSelector}' has no id in Build/repos-list.`);
+    let branch = repo.branch ?? "";
+    let repoUrl = repo.repoUrl ?? "";
+    if (!branch) {
+      const details = await resolveRepoBranch(resolvedId, projectKey, flags);
+      branch = details.branch;
+      repoUrl = repoUrl || details.repoUrl;
+    }
+    return {
+      branch,
+      repoId: resolvedId,
+      repoLabel: repo.repoName ?? repoSelector,
+      repoSource: "explicit",
+      repoUrl
+    };
+  }
+
+  const repos = await listReleaseRepos(projectKey, flags);
+  const binding = await readRepoBinding();
+  if (binding) {
+    const matched = repos.filter(
+      (repo) => repoMatchesBinding(repo, binding.fullName) && (repo.branch ?? "").toLowerCase() === environment.toLowerCase()
+    );
+    if (matched.length === 1) {
+      const repo = matched[0];
+      const repoId = repoIdOf(repo);
+      if (!repoId) throw new Error(`Repo '${binding.fullName}' has no id in Build/repos-list.`);
+      return {
+        branch: repo.branch ?? environment,
+        repoId,
+        repoLabel: repo.repoName ?? binding.fullName,
+        repoSource: "workspace-binding",
+        repoUrl: repo.repoUrl ?? binding.url
+      };
+    }
+  }
+
+  const envMatches = repos.filter((repo) => (repo.branch ?? "").toLowerCase() === environment.toLowerCase());
+  if (envMatches.length === 1) {
+    const repo = envMatches[0];
+    const repoId = repoIdOf(repo);
+    if (!repoId) throw new Error("Matched repo has no id in Build/repos-list.");
+    return {
+      branch: repo.branch ?? environment,
+      repoId,
+      repoLabel: repo.repoName ?? repoId,
+      repoSource: "repos-list-match",
+      repoUrl: repo.repoUrl ?? ""
+    };
+  }
+  if (envMatches.length > 1 && !binding) {
+    throw new CliActionableError(
+      `Multiple repos match environment '${environment}' and none is the workspace's bound repo.`,
+      "repo_ambiguous",
+      "Pass --repo <name|id> to pick one."
+    );
+  }
+  if (envMatches.length > 1 && binding) {
+    throw new CliActionableError(
+      `Multiple repos match environment '${environment}' and none is the workspace's bound repo.`,
+      "repo_ambiguous",
+      "Pass --repo <name|id> to pick one."
+    );
+  }
+
+  const assetRepoId = await resolveRepoIdFromProjectAsset(tenantGroupId, environment, flags);
+  if (assetRepoId) {
+    const details = await resolveRepoBranch(assetRepoId, projectKey, flags);
+    return {
+      branch: details.branch,
+      repoId: assetRepoId,
+      repoLabel: details.repoUrl || assetRepoId,
+      repoSource: "project-asset",
+      repoUrl: details.repoUrl
+    };
+  }
+
+  throw new CliActionableError(
+    "No repo linked to this project.",
+    "repo_not_linked",
+    "Run 'blocks git init' or 'blocks git connect' to bind a repo, or pass --repo <owner/name>."
+  );
+}
+
+function repoMatchesBinding(repo: ReleaseRepo, fullName: string): boolean {
+  const wanted = fullName.toLowerCase();
+  const name = (repo.repoName ?? "").toLowerCase();
+  const url = (repo.repoUrl ?? "").toLowerCase();
+  if (name === wanted) return true;
+  if (url.includes(wanted)) return true;
+  if (name.endsWith(`/${wanted.split("/").pop()}`) && wanted.includes("/")) {
+    // repoName sometimes is short name only; compare tail
+  }
+  const short = wanted.split("/").pop() ?? wanted;
+  if (name === short && (url.includes(wanted) || url.includes(`/${short}`))) return true;
+  return false;
+}
+
+async function resolveRepoIdFromProjectAsset(
   tenantGroupId: string,
   environment: string,
   flags: Record<string, string | boolean>
-): Promise<string> {
+): Promise<string | undefined> {
   const response = await getProjectAssets(tenantGroupId, flags);
-
   const resources = response.assets?.resources ?? [];
-  if (resources.length === 0) {
-    throw new CliActionableError(
-      "No repo linked to this project.",
-      "repo_not_linked",
-      "Link a repo from the Blocks portal (requires GitHub auth), then re-run this command."
-    );
-  }
+  if (resources.length === 0) return undefined;
 
   const matched =
     resources.length === 1
