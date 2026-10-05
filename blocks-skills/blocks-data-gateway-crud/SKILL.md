@@ -184,6 +184,24 @@ const result = await blocksClient.data.graphql({
 });
 ```
 
+
+### Querying GeoJson fields
+
+A `GeoJson` field is read and written as a plain GeoJSON geometry object (`{ "type": "Point", "coordinates": [90.4125, 23.8103] }` — longitude first). In `where`, it supports `eq`/`neq` (structural equality) and three geospatial operators:
+
+- `near: { geometry: <Point>, maxDistanceMeters: 500, minDistanceMeters?: 100 }` — within a distance of a point. Results are not distance-sorted.
+- `within: { geometry: <Polygon | MultiPolygon> }` — entirely inside an area.
+- `intersects: { geometry: <any geometry> }` — overlaps a geometry.
+
+```ts
+const result = await blocksClient.data.graphql({
+  query: `query ($where: StoreFilterInput) { getStores(where: $where) { items { name location } } }`,
+  variables: { where: { location: { near: { geometry: { type: "Point", coordinates: [90.4125, 23.8103] }, maxDistanceMeters: 2000 } } } }
+});
+```
+
+The `where` argument's type is `<SchemaName>FilterInput`; the query name is `get${querySchema}` (read it from `blocks data schema get <id>`, don't pluralize by hand). Geo operators need no setup: the field's 2dsphere index is created automatically (see `blocks-data-gateway-configuration`).
+
 ## Schema Metadata
 
 Use `data.schemas.*` when building dynamic UI:

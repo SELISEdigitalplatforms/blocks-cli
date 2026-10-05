@@ -2,6 +2,8 @@ import { booleanFlag, stringFlag } from "../../../lib/args.js";
 import { blocksRequest } from "../../../lib/api.js";
 import { confirmMutation } from "../../../lib/confirm.js";
 import { compact, jsonBodyFlag, listFlag } from "../../../lib/json-flag.js";
+import { miscasedScalarType } from "../../../lib/data-files.js";
+import { isRecord } from "../../../lib/data-response.js";
 import { writeOutput } from "../../../lib/output.js";
 import { requestContext } from "../../../lib/request-context.js";
 import { parseCommand, selectedProject } from "../../../lib/workspace.js";
@@ -25,6 +27,12 @@ export async function dataSchemaFields(argv: string[]): Promise<void> {
   if (!Array.isArray(body.fields) && !Array.isArray(body.deletableFieldNames)) {
     throw new Error("Provide --deletable-fields a,b and/or a 'fields' array via --body/--file.");
   }
+
+  const typeErrors = (Array.isArray(body.fields) ? body.fields : []).filter(isRecord).flatMap((field) => {
+    const scalar = miscasedScalarType(field.type);
+    return scalar ? [`field '${String(field.name)}' has type '${String(field.type)}'; field types are case-sensitive -- use '${scalar}'`] : [];
+  });
+  if (typeErrors.length) throw new Error(`Field validation failed:\n${typeErrors.join("\n")}`);
 
   if (booleanFlag(flags, "dry-run")) {
     writeOutput({ dryRun: true, endpoint: "/data/v4/schemas/fields", request: body }, flags);
