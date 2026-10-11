@@ -1,6 +1,7 @@
 import { booleanFlag } from "../../lib/args.js";
 import { confirmMutation } from "../../lib/confirm.js";
-import { readRulesFile, readSchemaFiles, validateSchemas } from "../../lib/data-files.js";
+import { newSchemaAccessFlag } from "../../lib/data-gateway.js";
+import { readRulesFile, readSchemaFiles, validateSchemas, validateSecurityEntries } from "../../lib/data-files.js";
 import { writeOutput } from "../../lib/output.js";
 import { parseCommand, selectedProject } from "../../lib/workspace.js";
 import { dataReload } from "./reload.js";
@@ -16,13 +17,14 @@ import { dataSchemaPush } from "./schema/push.js";
 export async function dataSync(argv: string[]): Promise<void> {
   const { flags } = parseCommand(argv);
   const dryRun = booleanFlag(flags, "dry-run");
+  const access = newSchemaAccessFlag(flags);
   const projectKey = await selectedProject(flags);
 
   const schemas = await readSchemaFiles();
   const errors = validateSchemas(schemas);
 
   try {
-    await readRulesFile();
+    errors.push(...validateSecurityEntries(await readRulesFile()));
   } catch (error) {
     if (!(dryRun && (error as NodeJS.ErrnoException).code === "ENOENT")) {
       errors.push(`rules file: ${(error as Error).message}`);
@@ -33,7 +35,7 @@ export async function dataSync(argv: string[]): Promise<void> {
 
   if (dryRun) {
     writeOutput(
-      { dryRun: true, project: projectKey, schemas: schemas.length, steps: ["data:schema:push", "data:rules:deploy", "data:reload"] },
+      { dryRun: true, project: projectKey, schemas: schemas.length, newSchemaAccess: access, steps: ["data:schema:push", "data:rules:deploy", "data:reload"] },
       flags
     );
     return;
@@ -41,7 +43,7 @@ export async function dataSync(argv: string[]): Promise<void> {
 
   await confirmMutation(
     flags,
-    `Sync data model for project '${projectKey}': push ${schemas.length} schema(s), deploy rules, then reload the gateway.`
+    `Sync data model for project '${projectKey}': push ${schemas.length} schema(s) (new schemas get ${access === "public" ? "Public" : "User"} access), deploy rules, then reload the gateway.`
   );
 
   // Each step below prints its own output/confirmation-skip via --yes; this is 3 separate

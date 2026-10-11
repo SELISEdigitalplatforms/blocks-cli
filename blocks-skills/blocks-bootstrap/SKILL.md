@@ -177,6 +177,7 @@ Two skills are deliberately **not** on the build path — `blocks new web` alrea
 | `device_login_network_error` | Restore identity-provider connectivity, then restart login |
 | unreadable or stale local auth storage | Local: `blocks auth remove <account>`, then `blocks login --account <account>`; Studio: replace/rebootstrap the isolated session |
 | `project_not_selected` | `blocks use <x-blocks-key>`, or `--project <tenantId>` for one command |
+| `project_token_tenant_mismatch` | The issued project session was for another tenant and was discarded unused. Run `blocks login --account <account>`, then `blocks use <tenantId>` |
 | `project_refresh_token_missing` | Run `blocks login --account <account>`, then select the project again |
 | `missing_project_name` | Pass a name: `blocks projects create "<name>"` |
 | `invalid_project_name` | Use a project name between 3 and 100 characters |

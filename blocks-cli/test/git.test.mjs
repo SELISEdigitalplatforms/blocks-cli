@@ -396,6 +396,11 @@ test("git pull: refuses a dirty tree, then brings remote commits in; disconnect 
     assert.equal(JSON.parse(pull.stdout).changed, true);
     assert.equal(await readFile(join(cwd, "NEW.md"), "utf8"), "from elsewhere\n");
 
+    const preview = await run(["git", "disconnect", "--dry-run", "--json"], { cwd, env });
+    assert.equal(preview.status, 0, preview.stderr);
+    assert.equal(JSON.parse(preview.stdout).dryRun, true);
+    assert.ok(JSON.parse(await readFile(join(cwd, "blocks.json"), "utf8")).repo, "--dry-run must keep the binding");
+
     const disconnect = await run(["git", "disconnect", "--yes", "--json"], { cwd, env });
     assert.equal(disconnect.status, 0, disconnect.stderr);
     assert.equal(JSON.parse(await readFile(join(cwd, "blocks.json"), "utf8")).repo, undefined);

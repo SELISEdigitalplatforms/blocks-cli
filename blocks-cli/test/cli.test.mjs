@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdir, mkdtemp, readdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, readFile, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { delimiter, join, resolve } from "node:path";
 import { spawn, spawnSync } from "node:child_process";
@@ -13,6 +13,7 @@ import {
   getAccountSession,
   getImpersonatedProjectSession,
   logoutCurrentSession,
+  mismatchedTokenTenant,
   pollDeviceToken,
   requestDeviceAuthorization,
   stopProjectImpersonation,
@@ -249,6 +250,124 @@ test("forced project refresh uses the project refresh token without an account s
   });
 });
 
+const inAnHour = () => Math.floor(Date.now() / 1000) + 3600;
+
+test("mismatchedTokenTenant compares the tenant_id claim case-insensitively and skips undecodable tokens", () => {
+  assert.equal(mismatchedTokenTenant(fakeJwt({ tenant_id: "Project-Tenant" }), "project-tenant"), undefined);
+  assert.equal(mismatchedTokenTenant(fakeJwt({ tenant_id: "root-tenant" }), "project-tenant"), "root-tenant");
+  assert.equal(mismatchedTokenTenant(fakeJwt({ sub: "no-tenant-claim" }), "project-tenant"), undefined);
+  assert.equal(mismatchedTokenTenant("opaque-token", "project-tenant"), undefined);
+  assert.equal(mismatchedTokenTenant(undefined, "project-tenant"), undefined);
+});
+
+test("a project refresh that comes back for another tenant is discarded and replaced by a fresh impersonation", async () => {
+  await withAuthLifecycleEnv(async ({ configDir }) => {
+    await writeLifecycleConfig(configDir);
+    await writeTokenStore({
+      accounts: {
+        default: {
+          account: {
+            accessToken: fakeJwt({ exp: inAnHour(), tenant_id: "root-tenant" }),
+            accountTenant: "root-tenant",
+            expiresAt: new Date(Date.now() + 3_600_000).toISOString(),
+            refreshToken: "account-refresh",
+            tokenType: "Bearer"
+          },
+          projects: {
+            "project-tenant": {
+              accessToken: fakeJwt({ exp: inAnHour(), tenant_id: "project-tenant" }),
+              expiresAt: new Date(Date.now() + 3_600_000).toISOString(),
+              refreshToken: "project-refresh",
+              tokenType: "Bearer"
+            }
+          }
+        }
+      }
+    });
+    const calls = [];
+    globalThis.fetch = async (input, init) => {
+      const path = new URL(input).pathname;
+      calls.push(path);
+      if (path === "/api/oidc/token" && String(init.body).includes("refresh_token=project-refresh")) {
+        // The IAM bug: an impersonated refresh rotated into a root-tenant pair.
+        return jsonResponse({ access_token: fakeJwt({ exp: inAnHour(), tenant_id: "root-tenant" }), expires_in: 3600, refresh_token: "root-lineage-refresh" });
+      }
+      if (path === "/api/oidc/token") {
+        return jsonResponse({ access_token: fakeJwt({ exp: inAnHour(), tenant_id: "root-tenant" }), expires_in: 3600, refresh_token: "account-refresh-2" });
+      }
+      if (path === "/iam/v4/auth/impersonate") {
+        return jsonResponse({ access_token: fakeJwt({ exp: inAnHour(), tenant_id: "project-tenant" }), expires_in: 3600, refresh_token: "project-refresh-2" });
+      }
+      return jsonResponse({ error: `Unexpected ${path}` }, 404);
+    };
+
+    const session = await getImpersonatedProjectSession("default", "project-tenant", { forceRefresh: true });
+    assert.equal(mismatchedTokenTenant(session.accessToken, "project-tenant"), undefined);
+    // project refresh (wrong tenant, discarded) -> account refresh -> fresh impersonation
+    assert.deepEqual(calls, ["/api/oidc/token", "/api/oidc/token", "/iam/v4/auth/impersonate"]);
+    const store = await readTokenStore();
+    assert.equal(store.accounts.default.projects["project-tenant"].refreshToken, "project-refresh-2");
+    assert.ok(!JSON.stringify(store).includes("root-lineage-refresh"));
+  });
+});
+
+test("a cached project token for another tenant is never used; with no account session left it fails loudly", async () => {
+  await withAuthLifecycleEnv(async ({ configDir }) => {
+    await writeLifecycleConfig(configDir);
+    await writeTokenStore({
+      accounts: {
+        default: {
+          projects: {
+            "project-tenant": {
+              accessToken: fakeJwt({ exp: inAnHour(), tenant_id: "other-project" }),
+              expiresAt: new Date(Date.now() + 3_600_000).toISOString(),
+              tokenType: "Bearer"
+            }
+          }
+        }
+      }
+    });
+    const calls = [];
+    globalThis.fetch = async (input) => {
+      calls.push(new URL(input).pathname);
+      return jsonResponse({ error: "unexpected" }, 404);
+    };
+
+    await assert.rejects(
+      () => getImpersonatedProjectSession("default", "project-tenant"),
+      (error) => {
+        assert.ok(error instanceof CliActionableError);
+        assert.equal(error.code, "project_token_tenant_mismatch");
+        assert.match(error.message, /'other-project' when project 'project-tenant' was requested/);
+        return true;
+      }
+    );
+    assert.deepEqual(calls, []);
+    const store = await readTokenStore();
+    assert.equal(store.accounts.default.projects?.["project-tenant"], undefined);
+  });
+});
+
+test("an impersonation that returns another tenant's token is rejected and not stored", async () => {
+  await withAuthLifecycleEnv(async ({ configDir }) => {
+    await writeLifecycleAccount(configDir);
+    globalThis.fetch = async (input) => {
+      const path = new URL(input).pathname;
+      if (path === "/iam/v4/auth/impersonate") {
+        return jsonResponse({ access_token: fakeJwt({ exp: inAnHour(), tenant_id: "root-tenant" }), expires_in: 3600, refresh_token: "wrong-refresh" });
+      }
+      return jsonResponse({ error: `Unexpected ${path}` }, 404);
+    };
+
+    await assert.rejects(
+      () => getImpersonatedProjectSession("default", "project-tenant"),
+      (error) => error instanceof CliActionableError && error.code === "project_token_tenant_mismatch"
+    );
+    const store = await readTokenStore();
+    assert.equal(store.accounts.default.projects?.["project-tenant"], undefined);
+  });
+});
+
 test("project-mode logout revokes with the matching project access and refresh tokens", async () => {
   await withAuthLifecycleEnv(async ({ configDir }) => {
     await writeLifecycleProject(configDir);
@@ -455,7 +574,7 @@ test("device token polling reports expiration once the deadline passes", async (
 test("scaffolded web app depends on @seliseblocks/client and has no custom Blocks fetch wrapper", async () => {
   const { cwd, configDir } = await makeWorkspace();
   const env = testEnv(configDir, { BLOCKS_SECRET_STORE: "file" });
-  const server = await startJsonServer(() => ({ isOidcEnabled: true }));
+  const server = await startJsonServer(newWebServerHandler());
   await writeProjectModeAuth(configDir, server.url, "test-tenant-key");
 
   try {
@@ -689,7 +808,7 @@ test("fresh workspace dry-run commands do not require data files", async () => {
 
   const schema = run(["data:schema:push", "--dry-run", "--json"], { cwd, env });
   assert.equal(schema.status, 0, schema.stderr);
-  assert.deepEqual(JSON.parse(schema.stdout), { dryRun: true, schemas: [] });
+  assert.deepEqual(JSON.parse(schema.stdout), { dryRun: true, newSchemaAccess: "user", schemas: [] });
 
   const rules = run(["data:rules:deploy", "--dry-run", "--json"], { cwd, env });
   assert.equal(rules.status, 0, rules.stderr);
@@ -1713,7 +1832,7 @@ test("schema push ignores a foreign local id and creates via POST when no destin
     if (path === "/data/v4/schema-configurations/reload" && request.method === "POST") {
       return { data: false, isSuccess: true, message: "Schema evicted successfully." };
     }
-    // New schemas are granted Public access on create (four operations).
+    // Only reached with --access public; new schemas default to User access.
     if (path === "/data/v4/data-access/security/change" && request.method === "POST") {
       return { isSuccess: true, message: "CONFIGURATION_SAVED" };
     }
@@ -1767,7 +1886,7 @@ test("schema push uses the destination project's own id and PUT when a schema wi
     if (path === "/data/v4/schema-configurations/reload" && request.method === "POST") {
       return { data: false, isSuccess: true, message: "Schema evicted successfully." };
     }
-    // New schemas are granted Public access on create (four operations).
+    // Only reached with --access public; new schemas default to User access.
     if (path === "/data/v4/data-access/security/change" && request.method === "POST") {
       return { isSuccess: true, message: "CONFIGURATION_SAVED" };
     }
@@ -3213,6 +3332,84 @@ test("use and deselect operate on the account selected by login without account 
   }
 });
 
+test("use pins the project per workspace so concurrent sessions in other directories keep their own", async () => {
+  const { cwd: base, configDir } = await makeWorkspace();
+  const projectA = join(base, "project-a");
+  const projectB = join(base, "project-b");
+  const projectBSubdir = join(projectB, "web", "src");
+  await mkdir(projectA, { recursive: true });
+  await mkdir(projectBSubdir, { recursive: true });
+  const server = await startJsonServer((request, body) => {
+    if (request.url === "/iam/v4/auth/impersonate") {
+      return {
+        access_token: fakeJwt({ exp: Math.floor(Date.now() / 1000) + 3600, tenant_id: body.targeted_tenant_id }),
+        expires_in: 3600,
+        refresh_token: `${body.targeted_tenant_id}-refresh`
+      };
+    }
+    if (request.url === "/iam/v4/auth/impersonation/stop") {
+      return {
+        access_token: fakeJwt({ exp: Math.floor(Date.now() / 1000) + 3600, tenant_id: "alpha-root" }),
+        expires_in: 3600,
+        refresh_token: "restored-account-refresh"
+      };
+    }
+    if (request.url.startsWith("/os/v4/Project/Gets")) {
+      return [{
+        name: "Group",
+        projects: [
+          { environment: "dev", name: "A", tenantId: "tenant-a" },
+          { environment: "dev", name: "B", tenantId: "tenant-b" }
+        ],
+        tenantGroupId: "group-1"
+      }];
+    }
+    return rawResponse(404, { error: `Unexpected ${request.url}` });
+  });
+  await writeConfig(configDir, {
+    activeAccount: "alpha",
+    accounts: { alpha: { ...testAccountProfile("alpha-root"), apiUrl: server.url } }
+  });
+  await writeFile(join(configDir, "tokens.json"), `${JSON.stringify({
+    accounts: {
+      alpha: {
+        account: {
+          accessToken: fakeJwt({ exp: Math.floor(Date.now() / 1000) + 3600, tenant_id: "alpha-root" }),
+          accountTenant: "alpha-root",
+          expiresAt: new Date(Date.now() + 3_600_000).toISOString(),
+          refreshToken: "alpha-refresh"
+        }
+      }
+    }
+  }, null, 2)}\n`);
+  const env = testEnv(configDir, { BLOCKS_SECRET_STORE: "file" });
+  const selected = async (cwd) => {
+    const result = await runAsync(["projects:get", "--json"], { cwd, env });
+    assert.equal(result.status, 0, result.stderr);
+    return JSON.parse(result.stdout).project.tenantId;
+  };
+
+  try {
+    assert.equal((await runAsync(["use", "tenant-a"], { cwd: projectA, env })).status, 0);
+    assert.equal((await runAsync(["use", "tenant-b"], { cwd: projectB, env })).status, 0);
+
+    // The later 'use' in project B must not retarget project A, and a session
+    // working in a subdirectory of B still resolves B's selection.
+    assert.equal(await selected(projectA), "tenant-a");
+    assert.equal(await selected(projectBSubdir), "tenant-b");
+    assert.equal(JSON.parse(await readFile(join(projectA, "blocks.json"), "utf8")).project.tenantId, "tenant-a");
+    assert.equal(JSON.parse(await readFile(join(projectB, "blocks.json"), "utf8")).project.tenantId, "tenant-b");
+
+    // A workspace with no project of its own never borrows the account's.
+    await writeFile(join(projectA, "blocks.json"), `${JSON.stringify({ project: { tenantId: "" } }, null, 2)}\n`);
+    const unselected = await runAsync(["projects:get", "--json"], { cwd: projectA, env });
+    assert.equal(unselected.status, 1);
+    assert.equal(JSON.parse(unselected.stderr).code, "project_not_selected");
+  } finally {
+    await new Promise((resolveClose) => server.close(resolveClose));
+  }
+});
+
 test("BLOCKS_CONFIG_DIR isolates active account and token state", async () => {
   const first = await makeWorkspace();
   const second = await makeWorkspace();
@@ -3470,7 +3667,7 @@ test("init uses centralized default API URL", async () => {
 
 test("new web derives the default API URL from the app domain when no API override is passed", async () => {
   const { cwd, configDir } = await makeWorkspace();
-  const server = await startJsonServer(() => ({ isOidcEnabled: true }));
+  const server = await startJsonServer(newWebServerHandler());
   try {
     await writeProjectModeAuth(configDir, server.url);
     const result = await runAsync([
@@ -3494,7 +3691,7 @@ test("new web derives the default API URL from the app domain when no API overri
 
 test("new web preserves an explicit blocks API URL override", async () => {
   const { cwd, configDir } = await makeWorkspace();
-  const server = await startJsonServer(() => ({ isOidcEnabled: true }));
+  const server = await startJsonServer(newWebServerHandler());
   try {
     await writeProjectModeAuth(configDir, server.url);
     const result = await runAsync([
@@ -3518,7 +3715,7 @@ test("new web preserves an explicit blocks API URL override", async () => {
 
 test("new web keeps .env and vite.config.ts on the explicit --dev-port", async () => {
   const { cwd, configDir } = await makeWorkspace();
-  const server = await startJsonServer(() => ({ isOidcEnabled: true }));
+  const server = await startJsonServer(newWebServerHandler());
   try {
     await writeProjectModeAuth(configDir, server.url);
     const result = await runAsync([
@@ -3548,7 +3745,7 @@ test("new web keeps .env and vite.config.ts on the explicit --dev-port", async (
 
 test("new web rejects an explicit --dev-port that is already bound", async () => {
   const { cwd, configDir } = await makeWorkspace();
-  const server = await startJsonServer(() => ({ isOidcEnabled: true }));
+  const server = await startJsonServer(newWebServerHandler());
   const blocker = createTcpServer();
   await new Promise((resolveListen) => blocker.listen(0, "0.0.0.0", resolveListen));
   const busyPort = blocker.address().port;
@@ -3578,7 +3775,7 @@ test("new web rejects an explicit --dev-port that is already bound", async () =>
 
 test("new web auto-picks the next free port when the Vite default is already bound by another app", async () => {
   const { cwd, configDir } = await makeWorkspace();
-  const server = await startJsonServer(() => ({ isOidcEnabled: true }));
+  const server = await startJsonServer(newWebServerHandler());
   const blocker = createTcpServer();
   await new Promise((resolveListen) => blocker.listen(5173, "0.0.0.0", resolveListen));
 
@@ -3612,11 +3809,105 @@ test("new web auto-picks the next free port when the Vite default is already bou
   }
 });
 
+const NEW_WEB_OIDC_CLIENTS = [
+  { clientDisplayName: "Demo", itemId: "demo-client-id" },
+  { clientDisplayName: "Dev", itemId: "dev-client-id" }
+];
+
+/** Fake IAM for `new web`: lists the OIDC clients and reports OIDC login as enabled. */
+function newWebServerHandler(config = { isOidcEnabled: true }) {
+  return (request) => (request.url.startsWith("/iam/v4/oidc-clients") ? NEW_WEB_OIDC_CLIENTS : config);
+}
+
+test("new web --dry-run writes no files and makes no tenant change", async () => {
+  const { cwd, configDir } = await makeWorkspace();
+  const requests = [];
+  const server = await startJsonServer((request, body) => {
+    requests.push({ body, method: request.method, url: request.url });
+    if (request.url.startsWith("/iam/v4/oidc-clients")) return NEW_WEB_OIDC_CLIENTS;
+    if (request.method === "GET") return { accountActionBaseUrl: "", accountActivationPath: "activate/", isOidcEnabled: false };
+    return { data: body, isSuccess: true };
+  });
+
+  try {
+    await writeProjectModeAuth(configDir, server.url);
+    const env = testEnv(configDir, { BLOCKS_SECRET_STORE: "file" });
+    const configBefore = await readFile(join(configDir, "config.json"), "utf8");
+    const result = await runAsync([
+      "new", "web", "preview-app", "--x-blocks-key", "project-tenant",
+      "--app-domain", "https://app.example.test", "--client-id", "dev-client-id",
+      "--account", "studio", "--project", "project-tenant", "--api-url", server.url,
+      "--dry-run", "--json"
+    ], { cwd, env });
+    assert.equal(result.status, 0, result.stderr);
+    const plan = JSON.parse(result.stdout);
+    assert.equal(plan.dryRun, true);
+    assert.equal(plan.created, undefined);
+    assert.equal(plan.directoryExists, false);
+    assert.deepEqual(plan.oidcClient, { action: "use", clientId: "dev-client-id" });
+    assert.equal(plan.authConfig.action, "enable-oidc");
+    assert.deepEqual(plan.authConfig.changes.isOidcEnabled, { from: false, to: true });
+    assert.deepEqual(plan.authConfig.changes.accountActivationPath, { from: "activate/", to: "oidc/activate/" });
+
+    assert.deepEqual(requests.filter((item) => item.method !== "GET"), []);
+    await assert.rejects(stat(join(cwd, "preview-app")), /ENOENT/);
+    assert.equal(await readFile(join(configDir, "config.json"), "utf8"), configBefore);
+  } finally {
+    await new Promise((resolveClose) => server.close(resolveClose));
+  }
+});
+
+test("new web rejects a --client-id that is not one of the project's OIDC clients, before any change", async () => {
+  const { cwd, configDir } = await makeWorkspace();
+  const requests = [];
+  const server = await startJsonServer((request, body) => {
+    requests.push({ body, method: request.method, url: request.url });
+    if (request.url.startsWith("/iam/v4/oidc-clients")) return NEW_WEB_OIDC_CLIENTS;
+    if (request.method === "GET") return { isOidcEnabled: false };
+    return { data: body, isSuccess: true };
+  });
+
+  try {
+    await writeProjectModeAuth(configDir, server.url);
+    const env = testEnv(configDir, { BLOCKS_SECRET_STORE: "file" });
+    for (const extra of [["--dry-run"], ["--yes"]]) {
+      const result = await runAsync([
+        "new", "web", "typo-app", "--x-blocks-key", "project-tenant",
+        "--app-domain", "https://app.example.test", "--client-id", "DRYRUN-PLACEHOLDER",
+        "--account", "studio", "--project", "project-tenant", "--api-url", server.url, "--json", ...extra
+      ], { cwd, env });
+      assert.equal(result.status, 1);
+      const error = JSON.parse(result.stderr);
+      assert.equal(error.code, "oidc_client_not_found");
+      assert.match(error.nextStep, /dev-client-id \(Dev\)/);
+    }
+    assert.deepEqual(requests.filter((item) => item.method !== "GET"), []);
+    await assert.rejects(stat(join(cwd, "typo-app")), /ENOENT/);
+  } finally {
+    await new Promise((resolveClose) => server.close(resolveClose));
+  }
+});
+
+test("confirmMutation refuses to proceed under --dry-run instead of treating it as approval", async () => {
+  const { confirmMutation } = await import("../dist/lib/confirm.js");
+  await assert.rejects(
+    () => confirmMutation({ "dry-run": true, yes: true }, "Do something."),
+    (error) => {
+      assert.ok(error instanceof CliActionableError);
+      assert.equal(error.code, "dry_run_would_mutate");
+      assert.match(error.message, /Do something\./);
+      return true;
+    }
+  );
+  await confirmMutation({ yes: true }, "Do something.");
+});
+
 test("new web fails closed non-interactively unless OIDC enablement is approved", async () => {
   const { cwd, configDir } = await makeWorkspace();
   const requests = [];
   const server = await startJsonServer((request, body) => {
     requests.push({ body, method: request.method, url: request.url });
+    if (request.url.startsWith("/iam/v4/oidc-clients")) return NEW_WEB_OIDC_CLIENTS;
     if (request.method === "GET") return { accountActionBaseUrl: "", isOidcEnabled: false };
     return { data: body, isSuccess: true };
   });

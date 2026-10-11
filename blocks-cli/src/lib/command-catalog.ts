@@ -940,7 +940,7 @@ export const commandCatalog: readonly CommandEntry[] = [
     "name": "data rules deploy",
     "family": "data",
     "summary": "Apply schema security and data-access policies.",
-    "details": "Mutating; supports dry-run and confirmation. Resolves each policy's destination schema id and any existing policy id by name -- never reuses a source-project id.",
+    "details": "Mutating; supports dry-run and confirmation. Resolves each policy's destination schema id and any existing policy id by name -- never reuses a source-project id. Security entries take a schemaName (resolved the same way, so one data sync can create and lock down a schema) or a raw schemaId; they are checked (operation 0-3, policyType, accessLevel, fieldNames) before anything is sent, including on --dry-run, and a missing target schema fails the deploy before any write.",
     "scope": "project",
     "mutating": true,
     "flags": []
@@ -1102,6 +1102,7 @@ export const commandCatalog: readonly CommandEntry[] = [
     "name": "data schema info save",
     "family": "data",
     "summary": "Create schema metadata only (no fields yet) - pair with data schema fields.",
+    "details": "Mutating. The new schema gets User access (signed-in users only) unless --access public.",
     "scope": "project",
     "mutating": true,
     "flags": [
@@ -1152,7 +1153,7 @@ export const commandCatalog: readonly CommandEntry[] = [
     "name": "data schema push",
     "family": "data",
     "summary": "Create or update project schemas via /data/v4/schemas/define.",
-    "details": "Mutating. Looks up the destination project's schema by name -- never trusts a local id/itemId, which may belong to another project -- and uses PUT with the destination id when found, POST otherwise. Warns when a local id is ignored; fails clearly instead of treating an empty response as success.",
+    "details": "Mutating. Looks up the destination project's schema by name -- never trusts a local id/itemId, which may belong to another project -- and uses PUT with the destination id when found, POST otherwise. Warns when a local id is ignored; fails clearly instead of treating an empty response as success. New schemas get User access (signed-in users only) unless --access public, which opens read/write/edit/delete to anonymous callers; existing schemas keep their access. The output reports it as newSchemaAccess.",
     "scope": "project",
     "mutating": true,
     "flags": []
@@ -1161,7 +1162,7 @@ export const commandCatalog: readonly CommandEntry[] = [
     "name": "data sync",
     "family": "data",
     "summary": "Composed flow: validate local schemas/rules, then data schema push -> data rules deploy -> data reload, so pushed changes actually go live in one...",
-    "details": "Composed flow: validate local schemas/rules, then data schema push -> data rules deploy -> data reload, so pushed changes actually go live in one step. Validation runs first and hard-fails before anything is sent if it finds errors. Prints 3 separate step outputs (one per underlying command), not one combined document. One confirmation covers the whole flow.",
+    "details": "Composed flow: validate local schemas/rules, then data schema push -> data rules deploy -> data reload, so pushed changes actually go live in one step. Validation runs first and hard-fails before anything is sent if it finds errors. Prints 3 separate step outputs (one per underlying command), not one combined document. One confirmation covers the whole flow. --access user|public is passed to the push (default user).",
     "scope": "project",
     "mutating": true,
     "flags": []
@@ -1331,7 +1332,7 @@ export const commandCatalog: readonly CommandEntry[] = [
     "name": "git disconnect",
     "family": "git",
     "summary": "Forget the connected repository without touching git history or GitHub.",
-    "details": "Removes only the repo entry from blocks.json; .git, its remotes, every commit and the GitHub repository are left as they are. Undo with 'git connect <owner/name> --strategy keep-local'. Mutating.",
+    "details": "Removes only the repo entry from blocks.json; .git, its remotes, every commit and the GitHub repository are left as they are. Undo with 'git connect <owner/name> --strategy keep-local'. Mutating; --dry-run shows the binding that would be removed.",
     "scope": "local",
     "mutating": true,
     "flags": []
@@ -2667,7 +2668,7 @@ export const commandCatalog: readonly CommandEntry[] = [
     "name": "logic workflow import",
     "family": "logic",
     "summary": "Import an exported workflow file into the selected project.",
-    "details": "Reads a workflow export (--file <path.json>), assigns fresh node ids, rewrites edges, and re-points tenant-scoped keys (dataAction/dataGateway/sendMail) at this project. Upserts by name -- never trusts the file's id -- using Update when a workflow of the same name exists, Create otherwise. --publish activates it afterwards; --project-slug <slug> updates projectShortKey references; --name overrides the imported name. Warns about dropped nodes/edges and any __REDACTED__ secret placeholders that must be filled before the workflow will run. Mutating.",
+    "details": "Reads a workflow export (--file <path.json>), assigns fresh node ids, rewrites edges, and re-points tenant-scoped keys (dataAction/dataGateway/sendMail) at this project. Upserts by name -- never trusts the file's id -- using Update when a workflow of the same name exists, otherwise an empty Create followed by an Update of the nodes and edges (Workflow/Create rejects node parameters; a failed Update deletes the empty workflow). --publish activates it afterwards; --project-slug <slug> updates projectShortKey references; --name overrides the imported name. Warns about dropped nodes/edges and any __REDACTED__ secret placeholders that must be filled before the workflow will run. Mutating.",
     "scope": "project",
     "mutating": true,
     "flags": [
@@ -2709,7 +2710,7 @@ export const commandCatalog: readonly CommandEntry[] = [
     "name": "logic workflow save",
     "family": "logic",
     "summary": "Create or update a workflow from a JSON payload.",
-    "details": "Low-level. Provide the graph with --file <path.json> or --body '<json>'. Omit --item-id to create (POST), pass it to update (PUT). To turn an exported file into a live workflow with id remapping and tenant rewrite, use 'logic workflow import' instead. Mutating.",
+    "details": "Low-level. Provide the graph with --file <path.json> or --body '<json>'. Omit --item-id to create, pass it to update (PUT). A create with nodes is sent as an empty Create (POST) followed by an Update (PUT) of the nodes and edges, because Workflow/Create rejects node parameters; if the Update fails the empty workflow is deleted, and --dry-run shows both requests. To turn an exported file into a live workflow with id remapping and tenant rewrite, use 'logic workflow import' instead. Mutating.",
     "scope": "project",
     "mutating": true,
     "flags": [
@@ -3118,7 +3119,7 @@ export const commandCatalog: readonly CommandEntry[] = [
     "family": "new",
     "summary": "Create a Vite React starter app that talks to Blocks exclusively through @seliseblocks/client (a single createBlocksClient() instance) using the...",
     "positional": "<name>",
-    "details": "Create a Vite React starter app that talks to Blocks exclusively through @seliseblocks/client (a single createBlocksClient() instance) using the SDK hosted IdP flow: blocksClient.auth.idp.redirectToProvider() on login click and blocksClient.auth.idp.callback() on /login/callback. Includes route guards, auto-refresh through auth.oidc.refreshToken(), live auth/iam/localization SDK examples, a Profile landing page, environment config, and safe .gitignore defaults. Uses the selected project (see 'use') unless --x-blocks-key overrides it. --app-domain and --client-id are resolved from the project when omitted: if the project has one domain it's used automatically, otherwise you're prompted to choose; the OIDC client is picked from a list of the project's existing clients, or you can create a minimal one (display name + redirect URI, active, registered as a Blocks OIDC identity provider) on the spot, or skip and register one later from the portal or 'auth oidc-clients save'. Non-interactive callers must provide --app-domain and --client-id or receive interactive_input_required. When a client id resolves, the command checks AuthController and may enable OIDC login. In non-interactive runs, pass --yes only after approving that possible tenant mutation; failure stops before scaffold files are written. If --blocks-api-url is omitted, it is derived from the app domain: https://blocksapi.<registrable-domain> (for example, app domain https://dqrsf.slsblx.com uses https://blocksapi.slsblx.com). Pass a different Data/IAM/Localization/OS gateway URL explicitly only if your project uses a non-default one. --oidc-url defaults to https://iam.seliseblocks.com.",
+    "details": "Create a Vite React starter app that talks to Blocks exclusively through @seliseblocks/client (a single createBlocksClient() instance) using the SDK hosted IdP flow: blocksClient.auth.idp.redirectToProvider() on login click and blocksClient.auth.idp.callback() on /login/callback. Includes route guards, auto-refresh through auth.oidc.refreshToken(), live auth/iam/localization SDK examples, a Profile landing page, environment config, and safe .gitignore defaults. Uses the selected project (see 'use') unless --x-blocks-key overrides it. --app-domain and --client-id are resolved from the project when omitted: if the project has one domain it's used automatically, otherwise you're prompted to choose; the OIDC client is picked from a list of the project's existing clients, or you can create a minimal one (display name + redirect URI, active, registered as a Blocks OIDC identity provider) on the spot, or skip and register one later from the portal or 'auth oidc-clients save'. Non-interactive callers must provide --app-domain and --client-id or receive interactive_input_required. When a client id resolves, the command checks AuthController and may enable OIDC login. In non-interactive runs, pass --yes only after approving that possible tenant mutation; failure stops before scaffold files are written. --dry-run only reads: it prints the plan (target directory and whether it exists, the AuthController fields that would change, the OIDC client, the selection and blocks.json updates) and writes no files and changes nothing on the tenant. --client-id must be one of the project's OIDC clients, otherwise oidc_client_not_found. If --blocks-api-url is omitted, it is derived from the app domain: https://blocksapi.<registrable-domain> (for example, app domain https://dqrsf.slsblx.com uses https://blocksapi.slsblx.com). Pass a different Data/IAM/Localization/OS gateway URL explicitly only if your project uses a non-default one. --oidc-url defaults to https://iam.seliseblocks.com.",
     "scope": "project",
     "mutating": true,
     "flags": [
@@ -3808,9 +3809,9 @@ export const commandCatalog: readonly CommandEntry[] = [
   {
     "name": "use",
     "family": "use",
-    "summary": "Save the selected project tenant for the resolved account and in blocks.json, then immediately impersonate it.",
+    "summary": "Pin the selected project tenant to this workspace's blocks.json and the resolved account, then immediately impersonate it.",
     "positional": "<project-tenant-id>",
-    "details": "If a different project was selected, stops that impersonation first to reclaim a fresh account refresh token before starting the new one.",
+    "details": "Writes the nearest blocks.json at or above the working directory (created here if there is none; never in the home directory). A workspace's pin wins over the account selection, so sessions in other project directories keep their own project. If a different project was selected, stops that impersonation first to reclaim a fresh account refresh token before starting the new one.",
     "scope": "local",
     "mutating": false,
     "flags": []

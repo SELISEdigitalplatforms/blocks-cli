@@ -23,8 +23,9 @@ Unlike `blocks-notification` (100% CLI, no SDK path), **`notifier` has both a CL
 
 Every CLI command is project-scoped: each requires an impersonated project
 session, and there is no account-level mode for any of the five. Project
-resolution is `--project <tenantId>`, then the workspace's `blocks.json`, then
-the resolved account's selected project from `blocks use <tenantId>`. See the
+resolution is `--project <tenantId>`, then the nearest workspace `blocks.json`
+(which `blocks use <tenantId>` writes), then — only outside any workspace — the
+resolved account's selected project. See the
 blocks-bootstrap skill if account or project context is unknown.
 
 Once context is known, AI automation should pass it explicitly:

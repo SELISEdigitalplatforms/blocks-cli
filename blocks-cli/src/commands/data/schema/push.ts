@@ -6,24 +6,25 @@ import { isRecord, unwrapSchemaListResponse } from "../../../lib/data-response.j
 import { writeOutput } from "../../../lib/output.js";
 import { requestContext } from "../../../lib/request-context.js";
 import { parseCommand, selectedProject } from "../../../lib/workspace.js";
-import { createdSchemaId, makeSchemaPublic, withGatewayReload } from "../../../lib/data-gateway.js";
+import { applyNewSchemaAccess, createdSchemaId, newSchemaAccessFlag, withGatewayReload } from "../../../lib/data-gateway.js";
 
 export async function dataSchemaPush(argv: string[]): Promise<void> {
   const { flags } = parseCommand(argv);
+  const access = newSchemaAccessFlag(flags);
   const projectKey = await selectedProject(flags);
   const schemas = await readSchemaFiles();
   const errors = validateSchemas(schemas);
   if (errors.length) throw new Error(`Schema validation failed:\n${errors.join("\n")}`);
 
   if (booleanFlag(flags, "dry-run")) {
-    writeOutput({ dryRun: true, schemas: schemas.map((item) => item.schema.schemaName) }, flags);
+    writeOutput({ dryRun: true, newSchemaAccess: access, schemas: schemas.map((item) => item.schema.schemaName) }, flags);
     return;
   }
 
   await confirmMutation(flags, `Push ${schemas.length} data schema file(s) to project '${projectKey}'.`);
   const results: unknown[] = [];
   const warnings: string[] = [];
-  const publicised: string[] = [];
+  const created: string[] = [];
 
   for (const { file, schema } of schemas) {
     const schemaName = String(schema.schemaName);
@@ -72,17 +73,19 @@ export async function dataSchemaPush(argv: string[]): Promise<void> {
     if (!destinationId) {
       const createdId = createdSchemaId(response);
       if (createdId) {
-        await makeSchemaPublic(createdId, projectKey, flags);
-        publicised.push(schemaName);
-      } else {
-        warnings.push(`${file}: created '${schemaName}' but the response carried no itemId, so its access level was left at the server default (User). Set it with 'data rules deploy'.`);
+        await applyNewSchemaAccess(createdId, projectKey, flags, access);
+        created.push(schemaName);
+      } else if (access === "public") {
+        warnings.push(`${file}: created '${schemaName}' but the response carried no itemId, so it was left at the server default (User) instead of Public. Set it with 'data rules deploy'.`);
       }
     }
   }
 
   writeOutput(await withGatewayReload(flags, projectKey, {
     results,
-    ...(publicised.length ? { grantedPublicAccess: publicised } : {}),
+    // Which access the schemas created by this push got, so it is never implicit.
+    ...(created.length ? { newSchemaAccess: { level: access, schemas: created } } : {}),
+    ...(created.length && access === "public" ? { grantedPublicAccess: created } : {}),
     ...(warnings.length ? { warnings } : {})
   }), flags);
 }

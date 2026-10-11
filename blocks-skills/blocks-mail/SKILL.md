@@ -40,7 +40,7 @@ await blocksClient.mail.send({
 
 ## CLI — administering mail (`blocks mail config|template|mailbox *`)
 
-Everything under `mail config`, `mail template`, and `mail mailbox` is project-scoped: every command requires an impersonated project session. Project resolution is an explicit `--project <tenantId>`, then the workspace's `blocks.json`, then the resolved account's selection from `blocks use <tenantId>`. There is no account-level mode for any mail command, including `mail send`/`mail sendtoany`.
+Everything under `mail config`, `mail template`, and `mail mailbox` is project-scoped: every command requires an impersonated project session. Project resolution is an explicit `--project <tenantId>`, then the nearest workspace `blocks.json` (which `blocks use <tenantId>` writes), then — only outside any workspace — the resolved account's selection. There is no account-level mode for any mail command, including `mail send`/`mail sendtoany`.
 
 ### `mail config` — SMTP/inbound provider configuration
 
