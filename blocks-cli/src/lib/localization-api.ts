@@ -73,6 +73,22 @@ export async function saveLocalizationKeys(keys: LocalizationSaveKey[], flags: F
   }));
 }
 
+/**
+ * Regenerates a module's UILM file once. Saving keys with `shouldPublish: true` queues one
+ * regeneration per key, so a bulk push saves with publishing off and calls this once per
+ * module instead. GenerateUilmRequest.Guid is non-nullable (model binding fails if omitted)
+ * but the generator never reads it, so it is defaulted to the module id -- the same contract
+ * the `key generate-uilm-file` command relies on.
+ */
+export async function generateUilmFile(moduleId: string, flags: Flags, projectTenantId: string): Promise<unknown> {
+  return blocksRequest<unknown>(`${LOCALIZATION_API}/Key/GenerateUilmFile`, {
+    body: { guid: moduleId, moduleId },
+    impersonatedProjectAuth: true,
+    ...requestContext(flags),
+    projectTenantId
+  });
+}
+
 export async function getCloudLocalizationDictionary(
   moduleName: string,
   language: string,

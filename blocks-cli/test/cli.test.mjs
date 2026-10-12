@@ -3047,6 +3047,7 @@ test("localization push uses v4 gateway paths without api segment", async () => 
       };
     }
     if (request.url === "/localization/v4/Key/SaveKeys") return { success: true };
+    if (request.url === "/localization/v4/Key/GenerateUilmFile") return { success: true };
     return { success: false, errorMessage: `Unexpected ${request.method} ${request.url}` };
   });
 
@@ -3067,10 +3068,13 @@ test("localization push uses v4 gateway paths without api segment", async () => 
       stderr: result.stderr,
       stdout: result.stdout
     }, null, 2));
+    // Default --publish once: save every key unpublished, then regenerate the module's UILM
+    // file a single time -- never one regeneration per key.
     assert.deepEqual(requests.map((item) => item.url), [
       "/localization/v4/Module/Gets",
       "/localization/v4/Key/GetsByKeyNames",
-      "/localization/v4/Key/SaveKeys"
+      "/localization/v4/Key/SaveKeys",
+      "/localization/v4/Key/GenerateUilmFile"
     ]);
     assert.deepEqual(requests[1].body, { keyNames: ["dashboard.title", "products.title"], moduleId: "module-1" });
 
@@ -3088,15 +3092,95 @@ test("localization push uses v4 gateway paths without api segment", async () => 
         { characterLength: 9, culture: "en", value: "Dashboard" }
       ],
       routes: ["/dashboard"],
-      shouldPublish: true
+      shouldPublish: false
     });
     assert.deepEqual(saved[1].resources, [{ characterLength: 8, culture: "en", value: "Products" }]);
     assert.equal(saved[1].itemId, undefined, "a key the module does not store yet must not borrow another key's itemId");
+    // One regeneration for the whole push, keyed to the module id.
+    assert.deepEqual(requests[3].body, { guid: "module-1", moduleId: "module-1" });
 
     const summary = JSON.parse(result.stdout);
     assert.equal(summary.created, 1);
     assert.equal(summary.updated, 1);
+    assert.equal(summary.publish, "once");
     assert.ok(!requests.some((item) => item.url.includes("/api/")), "gateway v4 paths must not include /api");
+  } finally {
+    await new Promise((resolveClose) => server.close(resolveClose));
+  }
+});
+
+test("localization push --publish per-key keeps the old per-key publish and skips the single regeneration", async () => {
+  const { cwd, configDir } = await makeWorkspace();
+  await mkdir(join(cwd, "blocks", "localization"), { recursive: true });
+  await writeFile(join(cwd, "blocks", "localization", "common.en.json"), `${JSON.stringify({ "a.title": "A" }, null, 2)}\n`);
+  await writeConfig(configDir, {
+    activeAccount: "default",
+    accounts: {
+      default: {
+        apiUrl: "https://api.seliseblocks.com",
+        clientId: "client-id",
+        createdAt: "2026-01-01T00:00:00.000Z",
+        oidcUrl: "https://iam.seliseblocks.com",
+        osUrl: "https://os.seliseblocks.com",
+        rootTenantId: "root-tenant",
+        scope: "openid profile offline_access",
+        updatedAt: "2026-01-01T00:00:00.000Z"
+      }
+    },
+    selectedProject: { tenantId: "project-tenant" }
+  });
+  await writeFile(join(configDir, "tokens.json"), `${JSON.stringify({
+    accounts: {
+      default: {
+        account: {
+          accessToken: fakeJwt({ tenant_id: "root-tenant" }),
+          accountTenant: "root-tenant",
+          expiresAt: new Date(Date.now() + 3_600_000).toISOString(),
+          refreshToken: "account-refresh-token",
+          tokenType: "Bearer"
+        },
+        projects: {
+          "project-tenant": {
+            accessToken: fakeJwt({ tenant_id: "project-tenant" }),
+            accountTenant: "project-tenant",
+            expiresAt: new Date(Date.now() + 3_600_000).toISOString(),
+            refreshToken: "project-refresh-token",
+            tokenType: "Bearer"
+          }
+        }
+      }
+    }
+  }, null, 2)}\n`);
+
+  const requests = [];
+  const server = await startJsonServer((request, body) => {
+    requests.push({ body, method: request.method, url: request.url });
+    if (request.url === "/localization/v4/Module/Gets") return [{ itemId: "module-1", moduleName: "common" }];
+    if (request.url === "/localization/v4/Key/GetsByKeyNames") return { keys: [] };
+    if (request.url === "/localization/v4/Key/SaveKeys") return { success: true };
+    return { success: false, errorMessage: `Unexpected ${request.method} ${request.url}` };
+  });
+
+  try {
+    const result = await runAsync([
+      "localization:push",
+      "--module", "common",
+      "--language", "en",
+      "--publish", "per-key",
+      "--api-url", server.url,
+      "--yes",
+      "--json"
+    ], { cwd, env: testEnv(configDir, { BLOCKS_SECRET_STORE: "file" }) });
+
+    assert.equal(result.status, 0, result.stderr);
+    // per-key publishes through SaveKeys and never calls GenerateUilmFile.
+    assert.deepEqual(requests.map((item) => item.url), [
+      "/localization/v4/Module/Gets",
+      "/localization/v4/Key/GetsByKeyNames",
+      "/localization/v4/Key/SaveKeys"
+    ]);
+    assert.equal(requests[2].body[0].shouldPublish, true);
+    assert.equal(JSON.parse(result.stdout).publish, "per-key");
   } finally {
     await new Promise((resolveClose) => server.close(resolveClose));
   }

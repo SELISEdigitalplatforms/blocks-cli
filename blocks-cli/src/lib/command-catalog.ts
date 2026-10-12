@@ -2416,7 +2416,7 @@ export const commandCatalog: readonly CommandEntry[] = [
     "name": "localization push",
     "family": "localization",
     "summary": "Create or update Localization keys from a local i18n JSON dictionary via /localization/v4/Key/SaveKeys.",
-    "details": "Creates the module first when it is missing.",
+    "details": "Creates the module first when it is missing. --publish controls UILM regeneration: once (default) saves every key unpublished then regenerates the module's UILM file a single time; per-key sets shouldPublish on each key so the worker regenerates once per key (the old behaviour -- slow for bulk pushes); none saves without publishing, so you run key generate-uilm-file later. Prefer once for bulk pushes: per-key queues one regeneration per key and blocks other modules' publishes.",
     "scope": "project",
     "mutating": true,
     "flags": [
@@ -2424,6 +2424,7 @@ export const commandCatalog: readonly CommandEntry[] = [
       "file",
       "language",
       "module",
+      "publish",
       "route"
     ]
   },

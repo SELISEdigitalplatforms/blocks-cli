@@ -16,7 +16,7 @@ Translations (i18n) for a Blocks project's static UI text — labels, titles, bu
 | Command | What it does |
 |---|---|
 | `blocks localization validate --module <name> --language <culture> [--file <path>] [--json]` | Validates a local i18n JSON dictionary. **Local-only, no API call.** |
-| `blocks localization push --module <name> --language <culture> [--file <path>] [--route <route>] [--context <text>] [--dry-run] [--yes] [--json]` | Creates/updates keys from the local dictionary, merging the pushed culture into each key's existing translations. If the module doesn't exist yet, creates it as a convenience; `localization module save` can also create an empty module directly. `--dry-run` reports `created`/`updated` counts and the exact merged request. Mutating. |
+| `blocks localization push --module <name> --language <culture> [--file <path>] [--route <route>] [--context <text>] [--publish once\|per-key\|none] [--dry-run] [--yes] [--json]` | Creates/updates keys from the local dictionary, merging the pushed culture into each key's existing translations. If the module doesn't exist yet, creates it as a convenience; `localization module save` can also create an empty module directly. `--dry-run` reports `created`/`updated` counts and the exact merged request. `--publish` controls UILM regeneration (see below). Mutating. |
 | `blocks localization pull --module <name> --language <culture> [--out <path>] [--json]` | Downloads the **published** cloud dictionary into a local JSON file. Read-only, overwrites the local file. |
 
 `--module` is the feature-area bundle name (`common`, `login`, `dashboard`, …). `--language` is a culture code (`en`, `de-DE`, `bn-BD`, …) — see the culture-matching gotcha below before picking one.
@@ -59,7 +59,9 @@ Key names must match `^[A-Za-z0-9][A-Za-z0-9._:-]*$` (letters, numbers, dot, das
    ```bash
    blocks localization push --module login --language de-DE --yes --json
    ```
-   This is mutating. Never skip straight to `--yes`. Every key in the file is saved as immediately published, so a successful push is live for reads right away — there is no separate "generate/publish" step in this CLI.
+   This is mutating. Never skip straight to `--yes`. By default (`--publish once`) a push saves every key unpublished and then regenerates the module's UILM file a single time, so a successful push is live for reads right away — the regeneration is part of the push, not a separate step you run.
+
+**Bulk pushes — `--publish`.** `push` regenerates the UILM file once per push by default (`once`). The old behaviour is `--publish per-key`, which sets `shouldPublish` on every key so the worker regenerates **once per key** — on a few-hundred-key push that queues hundreds of regenerations (~15/min) and blocks every other module's publish behind it for tens of minutes. Prefer the default `once` for anything beyond a handful of keys. Use `--publish none` to save without regenerating (then run `blocks localization key generate-uilm-file --module-id <id>` yourself, e.g. after several pushes into the same module).
 
 Optional flags on `push`: `--route <route>` tags every key in this push with one route (e.g. the screen path the strings belong to); `--context <text>` attaches one context/hint string to every key in the push — both apply to the whole file, not per-key.
 

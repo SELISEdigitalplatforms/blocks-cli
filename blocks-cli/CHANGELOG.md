@@ -17,6 +17,17 @@
   entry. Existing schemas are never touched. The output reports the level as
   `newSchemaAccess`, and still includes `grantedPublicAccess` when Public was
   granted.
+- **`localization push` regenerates the UILM file once per push, not once per
+  key.** Every key used to be saved with `shouldPublish: true`, which makes the
+  localization worker queue one UILM regeneration per key: a few-hundred-key
+  push flooded the queue (~15/min) and blocked every other module's publish
+  behind it for tens of minutes. `push` now saves keys unpublished and
+  regenerates the touched module a single time. The new `--publish` flag
+  controls this: `once` (default) saves then regenerates once; `per-key`
+  restores the old behaviour (one regeneration per key); `none` saves without
+  regenerating, for when you will run `localization key generate-uilm-file`
+  yourself after several pushes. `--dry-run` reports the chosen mode and whether
+  a regeneration will run.
 
 ### Added
 
