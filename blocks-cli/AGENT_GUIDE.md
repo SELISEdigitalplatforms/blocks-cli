@@ -106,7 +106,11 @@ or Studio state inside the CLI.
 Account resolution is `--account`, then the valid `activeAccount` in that store.
 If neither exists, interactive terminals select from configured accounts and
 non-interactive commands fail. Project resolution is `--project`, then
-`blocks.json` `project.tenantId`, then the resolved account's `selectedProject`; interactive
+`project.tenantId` from the nearest `blocks.json` at or above the working directory
+(home excluded), then -- only when no such workspace exists -- the resolved account's
+`selectedProject`. A workspace never borrows the account selection, and `blocks use`
+pins its tenant into that `blocks.json` (creating one in the working directory if
+needed), so agents in different project directories can't retarget each other; interactive
 terminals ask for a tenant id only if all are missing, while non-interactive
 commands fail. Automation should pass both flags explicitly.
 
@@ -281,8 +285,17 @@ blocks auth oidc-clients list --json           # see existing OIDC clients, if a
 Then run with explicit flags. The command checks AuthController and may enable OIDC login before scaffolding; after the user approves that possible tenant mutation, pass `--yes` so no non-interactive confirmation is reached:
 
 ```bash
+blocks new web <appName> --x-blocks-key <projectTenantId> --app-domain <appDomainOrUrl> --client-id <publicOidcClientId> --dry-run --json
 blocks new web <appName> --x-blocks-key <projectTenantId> --app-domain <appDomainOrUrl> --client-id <publicOidcClientId> --yes
 ```
+
+`--dry-run` only reads: it returns the plan (directory, the AuthController fields that would change,
+the OIDC client, selection/`blocks.json` updates) without writing files or touching the tenant. Show its
+`authConfig` to the user before `--yes`. `--client-id` must be one of the project's OIDC clients
+(`oidc_client_not_found` otherwise).
+
+Every command handles `--dry-run` before it would mutate. If one ever reaches a mutation under
+`--dry-run`, it stops with `dry_run_would_mutate` instead of applying it.
 
 `new web` also accepts `--blocks-api-url <url>` and `--oidc-url <url>`. When `--blocks-api-url` is omitted, the scaffold derives it from the app domain as
 `https://blocksapi.<registrable-domain>`; for example `https://dqrsf.slsblx.com` becomes
@@ -380,6 +393,10 @@ blocks data schema push --dry-run --json
 blocks data schema push --yes --json
 ```
 
+A schema the push creates gets User access (signed-in users only); `--access public` opens it
+to anonymous read/write/edit/delete and must be an explicit choice. Existing schemas keep their
+access. `data schema info save` and `data sync` take the same flag.
+
 Field `type` is case-sensitive: `String`, `Int`, `Float`, `Boolean`, `DateTime`, `ID`,
 `GeoJson`, or another schema's name. A miscased scalar fails `data validate` / `data schema push`
 locally (`field types are case-sensitive -- use 'GeoJson'`). A non-array `GeoJson` field on an
@@ -409,6 +426,12 @@ Deploy rules only after dry-run and approval:
 blocks data rules deploy --dry-run --json
 blocks data rules deploy --yes --json
 ```
+
+`security` entries in `rules.json` target a schema by `schemaName` (resolved in this project, so one
+`data sync` can create and lock down a schema) or a raw `schemaId`. Each needs `operation` 0-3
+(READ/WRITE/EDIT/DELETE; 4 ALL is rejected because the service ignores it), `policyType` 0 RLS or
+1 CLS (CLS needs `fieldNames`), and `accessLevel` 0 Inherited / 1 User / 2 Public / 3 Custom. They are
+checked before anything is sent, and a missing target schema fails the deploy before any write.
 
 Reload Data schema configuration only after approval:
 
@@ -743,6 +766,7 @@ The binding lives in `blocks.json` as `repo: { provider, fullName, url, branch }
 - `refresh_network_error`: check the network and configured OIDC URL, then retry.
 - `auth_repair_required`: inspect `blocks auth status --json`; if local storage is unreadable or stale, run `blocks auth remove <account>`, then `blocks auth status --json` and `blocks login --account <account>`.
 - `project_not_selected`: run `blocks projects list`, then `blocks use <projectTenantId>`.
+- `project_token_tenant_mismatch`: the identity provider issued a project session scoped to a different tenant than the one selected (the message names both). The CLI discarded it and sent nothing with it; it already tried a fresh impersonation. Run `blocks login --account <account>`, then `blocks use <projectTenantId>`. Never work around it by retrying until a command "succeeds" -- that is how another tenant's data used to come back with exit 0.
 - `project_refresh_token_missing`: the current project session cannot refresh or stop safely; run `blocks login --account <account>` to establish a fresh account session, then select the project again.
 - `missing_project_name`: pass a project name, for example `blocks projects create "<name>"`.
 - `invalid_project_name`: use a project name between 3 and 100 characters.

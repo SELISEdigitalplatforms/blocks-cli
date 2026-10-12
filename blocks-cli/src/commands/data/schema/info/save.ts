@@ -6,10 +6,11 @@ import { compact, jsonBodyFlag } from "../../../../lib/json-flag.js";
 import { writeOutput } from "../../../../lib/output.js";
 import { requestContext } from "../../../../lib/request-context.js";
 import { parseCommand, selectedProject } from "../../../../lib/workspace.js";
-import { createdSchemaId, makeSchemaPublic, withGatewayReload } from "../../../../lib/data-gateway.js";
+import { applyNewSchemaAccess, createdSchemaId, newSchemaAccessFlag, withGatewayReload } from "../../../../lib/data-gateway.js";
 
 export async function dataSchemaInfoSave(argv: string[]): Promise<void> {
   const { flags } = parseCommand(argv);
+  const access = newSchemaAccessFlag(flags);
   const body = {
     ...(await jsonBodyFlag(flags)),
     ...compact({
@@ -22,7 +23,7 @@ export async function dataSchemaInfoSave(argv: string[]): Promise<void> {
   if (!body.schemaName) throw new Error("Provide --schema-name (or set it in --body/--file).");
 
   if (booleanFlag(flags, "dry-run")) {
-    writeOutput({ dryRun: true, endpoint: "/data/v4/schemas/info", request: body }, flags);
+    writeOutput({ dryRun: true, endpoint: "/data/v4/schemas/info", newSchemaAccess: access, request: body }, flags);
     return;
   }
 
@@ -35,14 +36,13 @@ export async function dataSchemaInfoSave(argv: string[]): Promise<void> {
     ...requestContext(flags),
     projectTenantId: projectKey
   });
-  // Same reasoning as `data schema push`: this is the other schema-create path, and
-  // the endpoint has no access-level field, so a new schema would otherwise sit at the
-  // entity default of User.
+  // The other schema-create path; same --access handling as `data schema push`.
   const createdId = createdSchemaId(result);
-  if (createdId) await makeSchemaPublic(createdId, projectKey, flags);
+  if (createdId) await applyNewSchemaAccess(createdId, projectKey, flags, access);
 
   writeOutput(await withGatewayReload(flags, projectKey, {
     ...(isRecord(result) ? result : { result }),
-    ...(createdId ? { grantedPublicAccess: body.schemaName } : {})
+    ...(createdId ? { newSchemaAccess: access } : {}),
+    ...(createdId && access === "public" ? { grantedPublicAccess: body.schemaName } : {})
   }), flags);
 }

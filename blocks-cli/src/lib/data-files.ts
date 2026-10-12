@@ -210,3 +210,57 @@ export function verificationStatusName(value: unknown): string | undefined {
   if (typeof value === "number") return VERIFICATION_STATUSES[value];
   return typeof value === "string" ? value : undefined;
 }
+
+// ConfigureSchemaSecurityRequest enums in blocks-data, sent as ordinals.
+const SECURITY_OPERATIONS = ["READ", "WRITE", "EDIT", "DELETE"];
+const SECURITY_POLICY_TYPES = ["RLS", "CLS"];
+const SECURITY_ACCESS_LEVELS = ["Inherited", "User", "Public", "Custom"];
+
+const isIndex = (value: unknown, length: number): boolean =>
+  typeof value === "number" && Number.isInteger(value) && value >= 0 && value < length;
+
+/**
+ * Checks the `security` entries of a rules document before anything is sent.
+ *
+ * Each entry targets a schema by `schemaName` (resolved in the destination project,
+ * like policies -- which lets one `data sync` create a schema and lock it down) or by
+ * a raw `schemaId`. Operation ALL (4) is rejected: the service's ConfigureSchemaAccess
+ * silently does nothing for it, so it would report success while changing nothing.
+ */
+export function validateSecurityEntries(rules: Record<string, unknown>): string[] {
+  if (rules.security === undefined) return [];
+  if (!Array.isArray(rules.security)) return ["rules file: 'security' must be an array"];
+
+  const errors: string[] = [];
+  rules.security.forEach((entry: unknown, index: number) => {
+    if (typeof entry !== "object" || entry === null || Array.isArray(entry)) {
+      errors.push(`security[${index}]: must be an object`);
+      return;
+    }
+    const item = entry as Record<string, unknown>;
+    const label = typeof item.schemaName === "string" && item.schemaName
+      ? `security[${index}] (${item.schemaName})`
+      : `security[${index}]`;
+    const hasName = typeof item.schemaName === "string" && item.schemaName.length > 0;
+    const hasId = typeof item.schemaId === "string" && item.schemaId.length > 0;
+    if (!hasName && !hasId) errors.push(`${label}: set schemaName (or a schemaId from this project)`);
+    if (item.operation === 4) {
+      errors.push(`${label}: operation 4 (ALL) is ignored by the service; add one entry per operation (0 READ, 1 WRITE, 2 EDIT, 3 DELETE)`);
+    } else if (!isIndex(item.operation, SECURITY_OPERATIONS.length)) {
+      errors.push(`${label}: operation must be 0 READ, 1 WRITE, 2 EDIT or 3 DELETE`);
+    }
+    if (!isIndex(item.policyType, SECURITY_POLICY_TYPES.length)) {
+      errors.push(`${label}: policyType must be 0 (RLS, row-level) or 1 (CLS, column-level)`);
+    }
+    if (!isIndex(item.accessLevel, SECURITY_ACCESS_LEVELS.length)) {
+      errors.push(`${label}: accessLevel must be 0 Inherited, 1 User, 2 Public or 3 Custom`);
+    }
+    if (item.fieldNames !== undefined
+      && !(Array.isArray(item.fieldNames) && item.fieldNames.every((name) => typeof name === "string" && name))) {
+      errors.push(`${label}: fieldNames must be an array of field names`);
+    } else if (item.policyType === 1 && !(Array.isArray(item.fieldNames) && item.fieldNames.length)) {
+      errors.push(`${label}: column-level (policyType 1) entries need fieldNames`);
+    }
+  });
+  return errors;
+}

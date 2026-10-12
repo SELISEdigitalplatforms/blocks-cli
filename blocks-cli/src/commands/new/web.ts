@@ -1,4 +1,6 @@
-import { optionalIntegerFlag, parseFlags, stringFlag } from "../../lib/args.js";
+import { existsSync } from "node:fs";
+import { join } from "node:path";
+import { booleanFlag, optionalIntegerFlag, parseFlags, stringFlag } from "../../lib/args.js";
 import { blocksRequest } from "../../lib/api.js";
 import { confirmMutation } from "../../lib/confirm.js";
 import { defaults } from "../../lib/config.js";
@@ -28,6 +30,12 @@ export async function newWeb(argv: string[]): Promise<void> {
   const appDomain = await resolveAppDomain(project, flags);
   const apiUrl = stringFlag(flags, "blocks-api-url") || apiUrlFromAppDomain(appDomain);
   const devPort = await resolveDevPort(flags);
+
+  if (booleanFlag(flags, "dry-run")) {
+    writeOutput(await planNewWeb({ apiUrl, appDomain, devPort, name, oidcUrl, tenantId }, flags), flags);
+    return;
+  }
+
   const oidcClientId = await resolveOidcClientId(tenantId, appDomain, name, devPort, flags);
 
   if (oidcClientId) {
@@ -154,7 +162,10 @@ async function resolveOidcClientId(
   flags: Record<string, string | boolean>
 ): Promise<string | undefined> {
   const flagValue = stringFlag(flags, "client-id");
-  if (flagValue) return flagValue;
+  if (flagValue) {
+    await assertOidcClientExists(tenantId, flagValue, flags);
+    return flagValue;
+  }
 
   const clients = await listOidcClientSummaries(tenantId, flags);
   const options = [
@@ -172,6 +183,30 @@ async function resolveOidcClientId(
     "Warning: no OIDC client selected. The scaffolded app's login page will show a setup notice until you register a public OIDC client (redirect_uri = <origin>/login/callback) and set VITE_BLOCKS_OIDC_CLIENT_ID in .env."
   );
   return undefined;
+}
+
+/**
+ * Fails when `--client-id` names no OIDC client in this project. Without this a typo
+ * or placeholder id was baked into `.env` and OIDC login was still switched on for the
+ * tenant, leaving a login that could never work. If the client list itself cannot be
+ * read, the id is used as given (with a warning) rather than blocking setup.
+ */
+async function assertOidcClientExists(tenantId: string, clientId: string, flags: Record<string, string | boolean>): Promise<void> {
+  let clients: OidcClientSummary[];
+  try {
+    clients = await listOidcClientSummaries(tenantId, flags);
+  } catch (error) {
+    console.warn(`Warning: could not list this project's OIDC clients to check --client-id '${clientId}' (${(error as Error).message}). Using it as given.`);
+    return;
+  }
+  if (clients.some((client) => client.id === clientId)) return;
+  throw new CliActionableError(
+    `OIDC client '${clientId}' does not exist in project '${tenantId}'.`,
+    "oidc_client_not_found",
+    clients.length
+      ? `Pass one of: ${clients.map((client) => `${client.id} (${client.label})`).join(", ")} -- or omit --client-id to create one.`
+      : "This project has no OIDC clients yet. Omit --client-id to create one, or register one with 'blocks auth oidc-clients save'."
+  );
 }
 
 async function listOidcClientSummaries(tenantId: string, flags: Record<string, string | boolean>): Promise<OidcClientSummary[]> {
@@ -214,26 +249,101 @@ async function listOidcClientSummaries(tenantId: string, flags: Record<string, s
 // already known here as `oidcUrl`, so it's used whenever the tenant doesn't
 // already have one set.
 async function ensureOidcLoginEnabled(tenantId: string, oidcUrl: string, flags: Record<string, string | boolean>): Promise<void> {
-  const config = await blocksRequest<Record<string, unknown>>("/iam/v4/auth/config", {
-    impersonatedProjectAuth: true,
-    projectTenantId: tenantId,
-    ...requestContext(flags)
-  });
-
-  if (config.isOidcEnabled) return;
+  const config = await readAuthConfig(tenantId, flags);
+  const body = oidcLoginConfig(config, oidcUrl);
+  if (!body) return;
 
   await confirmMutation(flags, "Enable OIDC login on this project's AuthController configuration.");
   await blocksRequest<unknown>("/iam/v4/auth/config", {
-    body: {
-      ...config,
-      accountActionBaseUrl: config.accountActionBaseUrl || oidcUrl,
-      accountActivationPath: "oidc/activate/",
-      isOidcEnabled: true
-    },
+    body,
     impersonatedProjectAuth: true,
     projectTenantId: tenantId,
     ...requestContext(flags)
   });
+}
+
+function readAuthConfig(tenantId: string, flags: Record<string, string | boolean>): Promise<Record<string, unknown>> {
+  return blocksRequest<Record<string, unknown>>("/iam/v4/auth/config", {
+    impersonatedProjectAuth: true,
+    projectTenantId: tenantId,
+    ...requestContext(flags)
+  });
+}
+
+/** The full auth config to save to switch OIDC login on, or undefined when it already is. */
+function oidcLoginConfig(config: Record<string, unknown>, oidcUrl: string): Record<string, unknown> | undefined {
+  if (config.isOidcEnabled) return undefined;
+  return {
+    ...config,
+    accountActionBaseUrl: config.accountActionBaseUrl || oidcUrl,
+    accountActivationPath: "oidc/activate/",
+    isOidcEnabled: true
+  };
+}
+
+type NewWebPlanInput = {
+  apiUrl: string;
+  appDomain: string;
+  devPort: number;
+  name: string;
+  oidcUrl: string;
+  tenantId: string;
+};
+
+/**
+ * `new web --dry-run`: reads only, and returns what a real run would do. It used to
+ * fall straight through to the real run -- confirmMutation treated --dry-run as
+ * approval -- so a "preview" scaffolded the app and switched OIDC login on for the
+ * tenant. Nothing here writes a file, mutates the tenant, or prompts.
+ */
+async function planNewWeb(input: NewWebPlanInput, flags: Record<string, string | boolean>): Promise<Record<string, unknown>> {
+  const { name, tenantId, oidcUrl } = input;
+  const requestedClientId = stringFlag(flags, "client-id");
+  if (requestedClientId) await assertOidcClientExists(tenantId, requestedClientId, flags);
+
+  const config = await readAuthConfig(tenantId, flags);
+  const enabledConfig = oidcLoginConfig(config, oidcUrl);
+  const authConfigChanges = enabledConfig
+    ? Object.fromEntries(
+      ["isOidcEnabled", "accountActivationPath", "accountActionBaseUrl"]
+        .filter((key) => enabledConfig[key] !== config[key])
+        .map((key) => [key, { from: config[key] ?? null, to: enabledConfig[key] }])
+    )
+    : {};
+
+  let oidcClient: Record<string, unknown>;
+  if (requestedClientId) {
+    oidcClient = { action: "use", clientId: requestedClientId };
+  } else {
+    const clients = await listOidcClientSummaries(tenantId, flags);
+    oidcClient = {
+      action: "prompt",
+      note: "Without --client-id a real run asks to pick one of these, create a new public OIDC client, or skip.",
+      existing: clients
+    };
+  }
+
+  const directoryExists = existsSync(join(process.cwd(), name));
+  return {
+    dryRun: true,
+    ...input,
+    directory: name,
+    directoryExists,
+    oidcClient,
+    authConfig: enabledConfig
+      ? {
+        action: "enable-oidc",
+        appliesWhen: requestedClientId ? "always" : "an OIDC client is chosen or created",
+        endpoint: "POST /iam/v4/auth/config",
+        changes: authConfigChanges
+      }
+      : { action: "none", reason: "OIDC login is already enabled" },
+    writes: [
+      `${name}/ (web app scaffold${directoryExists ? "; directory already exists, files would be overwritten" : ""})`,
+      "account project selection",
+      ...(Object.keys(await readWorkspaceConfig()).length > 0 ? ["blocks.json project (apiUrl, appDomain, tenantId)"] : [])
+    ]
+  };
 }
 
 function normalizeList(raw: unknown): unknown[] {

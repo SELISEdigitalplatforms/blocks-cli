@@ -63,6 +63,8 @@ Pulling before editing avoids clobbering schema changes someone else made in the
    blocks data schema push --yes --json
    ```
    This is mutating — it creates new schemas and updates existing ones in a single call. Never skip straight to `--yes`.
+
+   **Access for new schemas:** a schema the push *creates* gets **User** access (only signed-in users can read/write it). `--access public` instead opens read, write, edit and delete to anonymous callers — only pass it when the user explicitly wants a public collection. Existing schemas keep whatever access they have. The output's `newSchemaAccess` says which level the created schemas got. For anything finer (Custom + policies), use `security` entries in `rules.json` (below).
 6. **Reload so it goes live.** Schema/rule edits are staged until reload succeeds — the runtime gateway doesn't see them before this:
    ```bash
    blocks data reload --dry-run --json
@@ -95,6 +97,23 @@ blocks data reload --yes --json
 **Shortcut:** `blocks data sync` covers this too (validate → schema push → rules deploy → reload, one confirmation) — see the schema workflow above.
 
 `data rules deploy` applies schema security and data-access policies together — there's no finer-grained CLI split between "field access level" and "policy rule"; both live in `rules.json`.
+
+`security` entries set a schema's access level per operation. Target the schema by **`schemaName`** (resolved in the destination project, like policies), so a single `data sync` can create a schema and lock it down with no window in between:
+
+```json
+{
+  "security": [
+    { "schemaName": "Expense", "operation": 0, "policyType": 0, "accessLevel": 3, "fieldNames": [] }
+  ],
+  "policies": []
+}
+```
+
+- `operation`: `0` READ, `1` WRITE, `2` EDIT, `3` DELETE — one entry per operation (`4` ALL is rejected: the service ignores it).
+- `policyType`: `0` row-level (RLS), `1` column-level (CLS, needs `fieldNames`).
+- `accessLevel`: `0` Inherited, `1` User, `2` Public, `3` Custom (Custom = governed by your policies).
+
+`rules deploy` (and `--dry-run`, `data validate`, `data sync`) checks these entries before anything is sent, and fails without writing anything if a `schemaName` doesn't exist in the project yet.
 
 For a single policy without touching the rest of `rules.json`, use the granular commands instead of a full pull/edit/deploy round-trip:
 
