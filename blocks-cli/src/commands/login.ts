@@ -4,7 +4,7 @@ import { createAccountProfile, readConfig, resolveAccountProfile, writeConfig } 
 import { openBrowser } from "../lib/open-browser.js";
 import { writeOutput } from "../lib/output.js";
 import { listProjectGroups } from "../lib/project-info.js";
-import { readWorkspaceConfig } from "../lib/workspace.js";
+import { findWorkspace } from "../lib/workspace.js";
 
 export async function login(argv: string[]): Promise<void> {
   const { flags } = parseFlags(argv);
@@ -50,8 +50,10 @@ export async function login(argv: string[]): Promise<void> {
 
   progress("Login done.");
 
-  const workspace = await readWorkspaceConfig();
-  const rememberedTenantId = workspace.project?.tenantId ?? latest.accounts[name]?.selectedProject?.tenantId;
+  const workspace = await findWorkspace();
+  const rememberedTenantId = workspace
+    ? workspace.config.project?.tenantId || undefined
+    : latest.accounts[name]?.selectedProject?.tenantId;
 
   if (rememberedTenantId) {
     try {

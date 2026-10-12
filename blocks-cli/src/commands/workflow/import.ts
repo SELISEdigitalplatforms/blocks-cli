@@ -4,6 +4,7 @@ import { blocksRequest } from "../../lib/api.js";
 import { confirmMutation } from "../../lib/confirm.js";
 import { writeOutput } from "../../lib/output.js";
 import { requestContext } from "../../lib/request-context.js";
+import { createWorkflow } from "../../lib/workflow-create.js";
 import { parseCommand, selectedProject } from "../../lib/workspace.js";
 import {
   MAX_IMPORT_BYTES,
@@ -97,30 +98,31 @@ export async function workflowImport(argv: string[]): Promise<void> {
 
   await confirmMutation(flags, `${action === "update" ? "Update" : "Create"} workflow '${name}' in project '${projectKey}'${willPublish ? " and publish it" : ""}.`);
 
-  const saveOptions = {
-    acceptFailureEnvelope: true,
-    impersonatedProjectAuth: true,
-    ...requestContext(flags),
-    projectTenantId: projectKey
-  } as const;
+  const saveContext = { ...requestContext(flags), projectTenantId: projectKey };
 
-  const saveResponse = destinationId
-    ? await blocksRequest<unknown>("/logic/v4/Workflow/Update", {
-      ...saveOptions,
+  let workflowId: string | undefined;
+  if (destinationId) {
+    const saveResponse = await blocksRequest<unknown>("/logic/v4/Workflow/Update", {
+      acceptFailureEnvelope: true,
+      impersonatedProjectAuth: true,
+      ...requestContext(flags),
+      projectTenantId: projectKey,
       body: { itemId: destinationId, name, nodes, edges, settings },
       method: "PUT"
-    })
-    : await blocksRequest<unknown>("/logic/v4/Workflow/Create", {
-      ...saveOptions,
-      body: { name, nodes, edges, settings },
-      method: "POST"
     });
-
-  if (!isRecord(saveResponse) || saveResponse.isSuccess === false) {
-    throw new Error(`Import failed for workflow '${name}': ${JSON.stringify(saveResponse)}`);
+    if (!isRecord(saveResponse) || saveResponse.isSuccess === false) {
+      throw new Error(`Import failed for workflow '${name}': ${JSON.stringify(saveResponse)}`);
+    }
+    workflowId = destinationId;
+  } else {
+    // Create cannot take nodes (its BsonDocument binding 500s), so this creates an
+    // empty workflow and fills it in with Update; see lib/workflow-create.ts.
+    try {
+      ({ workflowId } = await createWorkflow({ name, nodes, edges, settings }, saveContext));
+    } catch (error) {
+      throw new Error(`Import failed for workflow '${name}': ${(error as Error).message}`);
+    }
   }
-
-  const workflowId = destinationId ?? readString(saveResponse, "itemId", "ItemId") ?? undefined;
 
   let published: unknown;
   if (willPublish) {

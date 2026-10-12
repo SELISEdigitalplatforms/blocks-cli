@@ -818,8 +818,11 @@ Projects:
     to resolve its target. Read-only.
 
   blocks use <project-tenant-id>
-    Save the selected project tenant for the resolved account and in blocks.json,
-    then immediately impersonate it. If a different project was selected,
+    Pin the selected project tenant to this workspace's blocks.json (the nearest
+    one at or above the working directory, created here if there is none) and
+    the resolved account, then immediately impersonate it. A workspace's pin
+    wins over the account selection, so sessions in other project directories
+    keep their own project. If a different project was selected,
     stops that impersonation first to reclaim a fresh account refresh token
     before starting the new one.
 
@@ -1195,12 +1198,15 @@ Data:
     platform-managed fields so the file is portable and re-pushable as-is.
     Writes local files only.
 
-  blocks data schema push [--dry-run] [--yes] [--json]
+  blocks data schema push [--access user|public] [--dry-run] [--yes] [--json]
     Create or update project schemas via /data/v4/schemas/define. Mutating.
     Looks up the destination project's schema by name -- never trusts a local
     id/itemId, which may belong to another project -- and uses PUT with the
     destination id when found, POST otherwise. Warns when a local id is
     ignored; fails clearly instead of treating an empty response as success.
+    New schemas get User access (signed-in users only) unless --access public,
+    which opens read/write/edit/delete to anonymous callers; existing schemas
+    keep their access. Output reports it as newSchemaAccess.
 
   blocks data rules pull [--json]
     Download data-access policies into blocks/data/rules.json in the CLI's
@@ -1209,18 +1215,24 @@ Data:
   blocks data rules deploy [--dry-run] [--yes] [--json]
     Apply schema security and data-access policies. Mutating; supports dry-run
     and confirmation. Resolves each policy's destination schema id and any
-    existing policy id by name -- never reuses a source-project id.
+    existing policy id by name -- never reuses a source-project id. Security
+    entries take a schemaName (resolved the same way) or a raw schemaId, and are
+    checked (operation 0-3, policyType, accessLevel, fieldNames) before anything
+    is sent, including on --dry-run. Fails before writing if a target schema is
+    missing.
 
   blocks data reload [--dry-run] [--yes] [--json]
     Reload Data schema configuration so staged schema/rule changes become live.
     Mutating; calls POST /data/v4/schema-configurations/reload.
 
-  blocks data sync [--dry-run] [--yes] [--json]
+  blocks data sync [--access user|public] [--dry-run] [--yes] [--json]
     Composed flow: validate local schemas/rules, then data schema push ->
     data rules deploy -> data reload, so pushed changes actually go live in one
     step. Validation runs first and hard-fails before anything is sent if it
     finds errors. Prints 3 separate step outputs (one per underlying command),
     not one combined document. One confirmation covers the whole flow.
+    --access is passed to the push (default user). Security entries that name a
+    schemaName lock down schemas this same push creates.
 
   Data source configuration (/data/v4/configurations) - check this first; by default a
   project's Data Gateway runs on Blocks-managed storage and data config get is all you need.
@@ -1252,8 +1264,10 @@ Data:
       Entity-type schema collections with basic info.
       --schema-type: 1 Entity, 2 Dto. There is no 0.
     blocks data schema info save --schema-name <n> [--collection-name] [--schema-type <1|2>]
-                              [--body '<json>'|--file <path>] [--dry-run] [--yes] [--json]
+                              [--access user|public] [--body '<json>'|--file <path>]
+                              [--dry-run] [--yes] [--json]
       Create schema metadata only (no fields yet) - pair with data schema fields.
+      New schema gets User access unless --access public.
     blocks data schema info update --item-id <id> [--schema-name] [--collection-name]
                               [--schema-type <1|2>] [--body '<json>'|--file <path>]
                               [--dry-run] [--yes] [--json]
@@ -1652,12 +1666,12 @@ Source control (GitHub, through the account connected via 'github connect' or th
     (working_tree_dirty) rather than stashing; push commits what changed and
     pushes, or reports nothingToPush. Studio runs push after each build.
 
-  blocks git disconnect [--yes] [--json]
+  blocks git disconnect [--dry-run] [--yes] [--json]
     Forget the connected repository (blocks.json only); .git and GitHub are
     left untouched. Mutating.
 
 Scaffold:
-  blocks new web <name> [--app-domain <domain>] [--client-id <oidcClientId>] [--yes]
+  blocks new web <name> [--app-domain <domain>] [--client-id <oidcClientId>] [--dry-run] [--yes]
                     [--x-blocks-key <tenantId>] [--blocks-api-url <url>] [--oidc-url <url>]
     Create a Vite React starter app that talks to Blocks exclusively through
     @seliseblocks/client (a single createBlocksClient() instance) using the SDK
@@ -1679,6 +1693,11 @@ Scaffold:
     When a client id resolves, the command checks AuthController and may enable
     OIDC login. In non-interactive runs, pass --yes only after approving that
     possible tenant mutation; failure stops before scaffold files are written.
+    --dry-run only reads: it prints the plan (target directory, the
+    AuthController fields that would change, the OIDC client, the selection and
+    blocks.json updates) and writes no files and changes nothing on the tenant.
+    --client-id must be one of the project's OIDC clients
+    (oidc_client_not_found otherwise).
     If --blocks-api-url is omitted, it is derived from the app domain:
     https://blocksapi.<registrable-domain> (for example, app domain
     https://dqrsf.slsblx.com uses https://blocksapi.slsblx.com). Pass a

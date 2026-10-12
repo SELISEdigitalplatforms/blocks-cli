@@ -1,5 +1,99 @@
 # Changelog
 
+## 0.9.1
+
+### Changed
+
+- **New data schemas are no longer made Public.** `data schema push`, `data
+  schema info save` and `data sync` used to grant Public access (anonymous
+  read, write, edit and delete) to every schema they created. The only trace
+  was a `grantedPublicAccess` field in the output: help and the skill never
+  mentioned it. And because `rules.json` security entries needed a schema id
+  that didn't exist yet, the first `data sync` could not lock a new schema
+  down, so new collections stayed open to anonymous writes until a second
+  `rules deploy`. New schemas now keep the server default, **User** (signed-in
+  users only). Pass `--access public` to get the old behaviour; an app that
+  reads or writes a new collection anonymously needs this flag or a `security`
+  entry. Existing schemas are never touched. The output reports the level as
+  `newSchemaAccess`, and still includes `grantedPublicAccess` when Public was
+  granted.
+
+### Added
+
+- `rules.json` `security` entries can target a schema by `schemaName`, which
+  is resolved in the destination project the same way policies are. One
+  `data sync` can now create a schema and set its access with no window in
+  between. A raw `schemaId` still works.
+- `data rules deploy` (including `--dry-run`), `data validate` and `data sync`
+  check security entries before anything is sent: a target is set, `operation`
+  is 0-3, `policyType` and `accessLevel` are valid, and column-level entries
+  have `fieldNames`. Operation 4 (ALL) is rejected, because the service ignores
+  it and would report success without changing anything. A deploy now looks
+  up every target schema first and fails before writing anything if one is
+  missing. Previously it could fail halfway, after the security entries had
+  already been applied.
+
+### Fixed
+
+- Two agents (or terminals) working in different project directories no longer
+  retarget each other. The project selection lived in one account-wide slot in
+  the global config, and `blocks use` only wrote `blocks.json` when the
+  directory already had one -- so after `blocks use A` in project A and
+  `blocks use B` in project B, every command in A (and in any subdirectory of a
+  workspace, where `blocks.json` wasn't found) resolved to B and pushed there.
+  `blocks use` now pins the tenant into the workspace's `blocks.json` (the
+  nearest one at or above the working directory, created in the working
+  directory if there is none; never in the home directory), project resolution
+  walks up to that file, and a workspace without a tenant of its own fails with
+  `project_not_selected` instead of borrowing the account selection. `blocks
+  login` re-selects the workspace's project rather than the account's. The
+  account selection still applies outside any workspace.
+- `logic workflow import` and `logic workflow save` (create) no longer fail
+  with a 500 ("Cannot deserialize the current JSON object ... into type
+  'MongoDB.Bson.BsonDocument'") for every workflow that has node parameters --
+  which is every real workflow, including the skill's own minimal webhook
+  example. `Workflow/Create` binds nodes through a path that cannot read a
+  node's `parameters` object, while `Workflow/Update` reads them correctly, so
+  a create now sends an empty Create (name, description, settings) and then an
+  Update with the nodes and edges. If the Update fails, the empty workflow is
+  deleted so nothing half-created is left behind. Updating an existing
+  workflow is unchanged (one PUT), and `save --dry-run` shows both requests.
+- `new web --dry-run` no longer scaffolds the app or changes the tenant. The
+  command had no dry-run handling, and `confirmMutation` treated `--dry-run`
+  as approval. So a "preview" wrote the whole app to disk, switched
+  `isOidcEnabled` on in the tenant's AuthController config (rewriting
+  `accountActivationPath` along with it), updated the project selection, and
+  printed `"created": true` -- an unapproved cloud change that agents made
+  while trying to preview. `--dry-run` now only reads, and returns a plan: the
+  target directory and whether it exists, the AuthController fields that would
+  change (old and new values), the OIDC client, and the selection and
+  `blocks.json` updates.
+- `new web --client-id` must name one of the project's OIDC clients. A
+  placeholder or typo was written into `.env`, and OIDC login was still
+  enabled for a client that didn't exist. It now fails with
+  `oidc_client_not_found`, listing the real clients, before anything is
+  written.
+- Project commands can no longer run as another tenant. The CLI stored each
+  project session under the tenant it asked for, and never checked which
+  tenant the issued token was actually for. Services take the caller's tenant
+  from the token's `tenant_id` claim, so a token for another tenant silently
+  answered from that tenant's data, with exit 0. For example,
+  `localization module list` returned another project's (or the root
+  tenant's) modules, and `localization push --dry-run` couldn't find the
+  project's module and planned to create every key. IAM could return such a
+  token from an impersonated refresh (fixed on the IAM side in `d79bb65b`).
+  Once stored, it was used until it expired: `--project` made no difference,
+  and the problem survived `blocks use`. Every project token, whether cached,
+  refreshed or newly obtained by impersonating, is now checked against the
+  requested tenant. On a mismatch the token is discarded and a fresh
+  impersonation is tried once. If that fails too, the command stops with
+  `project_token_tenant_mismatch` and nothing is sent with the wrong token.
+- `confirmMutation` now refuses under `--dry-run` (`dry_run_would_mutate`),
+  instead of treating `--dry-run` as approval. Any command that reaches a
+  mutation during a preview now stops loudly rather than applying it.
+  `git disconnect` was the only other command that reached this point, and
+  now has a dry-run of its own.
+
 ## 0.9.0
 
 ### Added

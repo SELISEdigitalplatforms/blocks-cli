@@ -10,6 +10,7 @@ import { readTokenStore, writeTokenStore } from "./token-store.js";
 import { getClientSecret } from "./secret-store.js";
 import { CliActionableError } from "./errors.js";
 import { withAuthTransitionLock } from "./auth-lock.js";
+import { decodeJwtPayload } from "./jwt.js";
 
 export type AccountSession = {
   accessToken: string;
@@ -209,7 +210,12 @@ export async function getImpersonatedProjectSession(accountOverride?: string, te
   }
 
   const projectToken = store.accounts[name]?.projects?.[tenantId];
-  if (!options.forceRefresh && projectToken?.accessToken && !isExpiring(projectToken.expiresAt)) {
+  if (
+    !options.forceRefresh
+    && projectToken?.accessToken
+    && !isExpiring(projectToken.expiresAt)
+    && !mismatchedTokenTenant(projectToken.accessToken, tenantId)
+  ) {
     return projectSessionFromToken(name, tenantId, projectToken, profile.rootTenantId);
   }
 
@@ -368,6 +374,15 @@ async function getImpersonatedProjectSessionUnlocked(
 
   let store = await readTokenStore();
   let projectToken = store.accounts[name]?.projects?.[tenantId];
+
+  // The tenant a stored or freshly issued project token is really for, when it is not
+  // `tenantId`. Set once a wrong-tenant token has been thrown away below.
+  let wrongTenant = mismatchedTokenTenant(projectToken?.accessToken, tenantId);
+  if (wrongTenant) {
+    await discardProjectToken(store, name, tenantId);
+    projectToken = undefined;
+  }
+
   if (!options.forceRefresh && projectToken?.accessToken && !isExpiring(projectToken.expiresAt)) {
     return projectSessionFromToken(name, tenantId, projectToken, profile.rootTenantId);
   }
@@ -380,10 +395,18 @@ async function getImpersonatedProjectSessionUnlocked(
       await forgetRejectedRefreshToken(error, store, name, tenantId);
       throw error;
     }
-    const next = applyProjectToken(config, store, name, tenantId, refreshed);
-    await writeConfig(next.config);
-    await writeTokenStore(next.store);
-    return projectSessionFromToken(name, tenantId, next.store.accounts[name]!.projects![tenantId], profile.rootTenantId);
+    wrongTenant = mismatchedTokenTenant(refreshed.access_token, tenantId);
+    if (!wrongTenant) {
+      const next = applyProjectToken(config, store, name, tenantId, refreshed);
+      await writeConfig(next.config);
+      await writeTokenStore(next.store);
+      return projectSessionFromToken(name, tenantId, next.store.accounts[name]!.projects![tenantId], profile.rootTenantId);
+    }
+    // The refresh came back scoped to another tenant (an impersonated refresh can rotate
+    // into a root-tenant pair). Never store or use it: drop the project session and
+    // start a fresh impersonation below.
+    await discardProjectToken(store, name, tenantId);
+    projectToken = undefined;
   }
 
   const currentProject = currentProjectTenant(store, name);
@@ -393,10 +416,19 @@ async function getImpersonatedProjectSessionUnlocked(
     projectToken = store.accounts[name]?.projects?.[tenantId];
   }
 
-  const account = await getAccountSessionUnlocked(name, options);
+  let account: AccountSession;
+  try {
+    account = await getAccountSessionUnlocked(name, options);
+  } catch (error) {
+    if (wrongTenant) throw projectTokenTenantMismatch(name, tenantId, wrongTenant);
+    throw error;
+  }
   store = await readTokenStore();
   const rootRefresh = store.accounts[name]?.account?.refreshToken;
-  if (!rootRefresh) throw new Error("Project impersonation needs a fresh account refresh token. Run 'blocks login' again.");
+  if (!rootRefresh) {
+    if (wrongTenant) throw projectTokenTenantMismatch(name, tenantId, wrongTenant);
+    throw new Error("Project impersonation needs a fresh account refresh token. Run 'blocks login' again.");
+  }
 
   const data = await impersonateProject({
     accessToken: account.accessToken,
@@ -407,6 +439,8 @@ async function getImpersonatedProjectSessionUnlocked(
     tenantId
   });
   requireRefreshToken(data, "Project impersonation");
+  const impersonatedTenant = mismatchedTokenTenant(data.access_token, tenantId);
+  if (impersonatedTenant) throw projectTokenTenantMismatch(name, tenantId, impersonatedTenant);
   const next = applyProjectToken(config, store, name, tenantId, data);
   await writeConfig(next.config);
   await writeTokenStore(next.store);
@@ -502,6 +536,50 @@ async function forgetRejectedRefreshToken(
   delete target.refreshToken;
   delete target.refreshTokenExpiresAt;
   await writeTokenStore(store);
+}
+
+/**
+ * The tenant a project access token is actually scoped to, when that is not the
+ * tenant it was requested (and is stored) for; undefined when it matches.
+ *
+ * Every service takes the caller's tenant from the token's tenant_id claim, not from
+ * the request, so a token filed under the wrong tenant silently answers from another
+ * tenant's data -- another project's localization modules, or the root tenant's, with
+ * exit 0. IAM could hand one back from an impersonated refresh (it rotated the lineage
+ * through a root-tenant pair; blocks-iam d79bb65b), and the CLI used to store whatever
+ * came back under the tenant it asked for. A token that can't be decoded, or carries
+ * no tenant_id, isn't judged here.
+ */
+export function mismatchedTokenTenant(accessToken: string | undefined, tenantId: string): string | undefined {
+  if (!accessToken) return undefined;
+  let claim: unknown;
+  try {
+    claim = decodeJwtPayload(accessToken).tenant_id;
+  } catch {
+    return undefined;
+  }
+  if (typeof claim !== "string" || !claim) return undefined;
+  return claim.toLowerCase() === tenantId.toLowerCase() ? undefined : claim;
+}
+
+async function discardProjectToken(
+  store: Awaited<ReturnType<typeof readTokenStore>>,
+  account: string,
+  tenantId: string
+): Promise<void> {
+  const projects = store.accounts[account]?.projects;
+  if (!projects?.[tenantId]) return;
+  delete projects[tenantId];
+  await writeTokenStore(store);
+}
+
+function projectTokenTenantMismatch(account: string, tenantId: string, actualTenant: string): CliActionableError {
+  return new CliActionableError(
+    `The identity provider issued a session for tenant '${actualTenant}' when project '${tenantId}' was requested. `
+    + "The session was discarded and no request was sent with it.",
+    "project_token_tenant_mismatch",
+    `blocks login --account ${account}, then blocks use ${tenantId}`
+  );
 }
 
 function accountSessionFromToken(name: string, profile: AccountProfile, token: TokenSet): AccountSession {

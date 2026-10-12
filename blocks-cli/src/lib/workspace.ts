@@ -1,5 +1,6 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import { homedir } from "node:os";
+import { dirname, join, resolve } from "node:path";
 import { parseFlags, stringFlag } from "./args.js";
 import { CliActionableError } from "./errors.js";
 import { BlocksProjectSelection, readConfig, resolveAccountProfile, writeConfig } from "./config.js";
@@ -39,6 +40,27 @@ export async function writeWorkspaceConfig(config: BlocksWorkspaceConfig): Promi
   await writeFile("blocks.json", `${JSON.stringify(config, null, 2)}\n`);
 }
 
+/**
+ * The nearest blocks.json at or above the working directory -- the workspace
+ * that owns the project selection for every command run inside it. Stops
+ * below the home directory and the filesystem root so a stray file there
+ * can't bind every directory beneath it.
+ */
+export async function findWorkspace(): Promise<{ config: BlocksWorkspaceConfig; path: string } | undefined> {
+  const home = resolve(homedir());
+  let dir = resolve(process.cwd());
+  while (dir !== home && dirname(dir) !== dir) {
+    const path = join(dir, "blocks.json");
+    try {
+      return { config: JSON.parse(await readFile(path, "utf8")) as BlocksWorkspaceConfig, path };
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    }
+    dir = dirname(dir);
+  }
+  return undefined;
+}
+
 export async function selectedProject(flags: Record<string, string | boolean>): Promise<string> {
   const selected = await optionalSelectedProject(flags);
   if (selected) return selected;
@@ -51,7 +73,7 @@ export async function selectedProject(flags: Record<string, string | boolean>): 
   throw new CliActionableError(
     "No project is selected in the current context.",
     "project_not_selected",
-    "Pass --project <tenantId> or run 'blocks use <tenantId>'."
+    "Pass --project <tenantId> or run 'blocks use <tenantId>' in this workspace."
   );
 }
 
@@ -59,8 +81,11 @@ export async function optionalSelectedProject(flags: Record<string, string | boo
   const fromFlag = stringFlag(flags, "project");
   if (fromFlag) return fromFlag;
 
-  const local = await readWorkspaceConfig();
-  if (local.project?.tenantId) return local.project.tenantId;
+  // A workspace owns its selection outright. Falling through to the account's
+  // selection here is what let two agents in different project directories
+  // share one project: whichever ran 'blocks use' last redirected the other.
+  const workspace = await findWorkspace();
+  if (workspace) return workspace.config.project?.tenantId || undefined;
 
   const global = await readConfig();
   const accountOverride = stringFlag(flags, "account") || undefined;
@@ -92,23 +117,30 @@ export async function saveSelectedProject(
     }
   });
 
-  const local = await readWorkspaceConfig();
-  if (Object.keys(local).length > 0) {
-    await writeWorkspaceConfig({
+  // Pin the selection to this workspace -- creating blocks.json if there is
+  // none yet -- so a 'blocks use' in another directory can't retarget it. The
+  // home directory is never pinned; there the account selection alone applies.
+  const workspace = await findWorkspace();
+  const cwd = resolve(process.cwd());
+  const path = workspace?.path ?? (cwd === resolve(homedir()) || dirname(cwd) === cwd ? undefined : join(cwd, "blocks.json"));
+  if (path) {
+    const local = workspace?.config ?? {};
+    await writeFile(path, `${JSON.stringify({
       ...local,
       project: {
         ...local.project,
         tenantId
       }
-    });
+    }, null, 2)}\n`);
   }
 }
 
 export async function clearSelectedProject(accountOverride?: string): Promise<string | undefined> {
   const global = await readConfig();
   const { name, profile } = await resolveAccountProfile(global, accountOverride);
-  const local = await readWorkspaceConfig();
-  const tenantId = local.project?.tenantId ?? profile.selectedProject?.tenantId;
+  const workspace = await findWorkspace();
+  const local = workspace?.config ?? {};
+  const tenantId = local.project?.tenantId || profile.selectedProject?.tenantId;
 
   if (profile.selectedProject) {
     const { selectedProject: _dropped, ...restProfile } = profile;
@@ -118,12 +150,12 @@ export async function clearSelectedProject(accountOverride?: string): Promise<st
     });
   }
 
-  if (local.project?.tenantId) {
+  if (workspace && local.project?.tenantId) {
     const { tenantId: _localTenantId, ...restProject } = local.project;
-    await writeWorkspaceConfig({
+    await writeFile(workspace.path, `${JSON.stringify({
       ...local,
       project: Object.keys(restProject).length > 0 ? restProject : undefined
-    });
+    }, null, 2)}\n`);
   }
 
   return tenantId;

@@ -1,4 +1,4 @@
-import { readRulesFile, readSchemaFiles, validateSchemas } from "../../lib/data-files.js";
+import { readRulesFile, readSchemaFiles, validateSchemas, validateSecurityEntries } from "../../lib/data-files.js";
 import { writeOutput } from "../../lib/output.js";
 import { parseCommand } from "../../lib/workspace.js";
 
@@ -8,7 +8,7 @@ export async function dataValidate(argv: string[]): Promise<void> {
   const errors = validateSchemas(schemas);
 
   try {
-    await readRulesFile();
+    errors.push(...validateSecurityEntries(await readRulesFile()));
   } catch (error) {
     errors.push(`rules file: ${(error as Error).message}`);
   }

@@ -6,15 +6,19 @@ Resolve the OIDC client id **before** running it. See the OIDC flow — an app s
 
 ## The command
 
+Preview first. `--dry-run` only reads: it prints the target directory (and whether it already exists), the AuthController fields that would change (for example `isOidcEnabled: false → true`), the OIDC client it will use, and the selection/`blocks.json` updates. It writes no files and changes nothing on the tenant.
+
 ```bash
 blocks new web <appName> \
   --x-blocks-key <tenantId> \
   --app-domain https://<app-domain> \
   --client-id <publicOidcClientId> \
-  --yes
+  --dry-run --json
 ```
 
-**Always pass all three contexts explicitly.** Omitting `--app-domain` or `--client-id` drops the command into an interactive pick-list. The command also checks AuthController and may enable OIDC login; after the user approves that possible tenant mutation, pass `--yes` so a non-interactive run cannot stop at confirmation. Without approval, do not scaffold.
+Show the user the `authConfig` part of the plan, get approval, then run the same command with `--yes` instead of `--dry-run`.
+
+**Always pass all three contexts explicitly.** Omitting `--app-domain` or `--client-id` drops the command into an interactive pick-list. `--client-id` must be an existing OIDC client of this project — a placeholder or typo fails with `oidc_client_not_found` (listing the real ones) before anything is written. Without approval of the AuthController change, do not run with `--yes`.
 
 Leave `--blocks-api-url` off unless the project uses a non-default gateway. The scaffold derives it from the app domain, and passing a wrong one by hand is harder to notice than leaving it out.
 
