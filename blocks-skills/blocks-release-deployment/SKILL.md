@@ -56,7 +56,7 @@ Before building, `deploy` (and `setup`) compares the resolved repo's linked bran
 | `repo_not_linked` | No repo is linked/registered for this project at all. | Link a repo from the Blocks portal (requires GitHub OAuth), then re-run. |
 | `repo_ambiguous` | Multiple repos and no unambiguous selector. The message lists the candidates. | Pass `--repo <name|id>` (or the exact id if two share a name). |
 | `repo_not_found` | The selector or linked asset id wasn't found in blocks-release. | Run `blocks release repos list` and use a listed name or id. |
-| `branch_environment_mismatch` | The repo's branch doesn't match the project's `environment` (e.g. repo is on `main` but environment is `staging`). | Point the linked repo at a branch named for the environment, or relink the correct branch from the Blocks portal. |
+| `branch_environment_mismatch` | The repo's branch isn't the project's environment branch (e.g. repo is on `main` but environment is `stg`). Each environment deploys from the branch of the same name, except `prod`, which deploys from `main`. | Point the linked repo at the environment's branch, or relink the correct branch from the Blocks portal. |
 | `build_wait_timeout` | Only with `--wait`/`--follow`: no terminal status before `--timeout` elapsed. | Check with `blocks release status <buildId>` or keep watching with `--wait`. |
 | `provider_not_supported` | A `--provider` other than `github` on the `git` commands. | Only GitHub is active in blocks-release today. |
 

@@ -3893,10 +3893,15 @@ test("new web auto-picks the next free port when the Vite default is already bou
   }
 });
 
-const NEW_WEB_OIDC_CLIENTS = [
-  { clientDisplayName: "Demo", itemId: "demo-client-id" },
-  { clientDisplayName: "Dev", itemId: "dev-client-id" }
-];
+// The envelope IAM's GET /oidc-clients really returns (GetOIDCClientsResponse); a bare
+// array here once hid that `new web` read no clients at all and rejected every --client-id.
+const NEW_WEB_OIDC_CLIENTS = {
+  isSuccess: true,
+  oIDCClientCredentials: [
+    { clientDisplayName: "Demo", itemId: "demo-client-id", clientId: "demo-client-id" },
+    { clientDisplayName: "Dev", itemId: "dev-client-id", clientId: "dev-client-id" }
+  ]
+};
 
 /** Fake IAM for `new web`: lists the OIDC clients and reports OIDC login as enabled. */
 function newWebServerHandler(config = { isOidcEnabled: true }) {
