@@ -1496,8 +1496,9 @@ Release:
                     [--dry-run] [--yes] [--json]
     Deploy the selected project's environment (Build/manual). Resolves the repo
     from --repo (name or id via Build/repos-list) or, when omitted, from the
-    project's linked assets. Aborts if the connected branch doesn't match this
-    environment's name. --with-secrets first syncs env vars from a dotenv file,
+    project's linked assets. Aborts if the connected branch isn't the
+    environment's branch (the environment name; prod deploys from main).
+    --with-secrets first syncs env vars from a dotenv file,
     --domain also sets the custom deployment domain, --wait polls the status
     field until a terminal value, --follow additionally streams build events
     to stderr. Final stdout is one verdict document. Mutating.

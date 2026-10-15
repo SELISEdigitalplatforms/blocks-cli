@@ -9,6 +9,8 @@ import {
   DEFAULT_WAIT_TIMEOUT_SECONDS,
   RELEASE_API,
   ReleaseEnvelope,
+  branchForEnvironment,
+  branchMatchesEnvironment,
   firstNonEmptyString,
   repoIdOf,
   resolveRepoSelection,
@@ -54,11 +56,12 @@ export async function releaseSetup(argv: string[]): Promise<void> {
   const repoId = repoIdOf(repo);
   if (!repoId) throw new Error("The resolved repo is missing an id in Build/repos-list.");
 
-  if (repo.branch && repo.branch.toLowerCase() !== environment.toLowerCase()) {
+  if (repo.branch && !branchMatchesEnvironment(repo.branch, environment)) {
+    const expectedBranch = branchForEnvironment(environment);
     throw new CliActionableError(
-      `Repo '${repo.repoName ?? repoId}' is linked to branch '${repo.branch}', which does not match this project's environment '${environment}'.`,
+      `Repo '${repo.repoName ?? repoId}' is linked to branch '${repo.branch}', which does not match this project's environment '${environment}' (expects branch '${expectedBranch}').`,
       "branch_environment_mismatch",
-      `Point the linked repo at a branch named '${environment}', or relink the correct branch from the Blocks portal.`
+      `Point the linked repo at the '${expectedBranch}' branch, or relink the correct branch from the Blocks portal.`
     );
   }
 

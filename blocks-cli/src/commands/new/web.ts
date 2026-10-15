@@ -6,6 +6,7 @@ import { confirmMutation } from "../../lib/confirm.js";
 import { defaults } from "../../lib/config.js";
 import { apiUrlFromAppDomain, oidcRedirectUrisFromAppDomain } from "../../lib/domains.js";
 import { CliActionableError } from "../../lib/errors.js";
+import { listOidcClients } from "../../lib/oidc-callback.js";
 import { withBlocksIdentityProviderDiscovery } from "../../lib/oidc-discovery.js";
 import { findAvailablePort, isPortFree } from "../../lib/port.js";
 import { findProjectByTenantId, ProjectRecord } from "../../lib/project-info.js";
@@ -210,17 +211,9 @@ async function assertOidcClientExists(tenantId: string, clientId: string, flags:
 }
 
 async function listOidcClientSummaries(tenantId: string, flags: Record<string, string | boolean>): Promise<OidcClientSummary[]> {
-  const raw = await blocksRequest<unknown>("/iam/v4/oidc-clients", {
-    impersonatedProjectAuth: true,
-    projectTenantId: tenantId,
-    ...requestContext(flags)
-  });
-
   const summaries: OidcClientSummary[] = [];
-  for (const item of normalizeList(raw)) {
-    if (typeof item !== "object" || item === null) continue;
-    const record = item as Record<string, unknown>;
-    const id = record.itemId ?? record.clientId ?? record.id;
+  for (const record of await listOidcClients(tenantId, flags)) {
+    const id = record.clientId ?? record.itemId ?? record.id;
     if (typeof id !== "string" || !id) continue;
 
     const label = typeof record.clientDisplayName === "string" && record.clientDisplayName ? record.clientDisplayName : id;
@@ -344,17 +337,6 @@ async function planNewWeb(input: NewWebPlanInput, flags: Record<string, string |
       ...(Object.keys(await readWorkspaceConfig()).length > 0 ? ["blocks.json project (apiUrl, appDomain, tenantId)"] : [])
     ]
   };
-}
-
-function normalizeList(raw: unknown): unknown[] {
-  if (Array.isArray(raw)) return raw;
-  if (raw && typeof raw === "object") {
-    for (const key of ["data", "items", "results"]) {
-      const value = (raw as Record<string, unknown>)[key];
-      if (Array.isArray(value)) return value;
-    }
-  }
-  return [];
 }
 
 async function createOidcClientInteractively(

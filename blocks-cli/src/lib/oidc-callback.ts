@@ -92,7 +92,8 @@ async function runCheck(repoId: string, projectKey: string, flags: Flags, option
   }
 }
 
-async function listOidcClients(projectKey: string, flags: Flags): Promise<Record<string, unknown>[]> {
+/** Every OIDC client in the project. IAM returns them under `oIDCClientCredentials`, not `data`. */
+export async function listOidcClients(projectKey: string, flags: Flags): Promise<Record<string, unknown>[]> {
   const response = await blocksRequest<unknown>("/iam/v4/oidc-clients", {
     impersonatedProjectAuth: true,
     ...requestContext(flags),

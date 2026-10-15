@@ -38,6 +38,29 @@ export type ReleaseBuildEvent = {
   createdAt?: string;
 } & Record<string, unknown>;
 
+// Git branch each project environment deploys from. Every environment uses a branch of
+// the same name except Production ('prod'), which deploys from 'main' -- mirrors
+// blocks-release's CloudBuildConstants.BranchToEnvironmentMap and the Project Settings docs.
+const ENVIRONMENT_BRANCHES: Record<string, string> = {
+  dev: "dev",
+  test: "test",
+  stg: "stg",
+  iat: "iat",
+  uat: "uat",
+  "prod-shadow": "prod-shadow",
+  "pre-prod": "pre-prod",
+  prod: "main"
+};
+
+export function branchForEnvironment(environment: string): string {
+  const key = environment.toLowerCase();
+  return ENVIRONMENT_BRANCHES[key] ?? key;
+}
+
+export function branchMatchesEnvironment(branch: string | undefined, environment: string): boolean {
+  return (branch ?? "").toLowerCase() === branchForEnvironment(environment);
+}
+
 export function repoIdOf(repo: ReleaseRepo): string | undefined {
   return firstNonEmptyString(repo, ["itemId", "id", "repoId"]);
 }
