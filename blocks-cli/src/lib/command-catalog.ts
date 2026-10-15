@@ -1537,7 +1537,7 @@ export const commandCatalog: readonly CommandEntry[] = [
     "name": "iam permissions by-severity",
     "family": "iam",
     "summary": "List permissions filtered by severity and resource type.",
-    "details": "--severity is PermissionSeverity, ordered most-severe-first, not least: 0 None, 1 Critical, 2 High, 3 Medium, 4 Low. --type is IAM's ResourceType: 0 None, 1 Endpoint, 2 FrontendAction, 3 DataProtection.",
+    "details": "--severity is PermissionSeverity, ordered most-severe-first, not least: 0 None, 1 Critical, 2 High, 3 Medium, 4 Low. --type is IAM's ResourceType: 0 None, 1 Endpoint, 2 FrontendAction.",
     "scope": "project",
     "mutating": false,
     "flags": []
@@ -1577,7 +1577,7 @@ export const commandCatalog: readonly CommandEntry[] = [
     "name": "iam permissions list",
     "family": "iam",
     "summary": "List IAM permissions.",
-    "details": "--type is ResourceType (0-3), --severity is PermissionSeverity (0 None, 1 Critical .. 4 Low).",
+    "details": "--type is ResourceType (0-2), --severity is PermissionSeverity (0 None, 1 Critical .. 4 Low).",
     "scope": "project",
     "mutating": false,
     "flags": [

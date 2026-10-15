@@ -42,7 +42,7 @@ Sensitive means *confirmed*, not *refused*: **any permission the seeded `cloudus
 
 - **CLI mutations are project-scoped, not account-scoped** — they run against the impersonated-project token. `blocks iam me` prefers that token when a project resolves and uses the account token only without a resolved project.
 - **Role hierarchy and permission assignment key off `slug`**, not `itemId`.
-- **Match the permission type to the symptom.** `--type 1` Endpoint is gateway-enforced (missing ⇒ **403**); `--type 2` FrontendAction is SPA-gate-enforced (missing ⇒ control silently hidden); `--type 3` DataProtection controls masking (missing ⇒ redacted data). Most features need the type 1 *and* type 2 permission, plus any `dependentPermissions`.
+- **Match the permission type to the symptom.** `--type 1` Endpoint is gateway-enforced (missing ⇒ **403**); `--type 2` FrontendAction is SPA-gate-enforced (missing ⇒ control silently hidden). Most features need the type 1 *and* type 2 permission, plus any `dependentPermissions`.
 - **Never fire a create/update/assign-permissions call — CLI or SDK — without a human confirming that specific change first.** See [flows/manage-roles-permissions.md](flows/manage-roles-permissions.md) for the full discipline.
 - **OIDC/identity-provider client provisioning is a separate concern**, independent of everything above — it runs through `blocks auth oidc-clients`/`auth idp`, not through roles and permissions.
 

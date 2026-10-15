@@ -14,7 +14,7 @@ blocks iam roles update <itemId> [--name] [--description] [--parent-role-slug] [
 blocks iam roles assign-permissions <slug> [--add-permissions a,b] [--remove-permissions a,b] [--organization-id] [--dry-run] [--yes] [--json]
 blocks iam roles assignable [--json]
 
-blocks iam permissions list [--page] [--page-size] [--search] [--type <0-3>] [--severity <0-4>] [--resource-group] [--tags a,b] [--resources a,b] [--is-built-in] [--is-archived] [--roles a,b] [--organization-id] [--filter '<json>'] [--json]
+blocks iam permissions list [--page] [--page-size] [--search] [--type <0-2>] [--severity <0-4>] [--resource-group] [--tags a,b] [--resources a,b] [--is-built-in] [--is-archived] [--roles a,b] [--organization-id] [--filter '<json>'] [--json]
 blocks iam permissions get <id> [--json]
 blocks iam permissions create --name <n> [--type] [--description] [--resource] [--resource-group] [--tags a,b] [--severity] [--is-built-in] [--dependent-permissions a,b] [--body '<json>'|--file <path>] [--dry-run] [--yes] [--json]
 blocks iam permissions update <id> [same flags as create, plus --is-archived] [--dry-run] [--yes] [--json]
@@ -28,7 +28,7 @@ blocks iam permissions by-severity [--json]
 | `0` | None (unset) | `0` | None — unset, treated as the lowest tier |
 | `1` | Endpoint — checked by the API gateway | `1` | **Critical** — can compromise the tenant |
 | `2` | FrontendAction — checked by the SPA's permission gate | `2` | High — exposes customer data or broad read access |
-| `3` | DataProtection — field/record encryption or masking rule | `3` | Medium — routine admin, limited blast radius |
+| | | `3` | Medium — routine admin, limited blast radius |
 | | | `4` | Low — cosmetic or read-only |
 
 So `--severity 1` filters for the *most* dangerous permissions, not the least. Severity drives approval workflows (high-severity grants need an extra approver), UI emphasis, and audit-alert priority — it is not decorative.
@@ -62,7 +62,6 @@ Unrestricted-to-assign is not assign-everything. Never clone `clouduser`'s set o
    |---|---|---|---|
    | `1` Endpoint | API gateway | **403** on the call | the role's users hit that API at all — non-negotiable |
    | `2` FrontendAction | the SPA's permission gate | no error; button/section silently hidden or disabled | the role should see and use that UI affordance |
-   | `3` DataProtection | field/record masking & encryption | data comes back masked/redacted | the role legitimately needs the unmasked field |
 
    A role usually needs **both** the `Endpoint` permission and the matching `FrontendAction` — granting only the endpoint leaves an invisible button; granting only the frontend action leaves a button that 403s. Check for both when a feature spans API and UI.
 4. **Pull in `dependentPermissions`** — a permission whose dependencies aren't also granted still 403s. Read them off `blocks iam permissions get <id>` and include them in the same `--add-permissions` call.

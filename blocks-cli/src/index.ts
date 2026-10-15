@@ -878,7 +878,7 @@ IAM:
     blocks iam roles assignable [--json]
 
   Permissions (/iam/v4/iam/permissions*):
-    blocks iam permissions list [--page] [--page-size] [--search] [--type <0-3>]
+    blocks iam permissions list [--page] [--page-size] [--search] [--type <0-2>]
                               [--severity <0-4>] [--resource-group] [--tags a,b]
                               [--resources a,b] [--is-built-in] [--is-archived]
                               [--roles a,b] [--organization-id] [--filter '<json>'] [--json]
@@ -890,7 +890,7 @@ IAM:
     blocks iam permissions update <id> [same flags as create, plus --is-archived]
                               [--dry-run] [--yes] [--json]
     blocks iam permissions by-severity [--json]
-      --type is IAM's ResourceType: 0 None, 1 Endpoint, 2 FrontendAction, 3 DataProtection.
+      --type is IAM's ResourceType: 0 None, 1 Endpoint, 2 FrontendAction.
       --severity is PermissionSeverity, ordered most-severe-first, not least: 0 None,
       1 Critical, 2 High, 3 Medium, 4 Low.
 
