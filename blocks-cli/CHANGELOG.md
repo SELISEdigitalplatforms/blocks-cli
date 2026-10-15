@@ -1,5 +1,28 @@
 # Changelog
 
+## 0.9.2
+
+### Fixed
+
+- **`new web` no longer rejects every OIDC client.** The 0.9.1 check that
+  `--client-id` exists read the client list from `data`/`items`/`results`.
+  IAM returns it under `oIDCClientCredentials`, so the CLI always saw an empty
+  list. Every id was refused with `oidc_client_not_found`, even one just
+  created, and the interactive picker never offered existing clients. `new
+  web` now uses the same list parser as the deploy-time callback check. The
+  test fixture now uses IAM's real response shape; the old bare-array fixture
+  is what hid this.
+
+- **`release deploy` and `release setup` now use the documented
+  environment-to-branch mapping.** They assumed each environment deploys from
+  a branch with the same name. That holds for `dev`, `test`, `stg`, `iat`,
+  `uat`, `prod-shadow` and `pre-prod`, but Production (`prod`) deploys from
+  `main`. So a correctly linked Production repo was refused with
+  `branch_environment_mismatch`, and auto-resolving the repo for `prod` found
+  nothing. Both commands now follow the mapping from the Project Settings docs
+  and blocks-release (`main` → `prod`). The mismatch error also names the
+  branch the environment expects.
+
 ## 0.9.1
 
 ### Changed
@@ -17,6 +40,17 @@
   entry. Existing schemas are never touched. The output reports the level as
   `newSchemaAccess`, and still includes `grantedPublicAccess` when Public was
   granted.
+- **`localization push` regenerates the UILM file once per push, not once per
+  key.** Every key used to be saved with `shouldPublish: true`, which makes the
+  localization worker queue one UILM regeneration per key: a few-hundred-key
+  push flooded the queue (~15/min) and blocked every other module's publish
+  behind it for tens of minutes. `push` now saves keys unpublished and
+  regenerates the touched module a single time. The new `--publish` flag
+  controls this: `once` (default) saves then regenerates once; `per-key`
+  restores the old behaviour (one regeneration per key); `none` saves without
+  regenerating, for when you will run `localization key generate-uilm-file`
+  yourself after several pushes. `--dry-run` reports the chosen mode and whether
+  a regeneration will run.
 
 ### Added
 

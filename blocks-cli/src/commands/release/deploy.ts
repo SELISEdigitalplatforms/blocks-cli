@@ -10,6 +10,8 @@ import {
   DEFAULT_WAIT_TIMEOUT_SECONDS,
   RELEASE_API,
   ReleaseRepo,
+  branchForEnvironment,
+  branchMatchesEnvironment,
   firstNonEmptyString,
   listReleaseRepos,
   repoIdOf,
@@ -65,11 +67,12 @@ export async function releaseDeploy(argv: string[]): Promise<void> {
   });
   const { repoId, branch, repoUrl, repoSource, repoLabel } = resolved;
 
-  if (branch.toLowerCase() !== environment.toLowerCase()) {
+  if (!branchMatchesEnvironment(branch, environment)) {
+    const expectedBranch = branchForEnvironment(environment);
     throw new CliActionableError(
-      `Connected repo's branch '${branch}' does not match this project's environment '${environment}'.`,
+      `Connected repo's branch '${branch}' does not match this project's environment '${environment}' (expects branch '${expectedBranch}').`,
       "branch_environment_mismatch",
-      `Point the linked repo at a branch named '${environment}', or relink the correct branch from the Blocks portal.`
+      `Point the linked repo at the '${expectedBranch}' branch, or relink the correct branch from the Blocks portal.`
     );
   }
 
@@ -222,14 +225,14 @@ async function resolveDeployRepo(args: {
   const binding = await readRepoBinding();
   if (binding) {
     const matched = repos.filter(
-      (repo) => repoMatchesBinding(repo, binding.fullName) && (repo.branch ?? "").toLowerCase() === environment.toLowerCase()
+      (repo) => repoMatchesBinding(repo, binding.fullName) && branchMatchesEnvironment(repo.branch, environment)
     );
     if (matched.length === 1) {
       const repo = matched[0];
       const repoId = repoIdOf(repo);
       if (!repoId) throw new Error(`Repo '${binding.fullName}' has no id in Build/repos-list.`);
       return {
-        branch: repo.branch ?? environment,
+        branch: repo.branch ?? branchForEnvironment(environment),
         repoId,
         repoLabel: repo.repoName ?? binding.fullName,
         repoSource: "workspace-binding",
@@ -238,13 +241,13 @@ async function resolveDeployRepo(args: {
     }
   }
 
-  const envMatches = repos.filter((repo) => (repo.branch ?? "").toLowerCase() === environment.toLowerCase());
+  const envMatches = repos.filter((repo) => branchMatchesEnvironment(repo.branch, environment));
   if (envMatches.length === 1) {
     const repo = envMatches[0];
     const repoId = repoIdOf(repo);
     if (!repoId) throw new Error("Matched repo has no id in Build/repos-list.");
     return {
-      branch: repo.branch ?? environment,
+      branch: repo.branch ?? branchForEnvironment(environment),
       repoId,
       repoLabel: repo.repoName ?? repoId,
       repoSource: "repos-list-match",

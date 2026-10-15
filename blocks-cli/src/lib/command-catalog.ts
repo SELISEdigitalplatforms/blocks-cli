@@ -2416,7 +2416,7 @@ export const commandCatalog: readonly CommandEntry[] = [
     "name": "localization push",
     "family": "localization",
     "summary": "Create or update Localization keys from a local i18n JSON dictionary via /localization/v4/Key/SaveKeys.",
-    "details": "Creates the module first when it is missing.",
+    "details": "Creates the module first when it is missing. --publish controls UILM regeneration: once (default) saves every key unpublished then regenerates the module's UILM file a single time; per-key sets shouldPublish on each key so the worker regenerates once per key (the old behaviour -- slow for bulk pushes); none saves without publishing, so you run key generate-uilm-file later. Prefer once for bulk pushes: per-key queues one regeneration per key and blocks other modules' publishes.",
     "scope": "project",
     "mutating": true,
     "flags": [
@@ -2424,6 +2424,7 @@ export const commandCatalog: readonly CommandEntry[] = [
       "file",
       "language",
       "module",
+      "publish",
       "route"
     ]
   },
@@ -3310,7 +3311,7 @@ export const commandCatalog: readonly CommandEntry[] = [
     "name": "release deploy",
     "family": "release",
     "summary": "Deploy the selected project's environment (Build/manual), optionally syncing secrets and setting the domain first.",
-    "details": "Resolves the repo from --repo (name or id via Build/repos-list) or, when omitted, in order: (1) this workspace's blocks.json repo binding matched against Build/repos-list on the environment branch, (2) the single Build/repos-list entry whose branch equals the environment, (3) the project's linked OS assets (Project/GetAsset) as a legacy fallback. Labels the choice as repoSource: explicit | workspace-binding | repos-list-match | project-asset. Aborts with repo_ambiguous when multiple env-branch matches exist and none is the workspace binding; repo_not_linked when nothing matches (nextStep suggests git init/connect or --repo). Aborts if the connected branch doesn't match this environment's name. --with-secrets <dotenvFile> first runs release secrets sync for that file and folds its summary into the final document as secretsSync; --domain also sets the custom deployment domain before deploying. --wait polls the build's status FIELD until a server terminal value (Succeeded/Failed/Cancelled/...; or --timeout elapses, default 900s); --follow implies --wait and streams build events to stderr. All progress goes to stderr, so --json stdout stays one parseable verdict document ({buildId, status, verdict, build, repoSource}). Mutating; no artifact upload is performed by this CLI.",
+    "details": "Resolves the repo from --repo (name or id via Build/repos-list) or, when omitted, in order: (1) this workspace's blocks.json repo binding matched against Build/repos-list on the environment's branch, (2) the single Build/repos-list entry whose branch is the environment's branch, (3) the project's linked OS assets (Project/GetAsset) as a legacy fallback. Labels the choice as repoSource: explicit | workspace-binding | repos-list-match | project-asset. Aborts with repo_ambiguous when multiple env-branch matches exist and none is the workspace binding; repo_not_linked when nothing matches (nextStep suggests git init/connect or --repo). Aborts if the connected branch isn't the environment's branch (the environment name, except prod which deploys from main). --with-secrets <dotenvFile> first runs release secrets sync for that file and folds its summary into the final document as secretsSync; --domain also sets the custom deployment domain before deploying. --wait polls the build's status FIELD until a server terminal value (Succeeded/Failed/Cancelled/...; or --timeout elapses, default 900s); --follow implies --wait and streams build events to stderr. All progress goes to stderr, so --json stdout stays one parseable verdict document ({buildId, status, verdict, build, repoSource}). Mutating; no artifact upload is performed by this CLI.",
     "scope": "project",
     "mutating": true,
     "flags": [
@@ -3529,7 +3530,7 @@ export const commandCatalog: readonly CommandEntry[] = [
     "family": "release",
     "summary": "First-time deploy of a registered repo (Build/run-build): creates the deployment namespace and push webhook.",
     "positional": "[repo]",
-    "details": "Replaces the portal's Configure Deployment modal. Resolves the repo by name or id (auto-picked when only one is registered) and --hosting-provider/--region/--machine-config by name or id against Build/settings; all three are optional (server defaults apply). Refuses when the repo's linked branch doesn't match this project's environment. --wait/--follow behave as in release deploy. Re-deploys of an already-configured repo belong to 'release deploy'. Mutating.",
+    "details": "Replaces the portal's Configure Deployment modal. Resolves the repo by name or id (auto-picked when only one is registered) and --hosting-provider/--region/--machine-config by name or id against Build/settings; all three are optional (server defaults apply). Refuses when the repo's linked branch isn't the environment's branch (the environment name, except prod which deploys from main). --wait/--follow behave as in release deploy. Re-deploys of an already-configured repo belong to 'release deploy'. Mutating.",
     "scope": "project",
     "mutating": true,
     "flags": [
