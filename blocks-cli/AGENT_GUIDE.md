@@ -264,6 +264,22 @@ blocks deselect
 blocks use <projectTenantId>
 ```
 
+## Project Snapshots (`blocks pull`)
+
+`blocks init` and `blocks new web` both write a `blocks/` tree with a README'd folder per service. `data/`, `localization/` and `workflows/` are two-way (their own pull/push commands). `iam/`, `auth/`, `mail/`, `storage/`, `release/` and `logic/` are **read-only snapshots** that `blocks pull` fills from the selected project:
+
+```bash
+blocks pull --json                    # all six services
+blocks pull --only iam,auth --json    # a subset
+```
+
+- Read these files for context (roles, permissions, OIDC clients, identity providers, mail and storage configs, release repos, proxies, schedules) instead of listing each one.
+- Before trusting a file, check its `_meta`: `tenantId` must be the workspace's project, and `pulledAt` tells you how old it is. Pull again if it's stale or after you change state.
+- Never edit a snapshot to change the project. Editing does nothing; use each service's commands, then `blocks pull --only <service>`.
+- Secret fields are `***`. Don't pass `--include-secrets` unless the user asks, and never commit files pulled with it.
+- It's read-only on the server. Snapshots are written next to `blocks.json` even when run from a subdirectory. A failing service is listed under `failed` with a non-zero exit, and the rest are still written.
+- `blocks pull` is unrelated to `blocks git pull` (which syncs app source with its git remote).
+
 ## Scaffold a Web App
 
 Generate a React/Vite Blocks app. All of `--x-blocks-key`, `--app-domain`, and `--client-id` are optional now - they're resolved from the selected project when omitted:
@@ -789,6 +805,8 @@ The binding lives in `blocks.json` as `repo: { provider, fullName, url, branch }
 - `build_wait_timeout` (from `--wait`/`--follow`): the build didn't reach a terminal status within `--timeout`. The deploy itself already succeeded (this only affects the wait) - check manually with `release status <buildId>` (add `--wait` to keep watching) rather than assuming failure.
 - `provider_not_supported` (from `release git ...`): only `github` is active in blocks-release; re-run with `--provider github` or omit the flag.
 - `github_not_connected` (from `git ...`): the Blocks account has no GitHub connection, or it was revoked. Tell the user to connect GitHub from the Blocks portal (Repositories -> Connect GitHub); the CLI cannot do it and retrying will not help.
+- `pull_tenant_mismatch` (from `pull`): `--project` names a different tenant from the workspace's `blocks.json`. Drop `--project`; pass `--force` only if the user wants this app's snapshot replaced with another project's setup.
+- `pull_unknown_service` (from `pull`): `--only` named something other than iam, auth, mail, storage, release, logic.
 - `repo_not_bound` (from `git pull|push|disconnect`): no `repo` entry in blocks.json. Run `blocks git init` (code only here) or `blocks git connect <owner/name> --strategy ...` (repo already exists).
 - `repo_already_bound` (from `git init|connect`): a different repository is connected. Do not disconnect on your own judgment; ask the user, then `blocks git disconnect --yes` if they confirm.
 - `not_a_git_repository` (from `git connect|pull|push`): the directory has no `.git`. `blocks git init` creates one; `blocks git clone` starts from the remote instead.

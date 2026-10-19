@@ -71,6 +71,7 @@ import {
 } from "./commands/data/files/object-tree.js";
 import { iamMe } from "./commands/iam/me.js";
 import { init } from "./commands/init.js";
+import { pull } from "./commands/pull.js";
 import { localizationAssistantTranslationSuggestion } from "./commands/localization/assistant/translation-suggestion.js";
 import { localizationConfigGetWebhook } from "./commands/localization/config/get-webhook.js";
 import { localizationConfigSaveWebhook } from "./commands/localization/config/save-webhook.js";
@@ -301,6 +302,7 @@ const commands: Partial<Record<string, CommandHandler>> = {
   "auth:refresh": authRefresh,
   "doctor": doctor,
   "init": init,
+  "pull": pull,
   "login": login,
   "logout": logout,
   "projects:create": createProject,
@@ -757,8 +759,18 @@ Update notice:
 
 Setup and health:
   blocks init
-    Create local Blocks workspace files: blocks.json, data schema/rules folders,
-    and .env.example.
+    Create local Blocks workspace files: blocks.json, .env.example, and the
+    blocks/ tree -- data/ (schemas, rules.json), localization/, workflows/, and
+    a README'd folder per service (iam, auth, mail, storage, release, logic).
+    Never overwrites an existing file.
+
+  blocks pull [--only iam,auth,mail,storage,release,logic] [--include-secrets]
+              [--force] [--json]
+    Write a read-only snapshot of the project's setup into blocks/<service>/ for
+    agents to read. Each file wraps the data in a _meta block (tenantId,
+    pulledAt, cliVersion). Secrets are redacted to *** unless --include-secrets.
+    Refuses a --project other than the workspace's own unless --force. A failing
+    service is reported and exits non-zero; the rest are still written.
 
   blocks doctor [--json]
     Inspect cached CLI version, Node.js, OIDC config, token, optional project,

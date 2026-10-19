@@ -1888,7 +1888,7 @@ export const commandCatalog: readonly CommandEntry[] = [
   {
     "name": "init",
     "family": "init",
-    "summary": "Create local Blocks workspace files: blocks.json, data schema/rules folders, and .env.example.",
+    "summary": "Create local Blocks workspace files: blocks.json, .env.example, and the blocks/ tree (data, localization, workflows, and a folder per service).",
     "scope": "local",
     "mutating": false,
     "flags": []
@@ -3290,6 +3290,19 @@ export const commandCatalog: readonly CommandEntry[] = [
     "scope": "local",
     "mutating": false,
     "flags": []
+  },
+  {
+    "name": "pull",
+    "family": "pull",
+    "summary": "Write a read-only snapshot of the project's IAM, auth, mail, storage, release and logic setup into blocks/<service>/.",
+    "details": "Read-only on the server; overwrites the snapshot files locally. Each file is {\"_meta\": {tenantId, pulledAt, cliVersion, readOnly, secretsRedacted, service}, \"data\": ...}. --only limits it to some services. Secret fields are redacted to *** unless --include-secrets. Refuses a --project other than the workspace's own unless --force. A failing service is listed under 'failed' with a non-zero exit; the others are still written. Change state with each service's own commands, then pull again.",
+    "scope": "project",
+    "mutating": false,
+    "flags": [
+      "force",
+      "include-secrets",
+      "only"
+    ]
   },
   {
     "name": "release builds list",

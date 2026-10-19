@@ -7,6 +7,8 @@ When invoking a project-scoped `blocks` command, either use the resolved account
 
 # Blocks Storage — Configuration
 
+**Local snapshot:** `blocks/storage/` holds a read-only snapshot of the project's storage configs, written by `blocks pull --only storage`. Read it for context before listing things one by one; check its `_meta.tenantId` and `_meta.pulledAt`, and pull again if it's stale or after you change anything. Never edit it to change the project: editing does nothing, so use the commands below. Secret fields in it are `***`.
+
 This skill manages the **storage configuration record itself** — which cloud provider (or local/SFTP storage) a named configuration points at, and the connection details needed to reach it. It does not upload, download, browse, share, version, move, or trash objects; those runtime concerns belong to blocks-data-storage.
 
 **CLI-only, no SDK path.** There is no `@seliseblocks/client` method for reading or writing a storage configuration's own fields. Runtime storage calls select an existing record by `configurationName`. If the user wants to manipulate a file/directory or its access policies, hand off to blocks-data-storage.

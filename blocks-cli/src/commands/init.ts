@@ -1,5 +1,6 @@
 import { mkdir, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
+import { blocksFolderFiles } from "../lib/blocks-folders.js";
 import { defaults } from "../lib/config.js";
 import { parseFlags } from "../lib/args.js";
 import { writeOutput } from "../lib/output.js";
@@ -20,12 +21,16 @@ export async function init(argv: string[] = []): Promise<void> {
     data: {
       schemas: "blocks/data/schemas",
       rules: "blocks/data/rules.json"
+    },
+    localization: {
+      dictionaries: "blocks/localization"
     }
   }, null, 2)}\n`);
 
-  await trackWrite(join("blocks", "data", "rules.json"), `${JSON.stringify({
-    policies: []
-  }, null, 2)}\n`);
+  for (const file of blocksFolderFiles()) {
+    await mkdir(dirname(file.path), { recursive: true });
+    await trackWrite(file.path, file.content);
+  }
 
   await trackWrite(".env.example", [
     `VITE_BLOCKS_API_URL=${env.apiUrl}`,

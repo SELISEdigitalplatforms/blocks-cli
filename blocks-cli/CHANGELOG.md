@@ -1,5 +1,44 @@
 # Changelog
 
+## 0.10.0
+
+### Added
+
+- **Every app gets the same `blocks/` tree, with a folder per service.**
+  `blocks init` used to create only `blocks/data/`, and `blocks new web` only
+  `blocks/localization/`. So an app's layout depended on which command made it,
+  and nothing pointed agents at the other services. Both commands now write
+  the same tree:
+  - `data/` (with `schemas/` and `rules.json`), `localization/` and `workflows/`,
+    which work as before;
+  - new `iam/`, `auth/`, `mail/`, `storage/`, `release/` and `logic/` folders.
+
+  Each folder has a README saying what belongs in it and which commands change
+  it. `init` still never overwrites an existing file, and now also records
+  `localization.dictionaries` in `blocks.json`.
+
+- **`blocks pull` writes a read-only snapshot of the project's setup** into
+  those six folders: roles, permissions, resource groups and features; auth
+  config, OIDC clients and identity providers; mail configs and templates;
+  storage configs; release repos; proxies and schedules. Agents can read the
+  project's setup from files instead of making a dozen list calls.
+  - **Source stamp:** each file wraps its data in a `_meta` block (`tenantId`,
+    `pulledAt`, `cliVersion`, `readOnly`, `secretsRedacted`, `service`), so a
+    stale or other-project snapshot is visible.
+  - **Secrets:** redacted to `***` unless `--include-secrets` is passed. That
+    covers the shared secret-field list plus `secretKey`, `sftpSecretKey` and
+    the raw proxy `upstream`; `Storage/Gets` returns the raw storage entity,
+    credentials included.
+  - **Tenant check:** a `--project` that isn't the workspace's own is refused
+    unless `--force`.
+  - **Partial failure:** one failing service is reported under `failed` with a
+    non-zero exit, while the rest are still written.
+  - **Location:** files are written next to `blocks.json`, even when `pull`
+    runs from a subdirectory. `--only iam,auth` pulls a subset.
+
+  The snapshots are not a way to change anything: editing them does nothing,
+  and changes still go through each service's own commands.
+
 ## 0.9.2
 
 ### Fixed

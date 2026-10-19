@@ -7,6 +7,8 @@ When invoking a project-scoped `blocks` command, either use the resolved account
 
 # Blocks Mail
 
+**Local snapshot:** `blocks/mail/` holds a read-only snapshot of the project's mail server configs and templates, written by `blocks pull --only mail`. Read it for context before listing things one by one; check its `_meta.tenantId` and `_meta.pulledAt`, and pull again if it's stale or after you change anything. Never edit it to change the project: editing does nothing, so use the commands below. Secret fields in it are `***`.
+
 For CLI work, use blocks-bootstrap first when account or project context is
 unknown. Mail operations must not choose or repair authentication context as a
 side effect.

@@ -7,6 +7,8 @@ When invoking a project-scoped `blocks` command, either use the resolved account
 
 # Blocks IAM — Access Control (Permissions & Roles)
 
+**Local snapshot:** `blocks/iam/` holds a read-only snapshot of the project's roles, permissions, resource groups and features, written by `blocks pull --only iam`. Read it for context before listing things one by one; check its `_meta.tenantId` and `_meta.pulledAt`, and pull again if it's stale or after you change anything. Never edit it to change the project: editing does nothing, so use the commands below. Secret fields in it are `***`.
+
 This skill covers **permission and role definitions** in SELISE Blocks — the RBAC model itself, not who has which role (that's the blocks-iam-users skill). Everything goes through either `blocks iam roles/permissions *` (CLI) or `blocksClient.iam.*` from **`@seliseblocks/client`**, the single SDK instance every `blocks new web` scaffold wires up at `src/lib/blocks/client.ts` and exports as `blocksClient`. No raw `fetch`/`curl` for either surface.
 
 For CLI work, if account or project context is unknown, use blocks-bootstrap

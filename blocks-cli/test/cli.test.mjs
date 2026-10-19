@@ -699,6 +699,12 @@ test("scaffolded web app depends on @seliseblocks/client and has no custom Block
   const commonDictionary = JSON.parse(await readFile(join(appDir, "blocks", "localization", "common.en.json"), "utf8"));
   assert.equal(commonDictionary.save, "Save");
   assert.equal(commonDictionary["common.save"], undefined);
+  // Same blocks/ tree as 'blocks init': data/ plus a README'd folder per service.
+  assert.deepEqual(JSON.parse(await readFile(join(appDir, "blocks", "data", "rules.json"), "utf8")), { policies: [] });
+  assert.ok((await stat(join(appDir, "blocks", "data", "schemas"))).isDirectory());
+  for (const folder of ["data", "localization", "workflows", "iam", "auth", "mail", "storage", "release", "logic"]) {
+    assert.ok((await stat(join(appDir, "blocks", folder, "README.md"))).isFile(), `expected blocks/${folder}/README.md`);
+  }
   await assert.rejects(() => readFile(join(appDir, "blocks", "localization", "dashboard.en.json"), "utf8"), /ENOENT/, "bootstrap should not write a dashboard dictionary");
   await assert.rejects(() => readFile(join(appDir, "blocks", "localization", "assets.en.json"), "utf8"), /ENOENT/, "bootstrap should not write an assets dictionary");
   // Each SDK module is exercised in context rather than in one dedicated demo
