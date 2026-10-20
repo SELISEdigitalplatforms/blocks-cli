@@ -103,10 +103,15 @@ export class BlocksAuthenticationClient {
   /**
    * What: switches the active organization through `POST /iam/v4/auth/switch-org`.
    * Why: multi-organization users need a new IAM response for the selected organization context.
-   * How: pass `organizationId` plus the refresh/session fields IAM expects; then replace app-owned session state with the response if needed.
+   * How: pass `organizationId` (sent as IAM's `organization_id`). IAM reads the refresh token from the session
+   * cookie, so call it from a browser session; then replace app-owned session state with the response if needed.
    */
   switchOrganization(request: BlocksSwitchOrganizationRequest): Promise<BlocksAuthResponse> {
-    return this.json<BlocksAuthResponse>("/iam/v4/auth/switch-org", { body: request });
+    // refreshToken is dropped: IAM never reads it from this body, so sending it only spreads a secret.
+    const { organizationId, refreshToken: _unused, ...rest } = request;
+    return this.json<BlocksAuthResponse>("/iam/v4/auth/switch-org", {
+      body: { ...rest, organization_id: rest.organization_id ?? organizationId }
+    });
   }
 
   /**

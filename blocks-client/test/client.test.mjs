@@ -70,6 +70,31 @@ test("auth separates idp, AuthController, and oidc token endpoint flows", async 
   assert.equal(Object.fromEntries(calls[2].init.headers)["x-blocks-key"], "tenant-1");
 });
 
+test("switch-org sends IAM's organization_id and never the refresh token", async () => {
+  const calls = [];
+  const blocks = createBlocksClient({
+    accessToken: () => "user-token",
+    apiUrl: "https://api.seliseblocks.com",
+    fetch: async (url, init) => {
+      calls.push({ url, init });
+      return jsonResponse({ access_token: "access-2", refresh_token: "refresh-2", expires_in: 3600, token_type: "Bearer" });
+    },
+    xBlocksKey: "tenant-1"
+  });
+
+  await blocks.auth.switchOrganization({ organizationId: "org-2", refreshToken: "never-sent" });
+  // Callers that already worked around the bug with the wire name keep working.
+  await blocks.auth.switchOrganization({ organization_id: "org-3" });
+  // Both given: the wire name wins, exactly as IAM bound it before this fix.
+  await blocks.auth.switchOrganization({ organizationId: "org-x", organization_id: "org-4", extra: 1 });
+
+  assert.equal(calls[0].url, "https://api.seliseblocks.com/iam/v4/auth/switch-org");
+  assert.equal(Object.fromEntries(calls[0].init.headers).authorization, "Bearer user-token");
+  assert.deepEqual(JSON.parse(calls[0].init.body), { organization_id: "org-2" });
+  assert.deepEqual(JSON.parse(calls[1].init.body), { organization_id: "org-3" });
+  assert.deepEqual(JSON.parse(calls[2].init.body), { organization_id: "org-4", extra: 1 });
+});
+
 test("oidc refresh sends caller provided client id without full oidc config", async () => {
   const calls = [];
   const blocks = createBlocksClient({
@@ -667,3 +692,36 @@ function jsonResponse(body, status = 200) {
     status
   });
 }
+
+test("BlocksApiError puts validation reasons in the message and keeps existing messages as they were", () => {
+  const message = (body) => new BlocksApiError(400, "Bad Request", body).message;
+
+  // Unchanged: bodies that already carried a reason.
+  assert.equal(message({ message: "bad input", errors: { Reason: ["required"] } }), "Blocks API 400 Bad Request: bad input");
+  assert.equal(message({ error: "invalid_grant" }), "Blocks API 400 Bad Request: invalid_grant");
+  assert.equal(message("plain text"), "Blocks API 400 Bad Request: plain text");
+  assert.equal(message({}), "Blocks API 400 Bad Request");
+  assert.equal(message(null), "Blocks API 400 Bad Request");
+
+  // ASP.NET problem details: errors win over the generic title.
+  assert.equal(
+    message({ title: "One or more validation errors occurred.", errors: { Reason: ["The Reason field is required."], Email: ["a", "b"] } }),
+    "Blocks API 400 Bad Request: Reason: The Reason field is required.; Email: a, b"
+  );
+  assert.equal(message({ title: "One or more validation errors occurred." }), "Blocks API 400 Bad Request: One or more validation errors occurred.");
+  // Blocks mutation responses: { errors: { Field: "text" } } and PascalCase Errors.
+  assert.equal(message({ isSuccess: false, errors: { OrganizationId: "Other org user can not add/update" } }), "Blocks API 400 Bad Request: OrganizationId: Other org user can not add/update");
+  assert.equal(message({ Errors: { user_not_found: "No user found" } }), "Blocks API 400 Bad Request: user_not_found: No user found");
+  // Empty / odd shapes fall back to the status line.
+  assert.equal(message({ errors: {} }), "Blocks API 400 Bad Request");
+  assert.equal(message({ errors: ["x"] }), "Blocks API 400 Bad Request");
+  assert.equal(message({ errors: { A: [1, null, ""] } }), "Blocks API 400 Bad Request");
+  // Capped at five fields.
+  const many = Object.fromEntries(["A", "B", "C", "D", "E", "F"].map((k) => [k, "x"]));
+  assert.equal(message({ errors: many }), "Blocks API 400 Bad Request: A: x; B: x; C: x; D: x; E: x");
+
+  // status/statusText/body are untouched.
+  const error = new BlocksApiError(422, "Unprocessable Entity", { errors: { A: "x" } });
+  assert.equal(error.status, 422);
+  assert.deepEqual(error.body, { errors: { A: "x" } });
+});

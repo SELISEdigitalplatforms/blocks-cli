@@ -65,7 +65,12 @@ export type BlocksLogoutRequest = Record<string, unknown> & {
 };
 
 export type BlocksSwitchOrganizationRequest = Record<string, unknown> & {
+  /** Sent as IAM's `organization_id`. */
   organizationId?: string;
+  /**
+   * @deprecated Not sent. IAM's switch-org reads the refresh token only from the
+   * session cookie (or its `rt_<domain>` header), never from the body.
+   */
   refreshToken?: string;
 };
 
