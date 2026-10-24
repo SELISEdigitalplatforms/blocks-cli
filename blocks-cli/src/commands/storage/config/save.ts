@@ -7,6 +7,7 @@ import { writeOutput } from "../../../lib/output.js";
 import { redactSecrets } from "../../../lib/redact.js";
 import { requestContext } from "../../../lib/request-context.js";
 import { parseCommand, selectedProject } from "../../../lib/workspace.js";
+import { STORAGE_SECRET_FIELDS } from "./secret-fields.js";
 
 // Fixed once a configuration exists: Storage/Save discards them on every save that
 // resolves to a stored record and still answers success.
@@ -79,7 +80,7 @@ export async function storageConfigSave(argv: string[]): Promise<void> {
       {
         dryRun: true,
         endpoint: "/os/v4/Storage/Save",
-        request: redactSecrets(body, ["secretkey"]),
+        request: redactSecrets(body, STORAGE_SECRET_FIELDS),
         target: existing ? "update" : "create"
       },
       flags
@@ -87,9 +88,8 @@ export async function storageConfigSave(argv: string[]): Promise<void> {
     return;
   }
 
-  // A create whose name is already taken is saved by the server as an update of that
-  // record -- dropping the provider fields and resetting any upload setting not passed --
-  // so it is refused here. Checked on the live run only, keeping a create's dry-run offline.
+  // A create whose name is already taken is refused by blocks-os; refusing it here first gives
+  // the --update hint. Checked on the live run only, keeping a create's dry-run offline.
   if (!existing && typeof body.name === "string") {
     const taken = await findConfiguration(flags, (item) => item.name === body.name);
     if (taken) {

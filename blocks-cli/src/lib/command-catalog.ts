@@ -3764,6 +3764,7 @@ export const commandCatalog: readonly CommandEntry[] = [
     "family": "storage",
     "summary": "Read one storage backend configuration by name.",
     "positional": "<name>",
+    "details": "Each secret shows only a status (connectionStringStatus, secretKeyStatus, accessKeyStatus, passwordStatus, sftpSecretKeyStatus: none|active|locked|archived|missing|unavailable); blocks-os never returns a secret value. A missing or archived secret needs the configuration deleted and created again.",
     "scope": "project",
     "mutating": false,
     "flags": [
@@ -3774,6 +3775,7 @@ export const commandCatalog: readonly CommandEntry[] = [
     "name": "storage config list",
     "family": "storage",
     "summary": "List storage backend configurations.",
+    "details": "Each secret shows only a status (connectionStringStatus, secretKeyStatus, accessKeyStatus, passwordStatus, sftpSecretKeyStatus: none|active|locked|archived|missing|unavailable); blocks-os never returns a secret value. A missing or archived secret needs the configuration deleted and created again.",
     "scope": "project",
     "mutating": false,
     "flags": []
@@ -3782,7 +3784,7 @@ export const commandCatalog: readonly CommandEntry[] = [
     "name": "storage config save",
     "family": "storage",
     "summary": "Upsert: omit --item-id to create; pass --update to update.",
-    "details": "Once a configuration exists (by --item-id with --update, or a create whose --name is taken) only the upload settings change: --upload-url-expiry-seconds, --download-url-expiry-seconds, --max-file-size-bytes (max 50 MB) and --upload-completion-required-for. Those four are carried from the stored record, since the server resets any left out. Provider and credential flags are refused on an existing configuration because the server would drop them.",
+    "details": "Credentials are sent on create only (blocks-os keeps them in SecretStore; a create whose --name is taken is refused). Once a configuration exists (by --item-id with --update) only the upload settings change: --upload-url-expiry-seconds, --download-url-expiry-seconds, --max-file-size-bytes (max 50 MB) and --upload-completion-required-for. Those four are carried from the stored record, since the server resets any left out. Provider and credential flags are refused on an existing configuration because the server would drop them.",
     "scope": "project",
     "mutating": true,
     "flags": [

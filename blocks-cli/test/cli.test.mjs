@@ -2845,6 +2845,39 @@ test("storage config save --update carries upload settings and refuses provider 
   }
 });
 
+test("storage config list shows secret status and never prints a secret value an older server sends", async () => {
+  const { cwd, configDir } = await makeWorkspace();
+  await writeProjectAuth(configDir);
+  const server = await startJsonServer((request) => {
+    const path = request.url.split("?")[0];
+    if (path === "/os/v4/Storage/Gets") {
+      return [{
+        itemId: "cfg-1",
+        name: "primary",
+        storageStrategy: "AWS",
+        accessKeyStatus: "active",
+        secretKeyStatus: "missing",
+        accessKey: "AKIA-not-real",
+        secretKey: "not-a-real-secret"
+      }];
+    }
+    return rawResponse(500, { errorMessage: `Unexpected ${request.method} ${path}` });
+  });
+
+  try {
+    const env = testEnv(configDir, { BLOCKS_SECRET_STORE: "file" });
+    const listed = await runAsync(["storage", "config", "list", "--api-url", server.url, "--json"], { cwd, env });
+    assert.equal(listed.status, 0, listed.stderr);
+    const [config] = JSON.parse(listed.stdout);
+    assert.equal(config.accessKeyStatus, "active");
+    assert.equal(config.secretKeyStatus, "missing");
+    assert.equal(config.accessKey, "***");
+    assert.equal(config.secretKey, "***");
+  } finally {
+    await new Promise((resolveClose) => server.close(resolveClose));
+  }
+});
+
 test("iam organizations config save merges over the stored policy", async () => {
   const { cwd, configDir } = await makeWorkspace();
   await writeProjectAuth(configDir);

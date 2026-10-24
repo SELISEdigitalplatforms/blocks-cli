@@ -640,7 +640,7 @@ blocks storage config save --item-id <id> --update --max-file-size-bytes <n> --y
 blocks storage config delete <name> --dry-run --json
 ```
 
-`--secret-key`, `--access-key`, `--password`, and `--connection-string` are secrets; the CLI redacts them in `--dry-run` output only.
+`--secret-key`, `--access-key`, `--password`, and `--connection-string` are secrets, sent on create only; blocks-os keeps them in SecretStore. `list`/`get` never return a secret value: each secret has a status field (`connectionStringStatus`, `secretKeyStatus`, `accessKeyStatus`, `passwordStatus`, `sftpSecretKeyStatus`: `none`, `active`, `locked`, `archived`, `missing`, `unavailable`). The CLI also redacts secret-named fields in `--dry-run`, `list` and `get` output.
 
 An update can change only the upload settings (`--upload-url-expiry-seconds`, `--download-url-expiry-seconds`, `--max-file-size-bytes`, `--upload-completion-required-for Public,Private`). The provider and its credentials are fixed at create: blocks-os drops them on an update and still reports success, so the CLI refuses them (`delete` and re-create to change them). The four upload settings are read from the stored record and carried, because the server resets any left out.
 

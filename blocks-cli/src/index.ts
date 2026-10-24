@@ -1035,14 +1035,17 @@ Notifier (/logic/v4/Notifier/* — real-time/offline notification sends and inbo
 Storage (/os/v4/Storage/* — project-scoped: requires a selected project, impersonated project token only):
   blocks storage config list [--json]
   blocks storage config get <name> [--json]
+    Each secret shows only a status (<field>Status: none|active|locked|archived|missing|
+    unavailable); blocks-os never returns a secret value.
   blocks storage config save [--item-id <id>] [--name <n>] [--strategy] [--connection-string]
                               [--secret-key] [--access-key] [--region-endpoint] [--host] [--port]
                               [--username] [--password] [--remote-base-path] [--update]
                               [--upload-url-expiry-seconds] [--download-url-expiry-seconds]
                               [--max-file-size-bytes] [--upload-completion-required-for Public,Private]
                               [--body '<json>'|--file <path>] [--dry-run] [--yes] [--json]
-    Upsert: omit --item-id to create; pass --update to update. Once a configuration exists only
-    the upload settings can change; the provider and its credentials are fixed.
+    Upsert: omit --item-id to create; pass --update to update. Credentials are sent on create
+    only. Once a configuration exists only the upload settings can change; the provider and
+    its credentials are fixed.
   blocks storage config delete <name> [--dry-run] [--yes] [--json]
 
 Domain (/os/v4/Domain/* — project-scoped: requires a selected project, impersonated project token only):
