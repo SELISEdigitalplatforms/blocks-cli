@@ -1144,17 +1144,17 @@ Auth Admin (/iam/v4/auth/identity-providers*, /config, /client-credentials, /oid
                               [--password-policy-message] [--body '<json>'|--file <path>]
                               [--dry-run] [--yes] [--json]
   blocks auth client-credentials list [--json]
-    clientSecret is included in list responses; treat CLI output as sensitive.
+    The service never returns clientSecret on list.
   blocks auth client-credentials save --name <n> [--item-id <id>] [--roles a,b]
                               [--permissions a,b] [--access-token-valid-minutes] [--active]
                               [--body '<json>'|--file <path>] [--dry-run] [--yes] [--json]
-    Omit --item-id to create; pass it to update. The response carries no clientSecret;
-    read it back from 'auth client-credentials list', which returns it in full.
+    Omit --item-id to create; pass it to update. On create, the response carries
+    clientSecret once; copy it then. List never returns it.
   blocks auth client-credentials delete <id> [--dry-run] [--yes] [--json]
 
   blocks auth oidc-clients list [--json]
     List registered OAuth 2.0 / OIDC client applications for the tenant. The service
-    returns client_secret in full here; the CLI redacts it. Use rotate-secret to get one.
+    never returns client_secret here. Use rotate-secret to get one.
   blocks auth oidc-clients get <clientId> [--json]
   blocks auth oidc-clients save [--item-id <id>] [--client-display-name] [--client-type]
                               [--redirect-uris a,b] [--post-logout-redirect-uris a,b]
@@ -1167,7 +1167,7 @@ Auth Admin (/iam/v4/auth/identity-providers*, /config, /client-credentials, /oid
                               [--register-as-identity-provider] [--oidc-url] [--device-flow-client]
                               [--body '<json>'|--file <path>] [--dry-run] [--yes] [--json]
     Upsert: omit --item-id to register a new client, pass it to update an existing one.
-    The response's client_secret is shown here; the service also returns it on list/get, where the CLI redacts it.
+    On create, the response's client_secret is shown once; list/get never return it.
     --client-type is not optional in practice: IAM derives tokenEndpointAuthMethod from it,
     so omitting it stores a browser/SPA client as confidential ("client_secret_post") and
     lets it request the client_credentials grant. Pass --client-type public for any

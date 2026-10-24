@@ -13,8 +13,7 @@ export async function authIdpList(argv: string[]): Promise<void> {
     ...requestContext(flags),
     projectTenantId: projectKey
   });
-  // Identity providers store the OIDC client secret verbatim and return it on
-  // every read -- redact it here for the same reason oidc-clients list/get do:
-  // this output is routinely pasted into issues and CI logs.
+  // IAM no longer returns the provider's secret on reads. Redact anyway, as a second
+  // guard against an older IAM: this output is routinely pasted into issues and CI logs.
   writeOutput(redactSecrets(result), flags);
 }

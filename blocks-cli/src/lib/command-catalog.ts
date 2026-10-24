@@ -32,7 +32,7 @@ export const commandCatalog: readonly CommandEntry[] = [
     "name": "auth client-credentials list",
     "family": "auth",
     "summary": "List this project's machine-to-machine client credentials.",
-    "details": "clientSecret is included in list responses; treat CLI output as sensitive.",
+    "details": "The service never returns clientSecret on list.",
     "scope": "project",
     "mutating": false,
     "flags": []
@@ -41,7 +41,7 @@ export const commandCatalog: readonly CommandEntry[] = [
     "name": "auth client-credentials save",
     "family": "auth",
     "summary": "Omit --item-id to create; pass it to update.",
-    "details": "The response carries no clientSecret; read it back from 'auth client-credentials list', which returns it in full.",
+    "details": "On create, the response carries clientSecret once; copy it then. List never returns it. A lost secret is replaced from Blocks OS (Rotate Secret).",
     "scope": "project",
     "mutating": true,
     "flags": [
@@ -231,7 +231,7 @@ export const commandCatalog: readonly CommandEntry[] = [
     "name": "auth oidc-clients list",
     "family": "auth",
     "summary": "List registered OAuth 2.0 / OIDC client applications for the tenant.",
-    "details": "client_secret is NOT excluded by the service -- the CLI redacts it in list/get output. Use rotate-secret to obtain a working secret.",
+    "details": "The service never returns client_secret on list/get (the CLI also redacts it). Use rotate-secret to obtain a working secret.",
     "scope": "project",
     "mutating": false,
     "flags": []
@@ -251,7 +251,7 @@ export const commandCatalog: readonly CommandEntry[] = [
     "name": "auth oidc-clients save",
     "family": "auth",
     "summary": "Upsert: omit --item-id to register a new client, pass it to update an existing one.",
-    "details": "The response's client_secret is shown here; the service also returns it on list/get, where the CLI redacts it. --client-type is not optional in practice: IAM derives tokenEndpointAuthMethod from it, so omitting it stores a browser/SPA client as confidential (\"client_secret_post\") and lets it request the client_credentials grant. Pass --client-type public for any PKCE/browser client. --register-as-identity-provider creates the linked identity provider in the same call. Its authorize/token/userinfo/jwks/issuer values are filled from the discovery document. When omitted, --external-discovery-endpoint defaults to external provider or non-standard IAM base URL.",
+    "details": "On create, the response carries client_secret once; list/get never return it. --client-type is not optional in practice: IAM derives tokenEndpointAuthMethod from it, so omitting it stores a browser/SPA client as confidential (\"client_secret_post\") and lets it request the client_credentials grant. Pass --client-type public for any PKCE/browser client. --register-as-identity-provider creates the linked identity provider in the same call. Its authorize/token/userinfo/jwks/issuer values are filled from the discovery document. When omitted, --external-discovery-endpoint defaults to external provider or non-standard IAM base URL.",
     "scope": "project",
     "mutating": true,
     "flags": [
