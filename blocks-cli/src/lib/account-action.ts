@@ -24,7 +24,16 @@ export async function iamAccountActionBaseUrl(flags: Record<string, string | boo
 export async function unreachableActionPageWarning(baseUrl: string, path = OIDC_ACTIVATION_PATH): Promise<string | undefined> {
   // Offline runs and test suites opt out, as with BLOCKS_NO_UPDATE_CHECK.
   if (process.env.BLOCKS_NO_LINK_CHECK) return undefined;
-  const target = `${baseUrl.replace(/\/+$/, "")}/${path}`;
+  // The base comes from the account profile (its IAM host) or a flag, so parse it and probe
+  // only an http(s) URL -- anything else is reported instead of fetched.
+  let target: string;
+  try {
+    const url = new URL(path, baseUrl.endsWith("/") ? baseUrl : `${baseUrl}/`);
+    if (url.protocol !== "https:" && url.protocol !== "http:") throw new Error(url.protocol);
+    target = url.href;
+  } catch {
+    return `${baseUrl} is not an http(s) URL, so activation links built on it will not open.`;
+  }
   try {
     const response = await fetch(target, { method: "GET", redirect: "manual", signal: AbortSignal.timeout(5000) });
     if (response.status < 400) return undefined;

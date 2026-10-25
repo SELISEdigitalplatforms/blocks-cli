@@ -9,6 +9,7 @@ import {
   BlocksFunctionTerminalStatus,
   BlocksFunctionWaitOptions
 } from "./types.js";
+import { trimSlashes } from "./route.js";
 
 /** The public function route under the API gateway; the management API is CLI-only. */
 const FUNCTION_API = "/logic/v4/fn";
@@ -181,7 +182,7 @@ export class BlocksFunctionsClient {
 
 function routeOf(functionId: string, path?: string): string {
   if (!functionId) throw new Error("A function id is required.");
-  const suffix = (path ?? "").replace(/^\/+|\/+$/g, "");
+  const suffix = trimSlashes(path ?? "");
   const root = `${FUNCTION_API}/${encodeURIComponent(functionId)}`;
   return suffix ? `${root}/${suffix}` : root;
 }

@@ -1,4 +1,5 @@
 import { BlocksHttpClient } from "../http/http-client.js";
+import { trimSlashes } from "./route.js";
 import { BlocksProxyRequestOptions } from "./types.js";
 
 /** A proxy's public gateway route; configuring proxies is CLI work (`blocks logic proxy *`). */
@@ -62,7 +63,7 @@ export class BlocksProxyClient {
 
 function routeOf(slug: string, path?: string): string {
   if (!slug) throw new Error("A proxy slug is required.");
-  const suffix = (path ?? "").replace(/^\/+|\/+$/g, "");
+  const suffix = trimSlashes(path ?? "");
   const root = `${PROXY_GATEWAY_API}/${encodeURIComponent(slug)}`;
   return suffix ? `${root}/${suffix}` : root;
 }

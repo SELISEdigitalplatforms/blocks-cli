@@ -115,3 +115,14 @@ test("http.request still forces Accept: application/json", async () => {
   await blocks.http.request("/iam/v4/iam/me", { headers: { Accept: "text/plain" } });
   assert.equal(calls[0].headers.accept, "application/json");
 });
+
+test("function and proxy routes trim slashes from the sub-path, also on a long run of them", async () => {
+  const { trimSlashes } = await import("../dist/logic/route.js");
+  assert.equal(trimSlashes("//orders/42//"), "orders/42");
+  assert.equal(trimSlashes("/"), "");
+  assert.equal(trimSlashes(""), "");
+  const long = "/".repeat(100_000) + "x";
+  const started = Date.now();
+  assert.equal(trimSlashes(long + "/".repeat(100_000)), "x");
+  assert.ok(Date.now() - started < 200, "linear, not quadratic");
+});
