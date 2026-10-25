@@ -1,5 +1,6 @@
 import { blocksRequest } from "./api.js";
 import type { SnapshotService } from "./blocks-folders.js";
+import { listFunctions } from "./logic-functions.js";
 import { LOGIC_PROXIES_API } from "./logic-proxy.js";
 import { listSchedules } from "./logic-scheduler.js";
 import { redactSecrets, SECRET_FIELD_NAMES } from "./redact.js";
@@ -65,7 +66,9 @@ export const SNAPSHOT_FETCHERS: Record<SnapshotService, Record<string, (ctx: Fet
       method: "GET",
       query: { Page: page, PageNumber: page, PageSize: pageSize, page, pageNumber: page, pageSize }
     })),
-    "schedules.json": (ctx) => collectPages(0, 100, (page, pageSize) => listSchedules({ ...ctx, page, pageSize }))
+    "schedules.json": (ctx) => collectPages(0, 100, (page, pageSize) => listSchedules({ ...ctx, page, pageSize })),
+    // Summaries only -- GetAll never returns source. `logic function export` writes the code.
+    "functions.json": (ctx) => collectPages(0, 200, (page, pageSize) => listFunctions({ ...ctx, page, pageSize }))
   }
 };
 

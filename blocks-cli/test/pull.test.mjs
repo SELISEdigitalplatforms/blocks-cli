@@ -112,6 +112,9 @@ async function startServer({ failRelease = false } = {}) {
       case "POST /logic/v4/Scheduler/GetSchedules":
         result = { data: [{ itemId: "sch-1", webhook: { signingSecret: "sign" } }], isSuccess: true, totalCount: 1 };
         break;
+      case "POST /logic/v4/Functions/GetAll":
+        result = { data: [{ id: "fn-1", name: "orders", status: "Live", isDirty: false }], totalCount: 1 };
+        break;
       default:
         status = 404;
         result = { message: `unexpected ${request.method} ${url.pathname}` };
@@ -173,7 +176,7 @@ test("pull writes a redacted, _meta-stamped snapshot for every service", async (
     assert.equal(result.status, 0, result.stderr);
     const output = JSON.parse(result.stdout);
     assert.deepEqual(output.failed, []);
-    assert.equal(output.written.length, 13);
+    assert.equal(output.written.length, 14);
     assert.match(output.warnings[0], /Redacted \d+ secret value/);
 
     const roles = await readJson(join(cwd, "blocks", "iam", "roles.json"));
@@ -182,6 +185,10 @@ test("pull writes a redacted, _meta-stamped snapshot for every service", async (
     assert.equal(roles._meta.readOnly, true);
     assert.equal(roles.data.length, 150, "both pages of roles are collected");
     assert.deepEqual(server.requests.filter((r) => r.path === "/iam/v4/iam/roles").map((r) => r.body.page), [0, 1]);
+
+    const functions = await readJson(join(cwd, "blocks", "logic", "functions.json"));
+    assert.deepEqual(functions.data.map((fn) => fn.id), ["fn-1"]);
+    assert.equal(server.requests.find((r) => r.path === "/logic/v4/Functions/GetAll").body.pageNumber, 0);
 
     const templates = await readJson(join(cwd, "blocks", "mail", "templates.json"));
     assert.deepEqual(templates.data, [{ name: "welcome" }]);

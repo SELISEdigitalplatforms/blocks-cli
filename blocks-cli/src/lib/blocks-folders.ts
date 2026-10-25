@@ -38,7 +38,8 @@ export const SNAPSHOT_FILES: Record<SnapshotService, ReadonlyArray<{ file: strin
   ],
   logic: [
     { file: "proxies.json", changeWith: "blocks logic proxy create/update/delete" },
-    { file: "schedules.json", changeWith: "blocks logic scheduler create/update/delete" }
+    { file: "schedules.json", changeWith: "blocks logic scheduler create/update/delete" },
+    { file: "functions.json", changeWith: "blocks logic function create/save/deploy/delete" }
   ]
 };
 
@@ -48,7 +49,7 @@ const SNAPSHOT_TITLES: Record<SnapshotService, string> = {
   mail: "Mail: mail server configs and templates",
   storage: "Storage: storage provider configs",
   release: "Release: repos registered for deployment",
-  logic: "Logic: proxies and schedules"
+  logic: "Logic: proxies, schedules and functions"
 };
 
 function snapshotReadme(service: SnapshotService): string {

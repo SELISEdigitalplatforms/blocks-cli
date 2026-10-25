@@ -1,3 +1,10 @@
+/** `POST /iam/v4/iam/users/activate`. IAM requires both fields. */
+export type BlocksActivateUserRequest = {
+  userId: string;
+  /** Why the account is re-enabled. Required by IAM; an empty value is refused. */
+  reason: string;
+};
+
 export type BlocksBaseResponse = Record<string, unknown> & {
   errors?: unknown;
   isSuccess?: boolean;

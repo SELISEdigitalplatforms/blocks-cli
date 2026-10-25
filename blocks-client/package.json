@@ -1,6 +1,6 @@
 {
   "name": "@seliseblocks/client",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Framework-neutral TypeScript client SDK for SELISE Blocks frontend applications.",
   "license": "MIT",
   "type": "module",
@@ -27,6 +27,10 @@
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
+    },
+    "./functions": {
+      "types": "./dist/functions.d.ts",
+      "import": "./dist/functions.js"
     },
     "./package.json": "./package.json"
   },

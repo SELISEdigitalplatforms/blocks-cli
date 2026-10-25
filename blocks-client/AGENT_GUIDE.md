@@ -117,6 +117,17 @@ Localization:
 - `blocks.localization.keysByNames(...)`
 - `blocks.localization.t(key, fallback, options)`
 
+Logic (runtime only -- authoring/deploying functions and configuring proxies is `blocks logic function|proxy *`):
+
+- `blocks.logic.functions.call(id, options)` - the deployed function's value; polls async runs, unwraps `{ statusCode, body }`
+- `blocks.logic.functions.invoke(id, options)` - `{ kind: "answered", status, headers, body }` or `{ kind: "accepted", runId, pollToken }`
+- `blocks.logic.functions.waitForResult(accepted, { intervalMs, timeoutMs })` / `.getResult(runId, pollToken)` / `.getRun(runId)`
+- `blocks.logic.functions.invokeRaw(id, options)` - unread `Response` for streaming handlers
+- `blocks.logic.functions.url(id, path?)`, `blocks.logic.proxy.url(slug, path?)`
+- `blocks.logic.proxy.request(slug, { method, path, query, body })` / `.requestRaw(...)`
+- Failed runs throw `BlocksFunctionRunError` (`runId`, `status`, `errorCode`, `errorMessage`); refusals throw `BlocksApiError` with `body.code` `FUNCTION_INVOKE_*` / `PROXY_GATEWAY_*`.
+- Function authoring types: `import("@seliseblocks/client/functions")` - `FunctionHandler`, `FunctionInput`, `FunctionContext`, `FunctionHttpResponse` (type-only).
+
 HTTP fallback:
 
 - Use `blocks.http.request("/service/v4/...")` only when no typed method exists.

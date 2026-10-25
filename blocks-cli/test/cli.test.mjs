@@ -33,6 +33,7 @@ const bin = join(repoRoot, "bin", "run.js");
 // update notice from making live npm registry calls throughout the suite.
 // Tests that exercise the notice itself override it with an empty value.
 process.env.BLOCKS_NO_UPDATE_CHECK = "1";
+process.env.BLOCKS_NO_LINK_CHECK = "1";
 
 test("isNewerVersion orders semver correctly", () => {
   assert.equal(isNewerVersion("0.4.0", "0.3.1"), true);
@@ -907,31 +908,11 @@ test("auth config save drops null current fields and only forces OIDC related fi
       accountVerificationPath: "verify/",
       recoverAccountPath: "recover/",
       isOidcEnabled: true,
-      accountActionBaseUrl: "https://app.example.test",
+      // The preset app domain is replaced: OIDC activation links land on IAM's hosted page.
+      accountActionBaseUrl: "https://iam.seliseblocks.com",
       useAccountActionBaseUrlAsDefault: true,
       logoutOnPasswordChange: true
     });
-  } finally {
-    await new Promise((resolveClose) => server.close(resolveClose));
-  }
-});
-
-test("auth config dry-run fails when enabling OIDC without an account action base URL", async () => {
-  const { cwd, configDir } = await makeWorkspace();
-  await writeProjectAuth(configDir);
-  const requests = [];
-  const server = await startJsonServer((request) => {
-    requests.push({ method: request.method, url: request.url });
-    return { isOidcEnabled: false };
-  });
-
-  try {
-    const result = await runAsync([
-      "auth", "config", "save", "--oidc-enabled", "--dry-run", "--api-url", server.url, "--json"
-    ], { cwd, env: testEnv(configDir, { BLOCKS_SECRET_STORE: "file" }) });
-    assert.equal(result.status, 1);
-    assert.match(result.stderr, /requires accountActionBaseUrl/);
-    assert.equal(requests.filter((item) => item.method === "POST").length, 0);
   } finally {
     await new Promise((resolveClose) => server.close(resolveClose));
   }

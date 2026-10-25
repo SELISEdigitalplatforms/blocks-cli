@@ -273,7 +273,7 @@ blocks pull --json                    # all six services
 blocks pull --only iam,auth --json    # a subset
 ```
 
-- Read these files for context (roles, permissions, OIDC clients, identity providers, mail and storage configs, release repos, proxies, schedules) instead of listing each one.
+- Read these files for context (roles, permissions, OIDC clients, identity providers, mail and storage configs, release repos, proxies, schedules, functions) instead of listing each one.
 - Before trusting a file, check its `_meta`: `tenantId` must be the workspace's project, and `pulledAt` tells you how old it is. Pull again if it's stale or after you change state.
 - Never edit a snapshot to change the project. Editing does nothing; use each service's commands, then `blocks pull --only <service>`.
 - Secret fields are `***`. Don't pass `--include-secrets` unless the user asks, and never commit files pulled with it.
@@ -639,6 +639,46 @@ blocks notifier unread --user-id <id> --context orders --action-name created --o
 blocks notifier mark-read <notificationId> --dry-run --json
 blocks notifier mark-all-read --dry-run --json
 ```
+
+## Logic: Functions
+
+Serverless Node 24 handlers on blocks-logic (`/logic/v4/Functions/*`). The lifecycle is **create → save (working copy) → test → deploy**; saving never changes what callers get, and trigger settings are snapshotted at deploy.
+
+```bash
+blocks logic function create --name shipping-quote --template minimal --dry-run --json
+blocks logic function export <id> --dir functions/shipping-quote --json      # index.js, package.json, function.json
+blocks logic function save <id> --dir functions/shipping-quote --var CURRENCY=EUR --dry-run --json
+blocks logic function save <id> --auth public --http-methods POST --response-mode sync --yes --json
+blocks logic function test <id> --input '{"items":[]}' --json                # runs the saved code; no deploy
+blocks logic function deploy <id> --note "v1" --yes --json                   # waits for the image build
+blocks logic function url <id> --json                                        # public URL, x-blocks-key, auth/response mode
+blocks logic function runs <id> --status failed --json
+blocks logic function run <runId> --json && blocks logic function logs <runId> --json
+```
+
+- `save` is read-merge-write over the stored function (Functions/Save replaces the whole working copy). Order: `function.json` (from `--dir` or `--config-file`), then source files, then flags.
+- Variables whose name looks like a credential must hold `{{secret.<secretId>}}`; typed values are refused with `FUNCTION_FORBIDDEN_CONTENT`.
+- Limits are fixed (100 millicores, 128 MB, 30 s, 10 concurrent, 2 attempts); only `--requests-per-minute` is the tenant's.
+- `deploy` polls a running build and deploys exactly that build; `--no-wait` returns the `buildId`, `--build-id` deploys it later. `FUNCTION_BUILD_FAILED` → `blocks logic function build <buildId>`.
+- `delete` is refused with `FUNCTION_DELETE_BLOCKED` while workflow steps reference it; `--force` only after the user confirms.
+- App code invokes deployed functions through `@seliseblocks/client` (`blocks.logic.functions.call/invoke`), never through these commands.
+
+## Logic: Proxies
+
+Credentialed passthrough to a third-party API (`/logic/v4/Proxies*`); apps call it with `blocks.logic.proxy.request(slug, …)`.
+
+```bash
+blocks logic proxy create --name Weather --upstream https://api.weather.example --methods GET --dry-run --json
+blocks logic proxy create --file proxy.json --yes --json        # routes, headers with {{$VAR.<secretName>}}, access, resilience
+blocks logic proxy update <id> --timeout-seconds 10 --requests-per-minute 300 --yes --json
+blocks logic proxy openapi-preview --spec-url https://api.example.test/openapi.json --json
+blocks logic proxy test <id> --method GET --path-suffix forecast --json
+blocks logic proxy executions <id> --status-class 5xx --json
+```
+
+- Flag-mode `update` keeps routes, headers, access, resilience and the rate limit; `update --file` is a full replacement (omitted fields reset). Both send `expectedVersion`; `PROXY_VERSION_CONFLICT` means the proxy changed since it was read — re-run.
+- `openapi-preview` writes nothing; copy chosen `operations` into `routes` of a create/update `--file`.
+- SDK calls take the proxy's **slug**; CLI commands take its **itemId**.
 
 Target `notify` with at least one of `--user-ids`/`--roles`/`--subscription-filters`. `notifier unread`
 sends its filter as query parameters even though swagger documents that endpoint as GET with a JSON

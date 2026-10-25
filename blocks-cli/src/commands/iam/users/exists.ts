@@ -13,7 +13,8 @@ export async function iamUsersExists(argv: string[]): Promise<void> {
     impersonatedProjectAuth: true,
     ...requestContext(flags),
     projectTenantId: projectKey,
-    query: { email }
+    // POST: IAM deprecated the GET form, which put the address in the URL.
+    body: { email }
   });
   writeOutput(result, flags);
 }
