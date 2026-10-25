@@ -149,10 +149,14 @@ test("bacbaebd: users activate refuses without --reason and sends it when given"
   } finally { await api.close(); }
 });
 
-test("95737817: notifier notify resolves the only configuration, fills defaults and sends keyed to the project", async () => {
+test("95737817: notifier notify resolves the only configuration, fills defaults and sends with the project session", async () => {
+  let configurations = [{ name: "in-app" }];
+  let notifyStatus = 200;
   const api = await server((r) => {
-    if (r.path === "/os/v4/Notification/Gets") return [200, { configurations: [{ name: "in-app" }], totalCount: 1 }];
+    if (r.path === "/os/v4/Notification/Gets") return [200, { configurations, totalCount: configurations.length }];
     if (r.path === "/logic/v4/Notifier/Notify") {
+      if (notifyStatus !== 200) return [notifyStatus, {}];
+      // blocks-logic reads root's configurations for an impersonated caller: only "in-app" exists there.
       return r.body.configurationName === "in-app"
         ? [200, { isSuccess: true }]
         : [200, { isSuccess: false, errors: { ConfigurationName: "no_configuration_exist" } }];
@@ -164,8 +168,7 @@ test("95737817: notifier notify resolves the only configuration, fills defaults 
     const sent = await run(["notifier", "notify", "--user-ids", "u1", "--denormalized-payload", "{\"t\":1}", "--yes", ...ctx(api.url)], w);
     assert.equal(sent.status, 0, sent.stderr);
     const notify = api.requests.find((r) => r.path === "/logic/v4/Notifier/Notify");
-    assert.equal(notify.blocksKey, "target-project", "keyed to the project, not the root tenant");
-    assert.equal(notify.authorization, undefined, "no impersonated token");
+    assert.equal(notify.authorization, "Bearer project-token", "a send needs a token since blocks-logic 2026-10-24");
     assert.deepEqual(
       { ...notify.body },
       { connectionId: "server", responseKey: "notification", responseValue: "notification", configurationName: "in-app", denormalizedPayload: "{\"t\":1}", userIds: ["u1"] }
@@ -174,6 +177,19 @@ test("95737817: notifier notify resolves the only configuration, fills defaults 
     const unknown = await run(["notifier", "notify", "--user-ids", "u1", "--denormalized-payload", "x", "--configuration-name", "nope", "--yes", ...ctx(api.url)], w);
     assert.equal(unknown.status, 1);
     assert.equal(JSON.parse(unknown.stderr).code, "notification_configuration_not_found");
+
+    // The project has "promo", but the notifier looks in root: say so rather than "not found".
+    configurations = [{ name: "in-app" }, { name: "promo" }];
+    const rootLookup = await run(["notifier", "notify", "--user-ids", "u1", "--denormalized-payload", "x", "--configuration-name", "promo", "--yes", ...ctx(api.url)], w);
+    assert.equal(rootLookup.status, 1);
+    assert.equal(JSON.parse(rootLookup.stderr).code, "notify_impersonation_unsupported");
+
+    notifyStatus = 403;
+    const refused = await run(["notifier", "notify", "--user-ids", "u1", "--denormalized-payload", "x", "--configuration-name", "in-app", "--yes", ...ctx(api.url)], w);
+    assert.equal(refused.status, 1);
+    const error = JSON.parse(refused.stderr);
+    assert.equal(error.code, "permission_required");
+    assert.match(error.message, /blocks-logic::notifier::send/);
 
     const noTarget = await run(["notifier", "notify", "--denormalized-payload", "x", "--dry-run", ...ctx(api.url)], w);
     assert.equal(JSON.parse(noTarget.stderr).code, "notify_target_required");
@@ -204,9 +220,12 @@ test("8daf76c6: enabling OIDC uses the IAM host for account links and warns when
   } finally { await api.close(); }
 });
 
-test("3b86fd8d: email available asks for the project, by POST; users exists posts too", async () => {
+test("3b86fd8d: email available asks for the project with its session, by POST; users exists posts too", async () => {
+  let availableStatus = 200;
   const api = await server((r) => {
-    if (r.path === "/iam/v4/iam/email/available" && r.method === "POST") return [200, { isAvailable: r.blocksKey === "target-project" }];
+    if (r.path === "/iam/v4/iam/email/available" && r.method === "POST") {
+      return availableStatus === 200 ? [200, { isAvailable: true }] : [availableStatus, { title: "Forbidden" }];
+    }
     if (r.path === "/iam/v4/iam/users/exists" && r.method === "POST") return [200, { userId: null, organizationIds: [] }];
     return undefined;
   });
@@ -217,12 +236,19 @@ test("3b86fd8d: email available asks for the project, by POST; users exists post
     assert.deepEqual(JSON.parse(available.stdout), { isAvailable: true });
     const req = api.requests[0];
     assert.deepEqual(req.body, { email: "ops@example.test" });
-    assert.equal(req.authorization, undefined);
+    assert.equal(req.authorization, "Bearer project-token", "a protected action since IAM 2026-10-14");
     assert.equal(req.search.toString(), "", "the address is not in the URL");
+
+    availableStatus = 403;
+    const refused = await run(["iam", "email", "available", "ops@example.test", ...ctx(api.url)], w);
+    assert.equal(refused.status, 1);
+    const error = JSON.parse(refused.stderr);
+    assert.equal(error.code, "permission_required");
+    assert.match(error.message, /blocks-iam::iam::email-available/);
 
     const exists = await run(["iam", "users", "exists", "ops@example.test", ...ctx(api.url)], w);
     assert.equal(exists.status, 0, exists.stderr);
-    assert.deepEqual(api.requests[1].body, { email: "ops@example.test" });
-    assert.equal(api.requests[1].authorization, "Bearer project-token");
+    assert.deepEqual(api.requests.at(-1).body, { email: "ops@example.test" });
+    assert.equal(api.requests.at(-1).authorization, "Bearer project-token");
   } finally { await api.close(); }
 });

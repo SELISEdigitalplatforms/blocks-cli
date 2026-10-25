@@ -1068,6 +1068,9 @@ Notifier (/logic/v4/Notifier/* — real-time/offline notification sends and inbo
                               [--body '<json>'|--file <path>] [--dry-run] [--yes] [--json]
     Push a notification to specific users/roles, or everyone matching a subscription
     filter. Target with at least one of --user-ids/--roles/--subscription-filters.
+    Needs blocks-logic::notifier::send. blocks-logic reads configurations from the root
+    project for a CLI send, so a project configuration fails with
+    notify_impersonation_unsupported until fixed server-side; send from the app meanwhile.
   blocks notifier list [--unread-only] [--page] [--page-size] [--sort-by] [--sort-desc]
                               [--filter] [--json]
     List the signed-in user's notifications (GetNotifications). Read-only.

@@ -106,12 +106,12 @@ export class BlocksIAMClient {
     /**
      * What: checks email availability through `POST /iam/v4/iam/email/available`.
      * Why: signup and invite forms can validate duplicate email state before submit.
-     * How: pass `{ email }`; public, answered for the tenant in `x-blocks-key`. The address travels in
-     * the body -- IAM deprecated the GET form because it put addresses in URLs and access logs.
+     * How: pass `{ email }` as a signed-in user whose role has `blocks-iam::iam::email-available` -- IAM
+     * protects it since 2026-10-14 (it was public, and it reveals whether an address is registered), so a
+     * pre-login signup form cannot call it. The address travels in the body; IAM deprecated the GET form.
      */
     emailAvailable: (query: { email?: string; Email?: string } & Record<string, string | undefined>): Promise<{ isAvailable?: boolean; IsAvailable?: boolean }> =>
       this.http.request<{ isAvailable?: boolean; IsAvailable?: boolean }>("/iam/v4/iam/email/available", {
-        auth: false,
         body: { email: query.email ?? query.Email }
       }),
 

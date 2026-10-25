@@ -26,15 +26,17 @@ test("notifier.notify fills the server-required filler fields, caller values win
   });
   await blocks.notifier.notify({ configurationName: "in-app", roles: ["admin"], denormalizedPayload: "{}", responseKey: "order" });
   assert.equal(calls[1].body.responseKey, "order");
+  assert.equal(calls[0].headers.authorization, "Bearer user-token", "a send needs blocks-logic::notifier::send");
 });
 
-test("iam.users.emailAvailable and exists send the address in a POST body, not the URL", async () => {
+test("iam.users.emailAvailable and exists send the address in a POST body, not the URL, with the user's token", async () => {
   const { blocks, calls } = setup();
   await blocks.iam.users.emailAvailable({ email: "a@example.test" });
   assert.equal(calls[0].url, "https://api.example.test/iam/v4/iam/email/available");
   assert.equal(calls[0].init.method, "POST");
   assert.deepEqual(calls[0].body, { email: "a@example.test" });
-  assert.equal(calls[0].headers.authorization, undefined);
+  // Protected by blocks-iam::iam::email-available since IAM 2026-10-14: no longer an anonymous call.
+  assert.equal(calls[0].headers.authorization, "Bearer user-token");
 
   await blocks.iam.users.exists("a@example.test");
   assert.equal(calls[1].url, "https://api.example.test/iam/v4/iam/users/exists");

@@ -70,9 +70,13 @@ repository's git log.
 - `notifier.notify` fills `connectionId`, `responseKey` and `responseValue` with
   `server` / `notification` / `notification` when omitted. The service binds all
   three as required strings, so the documented minimal call failed with 400
-  (95737817). `organizationIds` is added to the request type.
+  (95737817). `organizationIds` is added to the request type. A send needs a
+  user whose role has `blocks-logic::notifier::send`; blocks-logic answers 401
+  otherwise.
 - `iam.users.emailAvailable` and `iam.users.exists` use IAM's POST forms; the
-  deprecated GETs put the address in the URL (3b86fd8d).
+  deprecated GETs put the address in the URL (3b86fd8d). `emailAvailable` now
+  sends the signed-in user's token: IAM protects it with
+  `blocks-iam::iam::email-available`, so it no longer works before sign-in.
 
 ### Breaking (type-level)
 

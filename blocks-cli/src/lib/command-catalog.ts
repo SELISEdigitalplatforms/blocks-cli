@@ -1412,7 +1412,7 @@ export const commandCatalog: readonly CommandEntry[] = [
     "family": "iam",
     "summary": "Check whether an email address is free to register.",
     "positional": "<email>",
-    "details": "Answers {isAvailable} for the selected project: true when no user in this project has the address, so `iam users create` will accept it. Sent like an app's signup form sends it (anonymous, keyed to the project) -- it used to check platform accounts instead and said false for the operator's own address. Agrees with `iam users exists`. Read-only.",
+    "details": "Answers {isAvailable} for the selected project: true when no user in this project has the address, so `iam users create` will accept it. Your role in the root project needs blocks-iam::iam::email-available (IAM protects the check); without it the command stops with permission_required. Agrees with `iam users exists`. Read-only.",
     "scope": "project",
     "mutating": false,
     "flags": [
@@ -3554,7 +3554,7 @@ export const commandCatalog: readonly CommandEntry[] = [
     "name": "notifier notify",
     "family": "notifier",
     "summary": "Push a notification to specific users/roles, or everyone matching a subscription filter.",
-    "details": "Target with at least one of --user-ids/--roles/--organization-ids/--subscription-filters, and pass the content as --denormalized-payload; both are checked before sending. --configuration-name is the `name` of one of the project's notification configurations (`blocks notification list`); when omitted and the project has exactly one, that one is used (the dry-run says so), otherwise the command asks for it. connectionId/responseKey/responseValue, which the service requires but a server-side send has no use for, default to server/notification/notification. Sent with only the project's x-blocks-key, as an app sends it: the notifier resolves configurations in the root tenant for an impersonated caller. Errors: notify_target_required, notify_payload_required, notification_configuration_required, notification_configuration_not_found.",
+    "details": "Target with at least one of --user-ids/--roles/--organization-ids/--subscription-filters, and pass the content as --denormalized-payload; both are checked before sending. --configuration-name is the `name` of one of the project's notification configurations (`blocks notification list`); when omitted and the project has exactly one, that one is used (the dry-run says so), otherwise the command asks for it. connectionId/responseKey/responseValue, which the service requires but a server-side send has no use for, default to server/notification/notification. Needs blocks-logic::notifier::send on your role (401 otherwise: permission_required). blocks-logic resolves configurations in the root project for the CLI's project session, so a project's own configuration fails with notify_impersonation_unsupported until that is fixed server-side; send from the app with the SDK meanwhile. Errors: notify_target_required, notify_payload_required, notification_configuration_required, notification_configuration_not_found, notify_impersonation_unsupported, permission_required.",
     "scope": "project",
     "mutating": true,
     "flags": [
