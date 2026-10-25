@@ -15,10 +15,8 @@ export async function authOidcClientsGet(argv: string[]): Promise<void> {
     ...requestContext(flags),
     projectTenantId: projectKey
   });
-  // IAM documents client_secret as excluded from list/get, but returns the stored
-  // registration verbatim -- so the secret comes back in full on every read. Until the
-  // service stops sending it, redact here: this output is routinely pasted into issues
-  // and CI logs, and public PKCE clients have no legitimate use for a secret at all.
+  // IAM no longer returns client_secret on list/get. Redact anyway, as a second guard
+  // against an older IAM: this output is routinely pasted into issues and CI logs.
   // Use 'auth oidc-clients rotate-secret' to obtain a working secret.
   writeOutput(redactSecrets(result), flags);
 }

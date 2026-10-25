@@ -7,6 +7,8 @@ When invoking a project-scoped `blocks` command, either use the resolved account
 
 # Blocks Storage — Configuration
 
+**Local snapshot:** `blocks/storage/` holds a read-only snapshot of the project's storage configs, written by `blocks pull --only storage`. Read it for context before listing things one by one; check its `_meta.tenantId` and `_meta.pulledAt`, and pull again if it's stale or after you change anything. Never edit it to change the project: editing does nothing, so use the commands below. Secret fields in it are `***`.
+
 This skill manages the **storage configuration record itself** — which cloud provider (or local/SFTP storage) a named configuration points at, and the connection details needed to reach it. It does not upload, download, browse, share, version, move, or trash objects; those runtime concerns belong to blocks-data-storage.
 
 **CLI-only, no SDK path.** There is no `@seliseblocks/client` method for reading or writing a storage configuration's own fields. Runtime storage calls select an existing record by `configurationName`. If the user wants to manipulate a file/directory or its access policies, hand off to blocks-data-storage.
@@ -29,6 +31,8 @@ blocks storage config list --json
 blocks storage config get Default --json
 blocks storage config get --name Default --json
 ```
+
+`list`/`get` never return a secret value. Each secret has a status instead: `connectionStringStatus`, `secretKeyStatus`, `accessKeyStatus`, `passwordStatus`, `sftpSecretKeyStatus`, each one of `none` (not set for this provider), `active`, `locked`, `archived`, `missing`, `unavailable`. `archived` or `missing` means file calls on that configuration fail until it is deleted and created again with a new secret.
 
 ## `storage config save` — fields
 
@@ -56,7 +60,7 @@ blocks storage config get --name Default --json
 
 Unset flags are dropped (`compact`), so they never overwrite fields already present in a `--body`/`--file` payload. `save` is a create-or-update in one command, not two separate verbs — pass `--item-id` with `--update` when modifying an existing configuration, omit both to create a new one.
 
-**Once a configuration exists, only the four upload settings can change.** The provider identity and credentials (`--strategy`, `--connection-string`, `--access-key`, `--secret-key`, `--host`, `--port`, `--username`, `--password`, `--region-endpoint`, `--remote-base-path`) are fixed at create: blocks-os drops them on an update and still answers success, so the CLI refuses them on `--update`. To change provider or rotate its credentials, delete the configuration and create it again. An update reads the stored record and carries the upload settings you don't pass, because the server resets any that are left out. A create whose `--name` is already taken is refused on the live run (the server would treat it as an update); use `--update --item-id <id>` instead.
+**Once a configuration exists, only the four upload settings can change.** The provider identity and credentials (`--strategy`, `--connection-string`, `--access-key`, `--secret-key`, `--host`, `--port`, `--username`, `--password`, `--region-endpoint`, `--remote-base-path`) are fixed at create: blocks-os drops them on an update and still answers success, so the CLI refuses them on `--update`. To change provider or rotate its credentials, delete the configuration and create it again. An update reads the stored record and carries the upload settings you don't pass, because the server resets any that are left out. A create whose `--name` is already taken is refused (by the CLI on the live run, and by blocks-os); use `--update --item-id <id>` instead.
 
 ```bash
 blocks storage config save --name Default --strategy AzureBlob \
@@ -82,11 +86,11 @@ blocks storage config delete Default --dry-run --json
 blocks storage config delete Default --yes --json
 ```
 
-`save`'s dry-run output redacts secret-shaped fields before printing (`accessKey`, `connectionString`, `password`, `secretKey` become `"***"`) — this redaction is **dry-run-preview only**, it does not change what's actually sent when you run with `--yes`, and it doesn't apply to `get`/`list` responses (see Gotchas).
+`save`'s dry-run output redacts secret-shaped fields before printing (`accessKey`, `connectionString`, `password`, `secretKey` become `"***"`) — this redaction is **dry-run-preview only**, it does not change what's actually sent when you run with `--yes`, `get`/`list` output is redacted the same way (see Gotchas).
 
 ## Gotchas
 
-- **`get`/`list` are not redacted.** Only `save --dry-run`'s own preview output redacts `accessKey`/`connectionString`/`password`/`secretKey`. If a `get`/`list` response ever echoes credential fields back, treat that output as sensitive — don't paste it into logs, tickets, or chat verbatim.
+- **`get`/`list` show secret status, not secrets.** blocks-os never returns a secret value; the CLI still redacts `accessKey`/`connectionString`/`password`/`secretKey`/`sftpSecretKey` if an older server sends one.
 - **`save` is upsert, not separate create/update commands.** Whether a call creates or updates is determined by `--update --item-id`, not by a different command name.
 - **Credentials cannot be rotated in place.** An update changes only the upload settings; see above.
 - **This is provider configuration, not object management.** `blocks storage config *` never touches file bytes, directory hierarchy, versions, trash, sharing, or ACLs. Those belong to **blocks-data-storage**, using a `configurationName` that a storage config already defines.

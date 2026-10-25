@@ -50,10 +50,10 @@ blocks auth config get --json
 If `isOidcEnabled` is `false`, no amount of correct client configuration produces a login screen:
 
 ```bash
-blocks auth config save --oidc-enabled --account-action-base-url <https://iam-host> --dry-run --json
+blocks auth config save --oidc-enabled --dry-run --json
 ```
 
-Then `--yes` after approval. `--account-action-base-url` is required when the current config has no value; use the actual IAM/account-action host, never invent one. `blocks new web` fills this from its resolved OIDC URL when it enables login itself.
+Then `--yes` after approval. Under OIDC, activation and password-reset links land on IAM's hosted pages, so the CLI sets `accountActionBaseUrl` to the account's IAM host (IAM pins it there on save as well) — not the project's app domain, which serves nothing until an app is deployed. It checks that `<base>/oidc/activate/` answers and prints a warning on stderr when it does not; fix that before creating the first user, or their activation link will be dead. `blocks new web` does the same when it enables login itself.
 
 ## 4. Verify what actually landed
 

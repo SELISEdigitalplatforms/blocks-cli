@@ -13,7 +13,7 @@ Manage notification-channel configuration through `blocks notification *`. This 
 
 ## Safe read commands
 
-- **`blocks notification list [--page <n>] [--page-size <n>] [--sort-by <property>] [--sort-desc] [--filter <text>] [--json]`** — read-only.
+- **`blocks notification list [--page <n>] [--page-size <n>] [--sort-by <property>] [--sort-desc] [--filter <text>] [--json]`** — read-only. `--page` is 1-based. Each configuration's `name` is what blocks-notifier's `notify` takes as its configuration name.
 - **`blocks notification get <itemId> [--json]`** — `itemId` may be given positionally or as `--id <itemId>`; one of the two is required (the command throws `Missing --id` if neither is given). Read-only.
 
 Neither read command mutates anything and neither accepts `--dry-run` (there's nothing to preview — no request body is built, no confirmation gate exists for either).

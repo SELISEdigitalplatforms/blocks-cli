@@ -142,22 +142,32 @@ blocks login --account <account>
 
 ## Workspace
 
-`blocks init` creates:
+`blocks init` creates the following (`blocks new web` writes the same `blocks/` tree into the new app). Files that already exist are never overwritten:
 
 ```text
 blocks.json
 blocks/
-  data/
-    schemas/
-    rules.json
+  data/           two-way: schemas/ + rules.json (data schema/rules pull, push, sync)
+  localization/   two-way: <module>.<language>.json (localization pull, validate, push)
+  workflows/      logic workflow export/import
+  iam/            read-only snapshots written by `blocks pull`
+  auth/
+  mail/
+  storage/
+  release/
+  logic/
 .env.example
 ```
 
-Localization dictionaries are not created by `init` - the default path is `blocks/localization/<module>.<language>.json`, for example `blocks/localization/common.en.json`, and the `blocks/localization/` folder is created lazily the first time `blocks localization pull` writes to it. AI agents can create or update that file directly (before `push`, which only reads it), run `blocks localization validate`, then push it to the Localization service with `blocks localization push --dry-run` followed by `--yes` after approval. Gateway v4 routes do not include an `/api` segment.
+Each folder gets a README saying what goes in it and which commands change it.
+
+The default localization path is `blocks/localization/<module>.<language>.json`, for example `blocks/localization/common.en.json`. AI agents can create or update that file directly (before `push`, which only reads it), run `blocks localization validate`, then push it to the Localization service with `blocks localization push --dry-run` followed by `--yes` after approval. Gateway v4 routes do not include an `/api` segment.
+
+`blocks pull` fills the six snapshot folders from the selected project's live setup, so an agent can read roles, permissions, OIDC clients, identity providers, mail and storage configs, release repos, proxies, schedules and functions without calling the CLI. Every file carries a `_meta` header naming the tenant and pull time, so a stale or other-project snapshot is easy to spot (`blocks help pull` has the exact shape). Secret fields are redacted to `***` unless `--include-secrets` is passed (don't commit files pulled that way). `--only iam,auth` pulls a subset. The snapshots are read-only: editing them changes nothing, so change state with each service's commands and pull again.
 
 After login selects `activeAccount`, `blocks use <tenantId>` updates that account's selected project and `blocks.json` when present. `blocks deselect` clears the same active account's selection. Different accounts in the same config store retain independent selections when each becomes active through login.
 
-`blocks release *` has no local config file - the commands need a repo already linked to the project (`blocks release repos list` shows them). Linking a repo requires GitHub OAuth, which only the Blocks portal can do; if none is linked, the commands tell you so and stop. The one file a release command reads is the dotenv file given to `release secrets sync --file` (or `release deploy --with-secrets`).
+`blocks release *` has no local config file (`blocks/release/` is only a read-only snapshot) - the commands need a repo already linked to the project (`blocks release repos list` shows them). Linking a repo requires GitHub OAuth, which only the Blocks portal can do; if none is linked, the commands tell you so and stop. The one file a release command reads is the dotenv file given to `release secrets sync --file` (or `release deploy --with-secrets`).
 
 ## Boundaries
 

@@ -264,6 +264,22 @@ blocks deselect
 blocks use <projectTenantId>
 ```
 
+## Project Snapshots (`blocks pull`)
+
+`blocks init` and `blocks new web` both write a `blocks/` tree with a README'd folder per service. `data/`, `localization/` and `workflows/` are two-way (their own pull/push commands). `iam/`, `auth/`, `mail/`, `storage/`, `release/` and `logic/` are **read-only snapshots** that `blocks pull` fills from the selected project:
+
+```bash
+blocks pull --json                    # all six services
+blocks pull --only iam,auth --json    # a subset
+```
+
+- Read these files for context (roles, permissions, OIDC clients, identity providers, mail and storage configs, release repos, proxies, schedules, functions) instead of listing each one.
+- Before trusting a file, check its `_meta`: `tenantId` must be the workspace's project, and `pulledAt` tells you how old it is. Pull again if it's stale or after you change state.
+- Never edit a snapshot to change the project. Editing does nothing; use each service's commands, then `blocks pull --only <service>`.
+- Secret fields are `***`. Don't pass `--include-secrets` unless the user asks, and never commit files pulled with it.
+- It's read-only on the server. Snapshots are written next to `blocks.json` even when run from a subdirectory. A failing service is listed under `failed` with a non-zero exit, and the rest are still written.
+- `blocks pull` is unrelated to `blocks git pull` (which syncs app source with its git remote).
+
 ## Scaffold a Web App
 
 Generate a React/Vite Blocks app. All of `--x-blocks-key`, `--app-domain`, and `--client-id` are optional now - they're resolved from the selected project when omitted:
@@ -624,6 +640,46 @@ blocks notifier mark-read <notificationId> --dry-run --json
 blocks notifier mark-all-read --dry-run --json
 ```
 
+## Logic: Functions
+
+Serverless Node 24 handlers on blocks-logic (`/logic/v4/Functions/*`). The lifecycle is **create → save (working copy) → test → deploy**; saving never changes what callers get, and trigger settings are snapshotted at deploy.
+
+```bash
+blocks logic function create --name shipping-quote --template minimal --dry-run --json
+blocks logic function export <id> --dir functions/shipping-quote --json      # index.js, package.json, function.json
+blocks logic function save <id> --dir functions/shipping-quote --var CURRENCY=EUR --dry-run --json
+blocks logic function save <id> --auth public --http-methods POST --response-mode sync --yes --json
+blocks logic function test <id> --input '{"items":[]}' --json                # runs the saved code; no deploy
+blocks logic function deploy <id> --note "v1" --yes --json                   # waits for the image build
+blocks logic function url <id> --json                                        # public URL, x-blocks-key, auth/response mode
+blocks logic function runs <id> --status failed --json
+blocks logic function run <runId> --json && blocks logic function logs <runId> --json
+```
+
+- `save` is read-merge-write over the stored function (Functions/Save replaces the whole working copy). Order: `function.json` (from `--dir` or `--config-file`), then source files, then flags.
+- Variables whose name looks like a credential must hold `{{secret.<secretId>}}`; typed values are refused with `FUNCTION_FORBIDDEN_CONTENT`.
+- Limits are fixed (100 millicores, 128 MB, 30 s, 10 concurrent, 2 attempts); only `--requests-per-minute` is the tenant's.
+- `deploy` polls a running build and deploys exactly that build; `--no-wait` returns the `buildId`, `--build-id` deploys it later. `FUNCTION_BUILD_FAILED` → `blocks logic function build <buildId>`.
+- `delete` is refused with `FUNCTION_DELETE_BLOCKED` while workflow steps reference it; `--force` only after the user confirms.
+- App code invokes deployed functions through `@seliseblocks/client` (`blocks.logic.functions.call/invoke`), never through these commands.
+
+## Logic: Proxies
+
+Credentialed passthrough to a third-party API (`/logic/v4/Proxies*`); apps call it with `blocks.logic.proxy.request(slug, …)`.
+
+```bash
+blocks logic proxy create --name Weather --upstream https://api.weather.example --methods GET --dry-run --json
+blocks logic proxy create --file proxy.json --yes --json        # routes, headers with {{$VAR.<secretName>}}, access, resilience
+blocks logic proxy update <id> --timeout-seconds 10 --requests-per-minute 300 --yes --json
+blocks logic proxy openapi-preview --spec-url https://api.example.test/openapi.json --json
+blocks logic proxy test <id> --method GET --path-suffix forecast --json
+blocks logic proxy executions <id> --status-class 5xx --json
+```
+
+- Flag-mode `update` keeps routes, headers, access, resilience and the rate limit; `update --file` is a full replacement (omitted fields reset). Both send `expectedVersion`; `PROXY_VERSION_CONFLICT` means the proxy changed since it was read — re-run.
+- `openapi-preview` writes nothing; copy chosen `operations` into `routes` of a create/update `--file`.
+- SDK calls take the proxy's **slug**; CLI commands take its **itemId**.
+
 Target `notify` with at least one of `--user-ids`/`--roles`/`--subscription-filters`. `notifier unread`
 sends its filter as query parameters even though swagger documents that endpoint as GET with a JSON
 body, which the Fetch spec forbids — the CLI and SDK both flatten it into the query string instead.
@@ -640,7 +696,7 @@ blocks storage config save --item-id <id> --update --max-file-size-bytes <n> --y
 blocks storage config delete <name> --dry-run --json
 ```
 
-`--secret-key`, `--access-key`, `--password`, and `--connection-string` are secrets; the CLI redacts them in `--dry-run` output only.
+`--secret-key`, `--access-key`, `--password`, and `--connection-string` are secrets, sent on create only; blocks-os keeps them in SecretStore. `list`/`get` never return a secret value: each secret has a status field (`connectionStringStatus`, `secretKeyStatus`, `accessKeyStatus`, `passwordStatus`, `sftpSecretKeyStatus`: `none`, `active`, `locked`, `archived`, `missing`, `unavailable`). The CLI also redacts secret-named fields in `--dry-run`, `list` and `get` output.
 
 An update can change only the upload settings (`--upload-url-expiry-seconds`, `--download-url-expiry-seconds`, `--max-file-size-bytes`, `--upload-completion-required-for Public,Private`). The provider and its credentials are fixed at create: blocks-os drops them on an update and still reports success, so the CLI refuses them (`delete` and re-create to change them). The four upload settings are read from the stored record and carried, because the server resets any left out.
 
@@ -789,6 +845,8 @@ The binding lives in `blocks.json` as `repo: { provider, fullName, url, branch }
 - `build_wait_timeout` (from `--wait`/`--follow`): the build didn't reach a terminal status within `--timeout`. The deploy itself already succeeded (this only affects the wait) - check manually with `release status <buildId>` (add `--wait` to keep watching) rather than assuming failure.
 - `provider_not_supported` (from `release git ...`): only `github` is active in blocks-release; re-run with `--provider github` or omit the flag.
 - `github_not_connected` (from `git ...`): the Blocks account has no GitHub connection, or it was revoked. Tell the user to connect GitHub from the Blocks portal (Repositories -> Connect GitHub); the CLI cannot do it and retrying will not help.
+- `pull_tenant_mismatch` (from `pull`): `--project` names a different tenant from the workspace's `blocks.json`. Drop `--project`; pass `--force` only if the user wants this app's snapshot replaced with another project's setup.
+- `pull_unknown_service` (from `pull`): `--only` named something other than iam, auth, mail, storage, release, logic.
 - `repo_not_bound` (from `git pull|push|disconnect`): no `repo` entry in blocks.json. Run `blocks git init` (code only here) or `blocks git connect <owner/name> --strategy ...` (repo already exists).
 - `repo_already_bound` (from `git init|connect`): a different repository is connected. Do not disconnect on your own judgment; ask the user, then `blocks git disconnect --yes` if they confirm.
 - `not_a_git_repository` (from `git connect|pull|push`): the directory has no `.git`. `blocks git init` creates one; `blocks git clone` starts from the remote instead.

@@ -2,6 +2,7 @@ import { booleanFlag } from "../../../lib/args.js";
 import { confirmMutation } from "../../../lib/confirm.js";
 import { CliActionableError } from "../../../lib/errors.js";
 import {
+  buildLimitOverrides,
   buildSimpleUpdateOverrides,
   LOGIC_PROXIES_API,
   readProxyFileBody,
@@ -19,7 +20,7 @@ export async function logicProxyUpdate(argv: string[]): Promise<void> {
     throw new CliActionableError(
       "Missing proxy id.",
       "proxy_id_required",
-      "Usage: blocks logic proxy update <proxy-id> (--name/--upstream/--methods | --file) [--yes] [--json]"
+      "Usage: blocks logic proxy update <proxy-id> (--name/--upstream/--methods/--requests-per-minute/--timeout-seconds | --file) [--yes] [--json]"
     );
   }
 
@@ -41,7 +42,9 @@ export async function logicProxyUpdate(argv: string[]): Promise<void> {
         method: "PUT",
         proxyId,
         replace,
-        request: overrides
+        // Limit flags are shown as sent; a --timeout-seconds change keeps the stored
+        // retry/breaker settings, which only the live run reads.
+        request: replace ? overrides : { ...overrides, ...buildLimitOverrides(flags) }
       },
       flags
     );

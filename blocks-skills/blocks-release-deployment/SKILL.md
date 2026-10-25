@@ -11,7 +11,7 @@ Trigger and read Release builds through `blocks release *`. This is **100% CLI,
 no SDK equivalent**: `@seliseblocks/client` has no `release` namespace. Never
 write a frontend/app-code path for this; use the terminal command.
 
-**Prerequisite:** a project is selected (`blocks use <tenantId>`) and that project has a repo linked from the Blocks portal — see the blocks-bootstrap skill. There is no local config file for release settings; `blocks init` only scaffolds `blocks/data/schemas/`, `blocks/data/rules.json`, and `.env.example` — it has no release-related output at all. Release commands resolve which repo to act on from the project's registered repos (see below), not from any file on disk.
+**Prerequisite:** a project is selected (`blocks use <tenantId>`) and that project has a repo linked from the Blocks portal — see the blocks-bootstrap skill. There is no local config file for release settings. `blocks/release/repos.json` is only a read-only snapshot of the project's registered repos, written by `blocks pull --only release`: read it for context, but never edit it to change anything. Release commands resolve which repo to act on from the project's registered repos (see below), not from any file on disk.
 
 ## Safe read commands
 

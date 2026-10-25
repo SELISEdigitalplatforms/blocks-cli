@@ -84,6 +84,8 @@ function detailOf(record) {
     responseMode: record.responseMode,
     responseInclude: record.responseInclude,
     access: record.access,
+    resilience: record.resilience ?? null,
+    requestsPerMinute: record.requestsPerMinute ?? null,
     currentVersion: record.currentVersion,
     createdDate: record.createdDate,
     lastUpdatedDate: record.lastUpdatedDate
@@ -189,6 +191,8 @@ async function startServer() {
           responseMode: parsed.responseMode || parsed.ResponseMode || "All",
           responseInclude: parsed.responseInclude || parsed.ResponseInclude || [],
           access: parsed.access || parsed.Access || { kind: "BlocksToken" },
+          resilience: parsed.resilience ?? null,
+          requestsPerMinute: parsed.requestsPerMinute ?? null,
           currentVersion: 1,
           createdDate: "2026-01-01T00:00:00.000Z",
           lastUpdatedDate: "2026-01-01T00:00:00.000Z"
@@ -196,10 +200,20 @@ async function startServer() {
         state.proxies.set(itemId, record);
         result = rawResponse(201, { isSuccess: true, itemId });
       }
+    } else if (path === "/logic/v4/Proxies/openapi/preview" && request.method === "POST") {
+      const parsed = bodyText ? JSON.parse(bodyText) : {};
+      state.previewBodies = [...(state.previewBodies ?? []), parsed];
+      result = {
+        baseUrl: "https://api.example.test/v1",
+        operations: [{ operationId: "listOrders", method: "GET", path: "/orders", summary: "List orders", queryParameters: ["limit"], headerParameters: [], securityHeaders: ["X-Api-Key"], alreadyExists: false }],
+        errors: [],
+        warnings: []
+      };
     } else if (path.startsWith("/logic/v4/Proxies/") && request.method === "GET") {
       const id = decodeURIComponent(path.slice("/logic/v4/Proxies/".length));
       const record = state.proxies.get(id);
-      result = record ? { data: detailOf(record) } : { data: null };
+      // staleReads: another writer bumps the version between the CLI's read and its PUT.
+      result = record ? { data: { ...detailOf(record), currentVersion: record.currentVersion - (state.staleReads ? 1 : 0) } } : { data: null };
     } else if (path.startsWith("/logic/v4/Proxies/") && request.method === "PUT") {
       const id = decodeURIComponent(path.slice("/logic/v4/Proxies/".length));
       const parsed = bodyText ? JSON.parse(bodyText) : {};
@@ -207,6 +221,8 @@ async function startServer() {
       const existing = state.proxies.get(id);
       if (!existing) {
         result = rawResponse(404, { isSuccess: false, code: "PROXY_NOT_FOUND", message: `No proxy '${id}'.` });
+      } else if (typeof parsed.expectedVersion === "number" && parsed.expectedVersion !== existing.currentVersion) {
+        result = rawResponse(409, { isSuccess: false, code: "PROXY_VERSION_CONFLICT", message: "Someone else changed this proxy. Reload to see their changes, then try again." });
       } else {
         // Full replace except Enabled + Slug (server contract).
         existing.name = parsed.name ?? parsed.Name ?? existing.name;
@@ -219,6 +235,9 @@ async function startServer() {
         existing.responseMode = parsed.responseMode ?? parsed.ResponseMode ?? "All";
         existing.responseInclude = parsed.responseInclude ?? parsed.ResponseInclude ?? [];
         existing.access = parsed.access ?? parsed.Access ?? { kind: "BlocksToken" };
+        // Omitted on Update => reset to the default (ProxyUpdateRequestDto).
+        existing.resilience = parsed.resilience ?? null;
+        existing.requestsPerMinute = parsed.requestsPerMinute ?? null;
         existing.currentVersion += 1;
         existing.lastUpdatedDate = "2026-01-02T00:00:00.000Z";
         state.proxies.set(id, existing);
@@ -604,4 +623,71 @@ test("proxy: delete without --yes refuses (C8)", async () => {
   } finally {
     await server.close();
   }
+});
+
+test("proxy update keeps resilience and the rate limit, and sends expectedVersion", async () => {
+  const { cwd, configDir } = await makeWorkspace();
+  const server = await startServer();
+  try {
+    await writeProjectAuth(configDir, server.url);
+    // Strict flags: --name / --timeout-seconds must be catalog-known, not "ignored".
+    const env = { ...testEnv(configDir), BLOCKS_STRICT_FLAGS: "1" };
+    const resilience = { timeoutSeconds: 10, retry: { attempts: 2, backoff: "Fixed", initialDelaySeconds: 1, idempotent: true }, breaker: { failureThreshold: 5, openSeconds: 60 } };
+    const file = join(cwd, "proxy.json");
+    await writeFile(file, JSON.stringify({ name: "Orders", upstream: "https://api.example.test", methods: ["GET"], resilience, requestsPerMinute: 50 }));
+    const created = await run(["logic", "proxy", "create", "--file", file, "--yes", ...ctx(server.url)], { cwd, env });
+    assert.equal(created.status, 0, created.stderr);
+    const id = parseJson(created.stdout).itemId;
+
+    const renamed = await run(["logic", "proxy", "update", id, "--name", "Orders v2", "--yes", ...ctx(server.url)], { cwd, env });
+    assert.equal(renamed.status, 0, renamed.stderr);
+    const put = server.state.putBodies.at(-1).body;
+    assert.equal(put.expectedVersion, 1);
+    assert.deepEqual(put.resilience, resilience);
+    assert.equal(put.requestsPerMinute, 50);
+    assert.equal(server.state.proxies.get(id).requestsPerMinute, 50, "a rename no longer resets the rate limit");
+
+    const timed = await run(["logic", "proxy", "update", id, "--timeout-seconds", "20", "--requests-per-minute", "default", "--yes", ...ctx(server.url)], { cwd, env });
+    assert.equal(timed.status, 0, timed.stderr);
+    const stored = server.state.proxies.get(id);
+    assert.deepEqual(stored.resilience, { ...resilience, timeoutSeconds: 20 }, "retry and breaker survive a timeout change");
+    assert.equal(stored.requestsPerMinute, null);
+  } finally { await server.close(); }
+});
+
+test("proxy update surfaces PROXY_VERSION_CONFLICT when the proxy moved on", async () => {
+  const { cwd, configDir } = await makeWorkspace();
+  const server = await startServer();
+  try {
+    await writeProjectAuth(configDir, server.url);
+    const env = testEnv(configDir);
+    const created = await run(["logic", "proxy", "create", "--name", "Inventory", "--upstream", "https://inv.example.test", "--methods", "GET", "--yes", ...ctx(server.url)], { cwd, env });
+    assert.equal(created.status, 0, created.stderr);
+    const id = parseJson(created.stdout).itemId;
+    server.state.staleReads = true;
+    const updated = await run(["logic", "proxy", "update", id, "--name", "Inventory 2", "--yes", ...ctx(server.url)], { cwd, env });
+    assert.equal(updated.status, 1);
+    assert.equal(stderrJson(updated).code, "PROXY_VERSION_CONFLICT");
+    assert.equal(server.state.proxies.get(id).name, "Inventory", "nothing was overwritten");
+  } finally { await server.close(); }
+});
+
+test("proxy openapi-preview sends the spec file and returns the operations", async () => {
+  const { cwd, configDir } = await makeWorkspace();
+  const server = await startServer();
+  try {
+    await writeProjectAuth(configDir, server.url);
+    const env = { ...testEnv(configDir), BLOCKS_STRICT_FLAGS: "1" };
+    const spec = JSON.stringify({ openapi: "3.0.0", paths: { "/orders": { get: {} } } });
+    const file = join(cwd, "openapi.json");
+    await writeFile(file, spec);
+    const result = await run(["logic", "proxy", "openapi-preview", "--spec-file", file, "--proxy-id", "prx_9", ...ctx(server.url)], { cwd, env });
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(parseJson(result.stdout).operations[0].operationId, "listOrders");
+    assert.deepEqual(server.state.previewBodies[0], { specJson: spec, proxyId: "prx_9" });
+
+    const both = await run(["logic", "proxy", "openapi-preview", "--spec-file", file, "--spec-url", "https://x.test/o.json", ...ctx(server.url)], { cwd, env });
+    assert.equal(both.status, 1);
+    assert.equal(stderrJson(both).code, "PROXY_VALIDATION");
+  } finally { await server.close(); }
 });

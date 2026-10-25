@@ -237,10 +237,11 @@ async function listOidcClientSummaries(tenantId: string, flags: Record<string, s
 // Turning isOidcEnabled on isn't a single independent flag either: the
 // activation-link flow keys off accountActivationPath, which has to point at
 // the OIDC variant ("oidc/activate/") once OIDC is on, or activation emails
-// break. accountActionBaseUrl (the host those links are built against) has
-// no safe cross-environment default, but this project's own IAM host is
-// already known here as `oidcUrl`, so it's used whenever the tenant doesn't
-// already have one set.
+// break. accountActionBaseUrl (the host those links are built against) is
+// this project's IAM host, `oidcUrl`: under OIDC the links land on IAM's
+// hosted activation page. A stored value is not kept -- a fresh project's is
+// its app domain, which serves nothing until this app is deployed, so the
+// first user's activation link 404'd. (IAM pins it to its own host on save too.)
 async function ensureOidcLoginEnabled(tenantId: string, oidcUrl: string, flags: Record<string, string | boolean>): Promise<void> {
   const config = await readAuthConfig(tenantId, flags);
   const body = oidcLoginConfig(config, oidcUrl);
@@ -268,7 +269,7 @@ function oidcLoginConfig(config: Record<string, unknown>, oidcUrl: string): Reco
   if (config.isOidcEnabled) return undefined;
   return {
     ...config,
-    accountActionBaseUrl: config.accountActionBaseUrl || oidcUrl,
+    accountActionBaseUrl: oidcUrl,
     accountActivationPath: "oidc/activate/",
     isOidcEnabled: true
   };

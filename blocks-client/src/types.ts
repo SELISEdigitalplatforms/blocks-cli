@@ -4,7 +4,9 @@ export type BlocksRequestOptions = {
   body?: unknown;
   headers?: HeadersInit;
   method?: string;
-  query?: Record<string, boolean | number | string | undefined>;
+  /** A repeated key is an array (`?tag=a&tag=b`). */
+  query?: Record<string, boolean | number | string | ReadonlyArray<boolean | number | string> | undefined>;
+  signal?: AbortSignal;
 };
 
 export type BlocksExternalRequestOptions = {

@@ -98,8 +98,8 @@ export function parseProxyMethods(raw: string | undefined): string[] {
   return methods;
 }
 
-const MODE_A_CREATE_FLAGS = ["name", "upstream", "methods", "enabled", "disabled"] as const;
-const MODE_A_UPDATE_FLAGS = ["name", "upstream", "methods"] as const;
+const MODE_A_CREATE_FLAGS = ["name", "upstream", "methods", "enabled", "disabled", "requests-per-minute", "timeout-seconds"] as const;
+const MODE_A_UPDATE_FLAGS = ["name", "upstream", "methods", "requests-per-minute", "timeout-seconds"] as const;
 
 /**
  * Mode A flags and --file are mutually exclusive. Returns which mode is active
@@ -118,7 +118,7 @@ export function resolveProxyWriteMode(
 
   if (filePath && hasSimple) {
     throw new CliActionableError(
-      "Pass either Mode A flags (--name/--upstream/--methods) or --file, not both.",
+      "Pass either Mode A flags (--name/--upstream/--methods/--requests-per-minute/--timeout-seconds) or --file, not both.",
       "proxy_mode_conflict",
       "Pick one: simple flags for the common case, or --file with a full ProxyCreateRequestDto / replacement body."
     );
@@ -172,7 +172,8 @@ export function throwProxyUpstreamError(data: unknown, fallbackMessage: string):
     "PROXY_VERSION_NOT_FOUND",
     "PROXY_DELETED",
     "PROXY_REVERT_CONFLICT",
-    "PROXY_VERSION_NOT_REVERTABLE"
+    "PROXY_VERSION_NOT_REVERTABLE",
+    "PROXY_VERSION_CONFLICT"
   ]);
   if (code && verbatimCodes.has(code)) {
     // Ticket surfaces PROXY_NOT_FOUND verbatim for Phase 2; Phase 1 also accepts proxy_not_found.
@@ -213,6 +214,10 @@ function ensureHttpOkOrMap(error: unknown): never {
     || (/already exists/i.test(message) && /slug/i.test(message))
   ) {
     throw new CliActionableError(message, "PROXY_SLUG_CONFLICT");
+  }
+  // The 409 body's message is all blocksRequest keeps: "Someone else changed this proxy. …".
+  if (/PROXY_VERSION_CONFLICT/i.test(message) || (/\b409\b/.test(message) && /changed this proxy/i.test(message))) {
+    throw new CliActionableError(message, "PROXY_VERSION_CONFLICT", "Someone changed the proxy since it was read. Nothing was written; re-run the command to apply your change on top.");
   }
   if (/PROXY_VALIDATION/i.test(message)) {
     throw new CliActionableError(message, "PROXY_VALIDATION");
@@ -311,7 +316,9 @@ export async function createProxy(options: ProxyRequestContext & { body: Record<
 
 /**
  * Fields the PUT body may carry. Enabled and Slug are excluded — Enabled is
- * PATCH-only; Slug is server-derived and immutable.
+ * PATCH-only; Slug is server-derived and immutable. Update is a full replace:
+ * `access`, `resilience` and `requestsPerMinute` left out are reset to their
+ * defaults server-side, so every one of them has to be carried over.
  */
 const UPDATE_CARRY_KEYS = [
   "name",
@@ -334,6 +341,10 @@ const UPDATE_CARRY_KEYS = [
   "ResponseInclude",
   "access",
   "Access",
+  "resilience",
+  "Resilience",
+  "requestsPerMinute",
+  "RequestsPerMinute",
   "methodConfigs",
   "MethodConfigs"
 ] as const;
@@ -358,6 +369,8 @@ export function buildUpdateBodyFromCurrent(
     "responseMode",
     "responseInclude",
     "access",
+    "resilience",
+    "requestsPerMinute",
     "methodConfigs"
   ] as const;
   for (const key of prefer) {
@@ -383,7 +396,11 @@ export async function updateProxy(options: ProxyRequestContext & {
   }
 
   // Strip Enabled/Slug from overrides even if a Mode B file included them.
-  const cleaned = { ...options.overrides };
+  // --requests-per-minute / --timeout-seconds resolve against the stored record, so a
+  // timeout change keeps the proxy's retry and breaker settings.
+  const cleaned = options.replace
+    ? { ...options.overrides }
+    : { ...options.overrides, ...buildLimitOverrides(options.flags, current) };
   delete cleaned.enabled;
   delete cleaned.Enabled;
   delete cleaned.slug;
@@ -398,6 +415,13 @@ export async function updateProxy(options: ProxyRequestContext & {
   // Always identify the target.
   body.itemId = options.proxyId;
   body.ItemId = options.proxyId;
+
+  // Optimistic concurrency (PX-16): the version this body was built from. A change made
+  // in between is refused with 409 PROXY_VERSION_CONFLICT instead of being overwritten.
+  const currentVersion = current.currentVersion ?? current.CurrentVersion;
+  if (body.expectedVersion === undefined && body.ExpectedVersion === undefined && typeof currentVersion === "number") {
+    body.expectedVersion = currentVersion;
+  }
 
   let result: Record<string, unknown>;
   try {
@@ -513,6 +537,36 @@ export function parseProxyListActiveFilter(flags: Flags): boolean | undefined {
 }
 
 /** Build Mode A create body from flags (after mode resolution). */
+/**
+ * `--requests-per-minute <n|default>` and `--timeout-seconds <n>`: the two proxy-wide
+ * limits worth a flag. Retry and circuit-breaker settings go through --file.
+ */
+export function buildLimitOverrides(flags: Flags, current?: Record<string, unknown>): Record<string, unknown> {
+  const overrides: Record<string, unknown> = {};
+  const rpm = stringFlag(flags, "requests-per-minute");
+  if (rpm) {
+    if (rpm === "default") {
+      overrides.requestsPerMinute = null;
+    } else {
+      const value = Number(rpm);
+      if (!Number.isInteger(value) || value < 1 || value > 100_000) {
+        throw new CliActionableError("--requests-per-minute must be 1..100000, or 'default'.", "PROXY_VALIDATION");
+      }
+      overrides.requestsPerMinute = value;
+    }
+  }
+  const timeout = stringFlag(flags, "timeout-seconds");
+  if (timeout) {
+    const value = Number(timeout);
+    if (!Number.isInteger(value) || value < 1 || value > 30) {
+      throw new CliActionableError("--timeout-seconds must be 1..30.", "PROXY_VALIDATION");
+    }
+    const existing = current?.resilience ?? current?.Resilience;
+    overrides.resilience = { ...(isRecord(existing) ? existing : {}), timeoutSeconds: value };
+  }
+  return overrides;
+}
+
 export function buildSimpleCreateBody(flags: Flags): Record<string, unknown> {
   const name = stringFlag(flags, "name");
   if (!name || !name.trim()) {
@@ -527,7 +581,7 @@ export function buildSimpleCreateBody(flags: Flags): Record<string, unknown> {
   const enabledFlag = booleanFlag(flags, "enabled");
   // Default enabled. --disabled wins if both somehow appear.
   const enabled = disabled ? false : enabledFlag ? true : true;
-  return { name: name.trim(), upstream, methods, enabled };
+  return { name: name.trim(), upstream, methods, enabled, ...buildLimitOverrides(flags) };
 }
 
 /** Build Mode A update overrides from flags (subset). */
@@ -539,9 +593,10 @@ export function buildSimpleUpdateOverrides(flags: Flags): Record<string, unknown
   if (upstreamRaw) overrides.upstream = assertAbsoluteHttpsUrl(upstreamRaw);
   const methodsRaw = stringFlag(flags, "methods");
   if (methodsRaw) overrides.methods = parseProxyMethods(methodsRaw);
-  if (Object.keys(overrides).length === 0) {
+  const limitFlags = Boolean(stringFlag(flags, "requests-per-minute") || stringFlag(flags, "timeout-seconds"));
+  if (Object.keys(overrides).length === 0 && !limitFlags) {
     throw new CliActionableError(
-      "Provide at least one of --name, --upstream, --methods, or --file.",
+      "Provide at least one of --name, --upstream, --methods, --requests-per-minute, --timeout-seconds, or --file.",
       "proxy_update_empty"
     );
   }
@@ -729,4 +784,35 @@ export function parseZeroBasedPage(flags: Flags): number {
   const page = integerFlag(flags, "page", 0);
   if (page < 0) throw new Error("--page must be greater than or equal to 0");
   return page;
+}
+
+/**
+ * Read an OpenAPI 3 document (inline JSON or a URL the server fetches) and report the
+ * proxy routes it would produce. Writes nothing: chosen operations go into a
+ * create/update --file as `routes`. With `proxyId`, routes the proxy already has are
+ * flagged `alreadyExists`. A document that yields nothing is PROXY_VALIDATION.
+ */
+export async function previewOpenApi(options: ProxyRequestContext & {
+  specJson?: string;
+  specUrl?: string;
+  proxyId?: string;
+}): Promise<unknown> {
+  let result: unknown;
+  try {
+    result = await blocksRequest<unknown>("/logic/v4/Proxies/openapi/preview", {
+      ...apiCtx(options),
+      method: "POST",
+      body: {
+        specJson: options.specJson,
+        specUrl: options.specUrl,
+        proxyId: options.proxyId
+      }
+    });
+  } catch (error) {
+    ensureHttpOkOrMap(error);
+  }
+  if (isRecord(result) && result.isSuccess === false) {
+    throwProxyUpstreamError(result, "OpenAPI preview failed.");
+  }
+  return result;
 }

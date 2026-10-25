@@ -3,6 +3,7 @@ import { BlocksDataClient } from "./data/data-client.js";
 import { BlocksHttpClient } from "./http/http-client.js";
 import { BlocksIAMClient } from "./iam/iam-client.js";
 import { BlocksLocalizationClient } from "./localization/localization-client.js";
+import { BlocksLogicClient } from "./logic/logic-client.js";
 import { BlocksMailClient } from "./mail/mail-client.js";
 import { BlocksMfaClient } from "./mfa/mfa-client.js";
 import { BlocksNotifierClient } from "./notifier/notifier-client.js";
@@ -87,6 +88,7 @@ export type BlocksClient = {
   http: BlocksHttpClient;
   iam: BlocksIAMClient;
   localization: BlocksLocalizationClient;
+  logic: BlocksLogicClient;
   mail: BlocksMailClient;
   mfa: BlocksMfaClient;
   notifier: BlocksNotifierClient;
@@ -111,7 +113,7 @@ export type RequiredConfig = BlocksResolvedConfig;
 
 /**
  * What: creates a framework-neutral Blocks SDK instance for one tenant/app runtime.
- * Why: frontend code needs a single configured entry point for IAM, Auth, Data, and Localization APIs.
+ * Why: frontend code needs a single configured entry point for IAM, Auth, Data, Localization and Logic (functions, proxies) APIs.
  * How: pass `apiUrl` and `xBlocksKey`; optionally pass an `accessToken` callback and OIDC config. The SDK never adds `ProjectKey` and never stores tokens.
  */
 export function createBlocksClient(config: BlocksClientConfig): BlocksClient {
@@ -128,6 +130,7 @@ export function createBlocksClient(config: BlocksClientConfig): BlocksClient {
     http,
     iam: new BlocksIAMClient(http),
     localization: new BlocksLocalizationClient(http),
+    logic: new BlocksLogicClient(http, normalized.apiUrl),
     mail: new BlocksMailClient(http),
     mfa: new BlocksMfaClient(http),
     notifier: new BlocksNotifierClient(http)

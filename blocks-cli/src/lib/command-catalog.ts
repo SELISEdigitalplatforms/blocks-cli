@@ -32,7 +32,7 @@ export const commandCatalog: readonly CommandEntry[] = [
     "name": "auth client-credentials list",
     "family": "auth",
     "summary": "List this project's machine-to-machine client credentials.",
-    "details": "clientSecret is included in list responses; treat CLI output as sensitive.",
+    "details": "The service never returns clientSecret on list.",
     "scope": "project",
     "mutating": false,
     "flags": []
@@ -41,7 +41,7 @@ export const commandCatalog: readonly CommandEntry[] = [
     "name": "auth client-credentials save",
     "family": "auth",
     "summary": "Omit --item-id to create; pass it to update.",
-    "details": "The response carries no clientSecret; read it back from 'auth client-credentials list', which returns it in full.",
+    "details": "On create, the response carries clientSecret once; copy it then. List never returns it. A lost secret is replaced from Blocks OS (Rotate Secret).",
     "scope": "project",
     "mutating": true,
     "flags": [
@@ -231,7 +231,7 @@ export const commandCatalog: readonly CommandEntry[] = [
     "name": "auth oidc-clients list",
     "family": "auth",
     "summary": "List registered OAuth 2.0 / OIDC client applications for the tenant.",
-    "details": "client_secret is NOT excluded by the service -- the CLI redacts it in list/get output. Use rotate-secret to obtain a working secret.",
+    "details": "The service never returns client_secret on list/get (the CLI also redacts it). Use rotate-secret to obtain a working secret.",
     "scope": "project",
     "mutating": false,
     "flags": []
@@ -251,7 +251,7 @@ export const commandCatalog: readonly CommandEntry[] = [
     "name": "auth oidc-clients save",
     "family": "auth",
     "summary": "Upsert: omit --item-id to register a new client, pass it to update an existing one.",
-    "details": "The response's client_secret is shown here; the service also returns it on list/get, where the CLI redacts it. --client-type is not optional in practice: IAM derives tokenEndpointAuthMethod from it, so omitting it stores a browser/SPA client as confidential (\"client_secret_post\") and lets it request the client_credentials grant. Pass --client-type public for any PKCE/browser client. --register-as-identity-provider creates the linked identity provider in the same call. Its authorize/token/userinfo/jwks/issuer values are filled from the discovery document. When omitted, --external-discovery-endpoint defaults to external provider or non-standard IAM base URL.",
+    "details": "On create, the response carries client_secret once; list/get never return it. --client-type is not optional in practice: IAM derives tokenEndpointAuthMethod from it, so omitting it stores a browser/SPA client as confidential (\"client_secret_post\") and lets it request the client_credentials grant. Pass --client-type public for any PKCE/browser client. --register-as-identity-provider creates the linked identity provider in the same call. Its authorize/token/userinfo/jwks/issuer values are filled from the discovery document. When omitted, --external-discovery-endpoint defaults to external provider or non-standard IAM base URL.",
     "scope": "project",
     "mutating": true,
     "flags": [
@@ -1412,6 +1412,7 @@ export const commandCatalog: readonly CommandEntry[] = [
     "family": "iam",
     "summary": "Check whether an email address is free to register.",
     "positional": "<email>",
+    "details": "Answers {isAvailable} for the selected project: true when no user in this project has the address, so `iam users create` will accept it. Sent like an app's signup form sends it (anonymous, keyed to the project) -- it used to check platform accounts instead and said false for the operator's own address. Agrees with `iam users exists`. Read-only.",
     "scope": "project",
     "mutating": false,
     "flags": [
@@ -1488,6 +1489,7 @@ export const commandCatalog: readonly CommandEntry[] = [
     "name": "iam organizations list",
     "family": "iam",
     "summary": "List organizations in the project.",
+    "details": "--page is 1-based (default 1) and --page-size defaults to 20. --search narrows by name, short code or description. --ids (CSV), --is-disabled[=false] and --parent-organization-id filter too; IAM refuses those without a search term (its Search field is required once any filter is sent), so without --search the CLI reads every organization and applies them itself -- the output then carries filteredBy: \"cli\". Answers {organizations, totalCount}. Read-only.",
     "scope": "project",
     "mutating": false,
     "flags": [
@@ -1537,7 +1539,7 @@ export const commandCatalog: readonly CommandEntry[] = [
     "name": "iam permissions by-severity",
     "family": "iam",
     "summary": "List permissions filtered by severity and resource type.",
-    "details": "--severity is PermissionSeverity, ordered most-severe-first, not least: 0 None, 1 Critical, 2 High, 3 Medium, 4 Low. --type is IAM's ResourceType: 0 None, 1 Endpoint, 2 FrontendAction, 3 DataProtection.",
+    "details": "--severity is PermissionSeverity, ordered most-severe-first, not least: 0 None, 1 Critical, 2 High, 3 Medium, 4 Low. --type is IAM's ResourceType: 0 None, 1 Endpoint, 2 FrontendAction.",
     "scope": "project",
     "mutating": false,
     "flags": []
@@ -1577,7 +1579,7 @@ export const commandCatalog: readonly CommandEntry[] = [
     "name": "iam permissions list",
     "family": "iam",
     "summary": "List IAM permissions.",
-    "details": "--type is ResourceType (0-3), --severity is PermissionSeverity (0 None, 1 Critical .. 4 Low).",
+    "details": "--type is ResourceType (0-2), --severity is PermissionSeverity (0 None, 1 Critical .. 4 Low).",
     "scope": "project",
     "mutating": false,
     "flags": [
@@ -1786,7 +1788,7 @@ export const commandCatalog: readonly CommandEntry[] = [
     "family": "iam",
     "summary": "Enable a disabled IAM user account.",
     "positional": "<userId>",
-    "details": "Not the same as the user completing their own activation link.",
+    "details": "Not the same as the user completing their own activation link. --reason is required (IAM's activate request requires it; deactivate takes none) and is refused locally with reason_required when missing.",
     "scope": "project",
     "mutating": true,
     "flags": [
@@ -1831,6 +1833,7 @@ export const commandCatalog: readonly CommandEntry[] = [
     "family": "iam",
     "summary": "Check whether an IAM user with this email exists.",
     "positional": "<email>",
+    "details": "Answers {userId, organizationIds} for the selected project; userId is null when no user there has the address. Read-only.",
     "scope": "project",
     "mutating": false,
     "flags": [
@@ -1853,7 +1856,7 @@ export const commandCatalog: readonly CommandEntry[] = [
     "name": "iam users list",
     "family": "iam",
     "summary": "Query users with paging, sorting, and filters.",
-    "details": "Convenience filters are --email/--name/--organization-id. For any other filter, pass a raw JSON object in --body/--file with a \"filter\" key, e.g. --body '{\"filter\":{\"isActive\":true}}'; the convenience flags are merged over it.",
+    "details": "--page is 1-based (default 1). Convenience filters: --email, --name, --organization-id (one id or a CSV; sent as IAM's organizationIds, so only members of those organizations come back). For any other filter pass a raw JSON object in --body/--file with a \"filter\" key -- e.g. --body '{\"filter\":{\"status\":{\"active\":true}}}', or accountStates/roles/userIds lists; the convenience flags are merged over it, and a body filter's singular organizationId is translated to organizationIds.",
     "scope": "project",
     "mutating": false,
     "flags": [
@@ -1888,7 +1891,7 @@ export const commandCatalog: readonly CommandEntry[] = [
   {
     "name": "init",
     "family": "init",
-    "summary": "Create local Blocks workspace files: blocks.json, data schema/rules folders, and .env.example.",
+    "summary": "Create local Blocks workspace files: blocks.json, .env.example, and the blocks/ tree (data, localization, workflows, and a folder per service).",
     "scope": "local",
     "mutating": false,
     "flags": []
@@ -2442,13 +2445,286 @@ export const commandCatalog: readonly CommandEntry[] = [
     ]
   },
   {
-    "name": "logic proxy create",
+    "name": "logic function audit",
     "family": "logic",
-    "summary": "Create a logic proxy (simple flags or full --file body).",
-    "details": "Mode A: --name, --upstream (absolute https://), --methods (CSV of GET,POST,PUT,PATCH,DELETE), optional --enabled/--disabled (default enabled). Mode B: --file with a full ProxyCreateRequestDto (routes/headers/query/access/…). Modes are mutually exclusive. POSTs /logic/v4/Proxies, then GETs the new proxy and prints the full ProxyDetailDto (including server-derived slug). Surfaces PROXY_SLUG_CONFLICT and PROXY_VALIDATION verbatim. Mutating unless --dry-run.",
+    "summary": "List a function's audit events.",
+    "positional": "<function-id>",
+    "details": "GETs /logic/v4/Functions/GetAuditLog with pageNumber (--page, 0-based) and pageSize (--page-size, default 50). Returns {data:[{action, actorId, actorEmail, detail, createdDate}], totalCount}, newest first. Read-only.",
+    "scope": "project",
+    "mutating": false,
+    "flags": [
+      "page",
+      "page-size"
+    ]
+  },
+  {
+    "name": "logic function build",
+    "family": "logic",
+    "summary": "Fetch one function image build and its log.",
+    "positional": "<build-id>",
+    "details": "GETs /logic/v4/Functions/GetBuild?buildId=. Returns {id, status Queued|Building|Succeeded|Failed, imageDigest, packages, log, errorMessage, createdDate, completedAt}. The build id comes from `logic function test`/`deploy` or a FUNCTION_BUILD_FAILED error. Read-only.",
+    "scope": "project",
+    "mutating": false,
+    "flags": []
+  },
+  {
+    "name": "logic function cancel",
+    "family": "logic",
+    "summary": "Cancel a queued or running function run.",
+    "positional": "<run-id>",
+    "details": "POSTs /logic/v4/Functions/CancelRun {runId}. A run that already finished is left unchanged (still reported as cancelRequested). Prints {runId, cancelRequested}. Mutating unless --dry-run.",
     "scope": "project",
     "mutating": true,
     "flags": []
+  },
+  {
+    "name": "logic function create",
+    "family": "logic",
+    "summary": "Create a Draft function from a starter template.",
+    "details": "POSTs /logic/v4/Functions/Create with --name (2-64 chars, required), optional --description (max 200) and --template Minimal|HttpEcho|FetchTransform|ReusedConnection (default Minimal; case-insensitive). Prints the new FunctionDetailDto, whose `id` the other function commands take. The function is a Draft with an HTTP trigger requiring a Blocks token: nothing is callable until `logic function deploy`. Mutating unless --dry-run.",
+    "scope": "project",
+    "mutating": true,
+    "flags": [
+      "description",
+      "name",
+      "template"
+    ]
+  },
+  {
+    "name": "logic function delete",
+    "family": "logic",
+    "summary": "Delete a function.",
+    "positional": "<function-id>",
+    "details": "DELETEs /logic/v4/Functions/Delete?functionId=&force=. Refused with FUNCTION_DELETE_BLOCKED (activeRuns / workflows counts in errors) while runs are active or workflow steps still point at it; --force deletes anyway and those steps fail at their next run. Requires --yes. Mutating.",
+    "scope": "project",
+    "mutating": true,
+    "flags": [
+      "force"
+    ]
+  },
+  {
+    "name": "logic function deploy",
+    "family": "logic",
+    "summary": "Deploy a function's saved code as a new live version.",
+    "positional": "<function-id>",
+    "details": "POSTs /logic/v4/Functions/Deploy {functionId, note, rebuild, buildId}. 200 returns the new version; 202 returns {buildId, status} while the image builds — by default the CLI then polls Functions/GetBuild every 3s (up to --timeout, default 600s) and deploys exactly that build once it succeeds. --no-wait returns the pending build id; --build-id deploys a specific earlier build (refused if the code was saved again after it started). Output: {deployed, version|buildId}. The trigger settings saved at this moment are snapshotted into the version. Errors: FUNCTION_BUILD_FAILED (see `logic function build <id>`), FUNCTION_BUILD_PENDING (timeout; nothing deployed). Mutating unless --dry-run.",
+    "scope": "project",
+    "mutating": true,
+    "flags": [
+      "build-id",
+      "no-wait",
+      "note",
+      "rebuild",
+      "timeout"
+    ]
+  },
+  {
+    "name": "logic function export",
+    "family": "logic",
+    "summary": "Write a function's working copy to a local directory.",
+    "positional": "<function-id>",
+    "details": "GETs the function and writes into --dir: index.js, package.json, package-lock.json (only when the function has one) and function.json ({name, description, allowInstallScripts, trigger, outputActions, variables, limits:{requestsPerMinute}}). Refuses with function_dir_not_empty when any of those files exists unless --force. This is the layout `logic function save --dir` reads back. Variable values are written as stored (credential-like names hold {{secret.<id>}} references, never values). Local write only; nothing on the server changes.",
+    "scope": "project",
+    "mutating": false,
+    "flags": [
+      "dir",
+      "force"
+    ]
+  },
+  {
+    "name": "logic function get",
+    "family": "logic",
+    "summary": "Fetch one function's saved working copy.",
+    "positional": "<function-id>",
+    "details": "GETs /logic/v4/Functions/Get?functionId=. Returns FunctionDetailDto verbatim: indexJs, packageJson, lockJson, allowInstallScripts, limits (the fixed profile plus the tenant's requestsPerMinute), retry, trigger {httpEnabled, httpMethod, httpMethods, authMode Public|Token, roles, permissions, roleMatch, permissionMatch, combine, workflowEnabled, responseMode async|sync}, outputActions, variables [{key, value}], activeVersionId/activeVersionNumber, lastVersionNumber, status, isDirty. FUNCTION_NOT_FOUND for an unknown id. Read-only.",
+    "scope": "project",
+    "mutating": false,
+    "flags": []
+  },
+  {
+    "name": "logic function limits",
+    "family": "logic",
+    "summary": "Show the fixed resource profile every function runs under.",
+    "details": "GETs /logic/v4/Functions/GetLimits. Returns {cpuMillicores, memoryMb, timeoutSeconds, concurrency, attempts, retryDelaySeconds, showRateLimits}. These are the values for every function (100 millicores, 128 MB, 30 s, 10 concurrent runs, 2 attempts) — not configurable; only the HTTP requests-per-minute limit is (`logic function save --requests-per-minute`). Read-only.",
+    "scope": "project",
+    "mutating": false,
+    "flags": []
+  },
+  {
+    "name": "logic function list",
+    "family": "logic",
+    "summary": "List logic functions (summaries only, never source).",
+    "details": "POSTs /logic/v4/Functions/GetAll with searchKey (--search, name regex, case-insensitive), status (--status Draft|Live|Paused), sortBy (--sort Name|Updated, default Updated), pageNumber (--page, 0-based, default 0) and pageSize (--page-size 1-200, default 20). Returns {data:[{id, name, status, isDirty, activeVersionNumber, totalRuns, runs24h, httpEnabled, workflowEnabled, lastRunAt, lastDeployedAt, lastUpdatedDate}], totalCount} verbatim. isDirty means saved code differs from the deployed version. Read-only.",
+    "scope": "project",
+    "mutating": false,
+    "flags": [
+      "page",
+      "page-size",
+      "search",
+      "sort",
+      "status"
+    ]
+  },
+  {
+    "name": "logic function logs",
+    "family": "logic",
+    "summary": "Read a function run's log lines.",
+    "positional": "<run-id>",
+    "details": "GETs /logic/v4/Functions/GetRunLogs with pageNumber (--page, 0-based) and pageSize (--page-size, default 200). Returns {data:[{seq, timestamp, level, message, data}], totalCount} — ctx.log and console output in order. Values injected from secrets are masked. Read-only.",
+    "scope": "project",
+    "mutating": false,
+    "flags": [
+      "page",
+      "page-size"
+    ]
+  },
+  {
+    "name": "logic function replay",
+    "family": "logic",
+    "summary": "Re-run a past run's input on the function's live version.",
+    "positional": "<run-id>",
+    "details": "POSTs /logic/v4/Functions/ReplayRun {runId}. Starts a new run (invokedBy Replay) with the original input against the currently deployed version and returns {runId, status, …}. Runs the code again, side effects included. Errors: FUNCTION_RATE_LIMITED, FUNCTION_UNAVAILABLE. Mutating unless --dry-run.",
+    "scope": "project",
+    "mutating": true,
+    "flags": []
+  },
+  {
+    "name": "logic function run",
+    "family": "logic",
+    "summary": "Fetch one function run in full.",
+    "positional": "<run-id>",
+    "details": "GETs /logic/v4/Functions/GetRun?runId=. Returns RunDetailDto: status, errorCode/errorMessage, invokedBy, input and result (JSON text), attempts, outputResults, durationMs, peakMemoryBytes, cpuUsageMs, timings, reused/discardReason. Read-only.",
+    "scope": "project",
+    "mutating": false,
+    "flags": []
+  },
+  {
+    "name": "logic function runs",
+    "family": "logic",
+    "summary": "List function runs, project-wide or for one function.",
+    "positional": "[<function-id>]",
+    "details": "GETs /logic/v4/Functions/GetRuns with FunctionId (positional or --function-id), Status (--status, a RunStatus name; Running also matches every active run), InvokedBy (--invoked-by Http|Workflow|Test|Replay|Schedule|Event), SearchKey (--search, run-id prefix), FromUtc/ToUtc (--from/--to ISO), PageNumber (--page, 0-based) and PageSize (--page-size, default 20). Returns {data:[{id, functionId, versionNumber, status, errorCode, invokedBy, attempt, createdDate, completedAt, durationMs, peakMemoryBytes, reused}], totalCount}. Read-only.",
+    "scope": "project",
+    "mutating": false,
+    "flags": [
+      "from",
+      "function-id",
+      "invoked-by",
+      "page",
+      "page-size",
+      "search",
+      "status",
+      "to"
+    ]
+  },
+  {
+    "name": "logic function save",
+    "family": "logic",
+    "summary": "Save a function's working copy (source + configuration) without deploying.",
+    "positional": "<function-id>",
+    "details": "Functions/Save replaces source and every piece of configuration at once, so the CLI GETs the function first and layers, in order: function.json from --dir or --config-file, the source files (--dir reads index.js, package.json and optional package-lock.json; --index-file/--package-file/--lock-file override; --no-lock drops the lockfile), then flags: --http-methods (CSV of GET,POST,PUT,PATCH,DELETE), --auth Public|Token, --roles/--permissions (CSV, narrow a Token trigger), --response-mode async|sync, --http-enabled/--workflow-enabled (=false to turn off), --requests-per-minute (1-100000 or 'default'), --allow-install-scripts, repeatable --var KEY=VALUE (merged by key) and --unset-var A,B. package.json must declare \"type\": \"module\"; a variable whose name looks like a credential (API_KEY, TOKEN, …) must hold a {{secret.<id>}} reference or the save is refused with FUNCTION_FORBIDDEN_CONTENT. Saving never changes what runs — deploy does. --dry-run prints the full body (secrets redacted). Mutating unless --dry-run.",
+    "scope": "project",
+    "mutating": true,
+    "flags": [
+      "allow-install-scripts",
+      "auth",
+      "config-file",
+      "dir",
+      "http-enabled",
+      "http-methods",
+      "index-file",
+      "lock-file",
+      "no-lock",
+      "package-file",
+      "permissions",
+      "requests-per-minute",
+      "response-mode",
+      "roles",
+      "unset-var",
+      "var",
+      "workflow-enabled"
+    ]
+  },
+  {
+    "name": "logic function source",
+    "family": "logic",
+    "summary": "Fetch the source one deployed version was built from.",
+    "positional": "<function-id> <version-id>",
+    "details": "GETs /logic/v4/Functions/GetVersionSource?functionId=&versionId=. Returns {indexJs, packageJson, lockJson, allowInstallScripts}. Use it to diff the live version against the working copy, or to restore it with `logic function save`. Read-only.",
+    "scope": "project",
+    "mutating": false,
+    "flags": []
+  },
+  {
+    "name": "logic function test",
+    "family": "logic",
+    "summary": "Run a function's saved code once, without deploying.",
+    "positional": "<function-id>",
+    "details": "POSTs /logic/v4/Functions/Test with inputJson from --input '<json>' or --input-file (the request body for a POST trigger, the query for a GET one), --rebuild (rebuild the image even if one exists) and --wait-timeout (seconds to wait for the result). Builds the image first when the source changed. Returns {runId, status (QUEUED…SUCCEEDED/FAILED/TIMED_OUT…), result (JSON text), errorCode, errorMessage}; while the image is still building it returns {buildId, buildStatus} instead — watch `logic function build`, then test again. Runs the code for real, side effects included, and is recorded as a Test run. Errors: FUNCTION_FORBIDDEN_CONTENT, FUNCTION_RATE_LIMITED, FUNCTION_UNAVAILABLE, FUNCTION_BUILD_FAILED.",
+    "scope": "project",
+    "mutating": false,
+    "flags": [
+      "input",
+      "input-file",
+      "rebuild",
+      "wait-timeout"
+    ]
+  },
+  {
+    "name": "logic function update",
+    "family": "logic",
+    "summary": "Rename or re-describe a function.",
+    "positional": "<function-id>",
+    "details": "Functions/Update takes name and description together, so the CLI GETs the function and fills in whichever of --name / --description was not passed, then POSTs /logic/v4/Functions/Update. Source and configuration are untouched (use `logic function save`). Prints the updated FunctionDetailDto. Mutating unless --dry-run.",
+    "scope": "project",
+    "mutating": true,
+    "flags": [
+      "description",
+      "name"
+    ]
+  },
+  {
+    "name": "logic function url",
+    "family": "logic",
+    "summary": "Print a function's public invoke URL and what callers must send.",
+    "positional": "<function-id>",
+    "details": "Composes the gateway URL from the account's API host: <apiUrl>/logic/v4/fn/<function-id>[/--path]. Reads the function to report methods, httpEnabled, authMode (Token callers send a Blocks bearer token; Public needs only x-blocks-key), responseMode (async answers 202 + runId + pollToken; sync answers with the function's own response within ~30 s) and whether a version is deployed (undeployed answers 404). Callers always send the project's tenant id as x-blocks-key, which is printed as xBlocksKey. The trigger shown is the saved one; the live URL uses the settings snapshotted at the last deploy. Read-only.",
+    "scope": "project",
+    "mutating": false,
+    "flags": [
+      "path"
+    ]
+  },
+  {
+    "name": "logic function versions",
+    "family": "logic",
+    "summary": "List a function's deployed versions (newest first).",
+    "positional": "<function-id>",
+    "details": "GETs /logic/v4/Functions/GetVersions with pageNumber (--page, 0-based) and pageSize (--page-size, default 20). Returns {data:[{id, number, imageDigest, note, packages, runCount, createdDate, createdBy}], totalCount}. Read-only.",
+    "scope": "project",
+    "mutating": false,
+    "flags": [
+      "page",
+      "page-size"
+    ]
+  },
+  {
+    "name": "logic proxy create",
+    "family": "logic",
+    "summary": "Create a logic proxy (simple flags or full --file body).",
+    "details": "Mode A: --name, --upstream (absolute https://), --methods (CSV of GET,POST,PUT,PATCH,DELETE), optional --enabled/--disabled (default enabled), --requests-per-minute (1-100000; default 600 for a Public proxy, unlimited for a token one) and --timeout-seconds (1-30). Mode B: --file with a full ProxyCreateRequestDto (routes/headers/query/access/resilience/requestsPerMinute/…). Modes are mutually exclusive. POSTs /logic/v4/Proxies, then GETs the new proxy and prints the full ProxyDetailDto (including server-derived slug). Surfaces PROXY_SLUG_CONFLICT and PROXY_VALIDATION verbatim. Mutating unless --dry-run.",
+    "scope": "project",
+    "mutating": true,
+    "flags": [
+      "disabled",
+      "enabled",
+      "file",
+      "methods",
+      "name",
+      "requests-per-minute",
+      "timeout-seconds",
+      "upstream"
+    ]
   },
   {
     "name": "logic proxy delete",
@@ -2501,6 +2777,8 @@ export const commandCatalog: readonly CommandEntry[] = [
     "flags": [
       "after-id",
       "as-of",
+      "page",
+      "page-size",
       "status-class"
     ]
   },
@@ -2522,7 +2800,24 @@ export const commandCatalog: readonly CommandEntry[] = [
     "scope": "project",
     "mutating": false,
     "flags": [
+      "active",
+      "inactive",
+      "page",
+      "page-size",
       "search"
+    ]
+  },
+  {
+    "name": "logic proxy openapi-preview",
+    "family": "logic",
+    "summary": "Preview the proxy routes an OpenAPI 3 document would produce (read-only).",
+    "details": "POSTs /logic/v4/Proxies/openapi/preview with exactly one of --spec-file (read locally, sent as specJson, max 5 MB) or --spec-url (absolute http(s) URL the server fetches; redirects and private addresses are refused). Returns {baseUrl, operations[{operationId, method, path, summary, queryParameters, headerParameters, securityHeaders, alreadyExists}], errors, warnings}. --proxy-id flags operations that proxy already routes (alreadyExists). Writes nothing: copy the chosen operations into `routes` of a `logic proxy create|update --file` body. A document with no usable operations is PROXY_VALIDATION with the reasons. Read-only.",
+    "scope": "project",
+    "mutating": false,
+    "flags": [
+      "proxy-id",
+      "spec-file",
+      "spec-url"
     ]
   },
   {
@@ -2567,10 +2862,17 @@ export const commandCatalog: readonly CommandEntry[] = [
     "family": "logic",
     "summary": "Update a logic proxy with read-before-write merge (or full --file replace).",
     "positional": "<proxy-id>",
-    "details": "Mode A: any subset of --name/--upstream/--methods — CLI GETs the current ProxyDetailDto, merges only the supplied fields, and PUTs the complete body so routes/headers/access are not wiped. Mode B: --file supplies the full replacement body. Enabled and Slug are never sent (PATCH-only / immutable). Follow-up GET prints the stored detail. Errors: proxy_not_found (no PUT), PROXY_VALIDATION. Mutating unless --dry-run.",
+    "details": "Mode A: any subset of --name/--upstream/--methods/--requests-per-minute (n or 'default')/--timeout-seconds — CLI GETs the current ProxyDetailDto, merges only the supplied fields, and PUTs the complete body. PUT is a full replace that resets omitted access, resilience and requestsPerMinute to defaults, so all three are carried over (a --timeout-seconds change keeps the stored retry/breaker). Sends expectedVersion = the read currentVersion, so a change made in between is refused with PROXY_VERSION_CONFLICT (409) instead of overwritten. Mode B: --file supplies the full replacement body (omitted fields reset). Enabled and Slug are never sent (PATCH-only / immutable). Follow-up GET prints the stored detail. Errors: proxy_not_found (no PUT), PROXY_VALIDATION, PROXY_VERSION_CONFLICT. Mutating unless --dry-run.",
     "scope": "project",
     "mutating": true,
-    "flags": []
+    "flags": [
+      "file",
+      "methods",
+      "name",
+      "requests-per-minute",
+      "timeout-seconds",
+      "upstream"
+    ]
   },
   {
     "name": "logic proxy versions",
@@ -2580,7 +2882,10 @@ export const commandCatalog: readonly CommandEntry[] = [
     "details": "GETs /logic/v4/Proxies/{id}/versions with Page (0-based) and PageSize (default 50). Returns ProxyVersionDto rows + totalCount verbatim. Works for proxies that were later deleted. Errors: PROXY_NOT_FOUND when the id never existed for this tenant. Read-only.",
     "scope": "project",
     "mutating": false,
-    "flags": []
+    "flags": [
+      "page",
+      "page-size"
+    ]
   },
   {
     "name": "logic scheduler create",
@@ -2590,7 +2895,17 @@ export const commandCatalog: readonly CommandEntry[] = [
     "scope": "project",
     "mutating": true,
     "flags": [
-      "file"
+      "cron",
+      "description",
+      "end-date",
+      "file",
+      "header",
+      "method",
+      "name",
+      "payload",
+      "signing-secret",
+      "start-date",
+      "url"
     ]
   },
   {
@@ -2611,6 +2926,8 @@ export const commandCatalog: readonly CommandEntry[] = [
     "scope": "project",
     "mutating": false,
     "flags": [
+      "page",
+      "page-size",
       "search"
     ]
   },
@@ -2623,7 +2940,19 @@ export const commandCatalog: readonly CommandEntry[] = [
     "scope": "project",
     "mutating": true,
     "flags": [
-      "file"
+      "active",
+      "cron",
+      "description",
+      "end-date",
+      "file",
+      "header",
+      "inactive",
+      "method",
+      "name",
+      "payload",
+      "signing-secret",
+      "start-date",
+      "url"
     ]
   },
   {
@@ -3158,6 +3487,7 @@ export const commandCatalog: readonly CommandEntry[] = [
     "name": "notification list",
     "family": "notification",
     "summary": "List notification channel configurations.",
+    "details": "--page is 1-based (default 1) and --page-size defaults to 20; the service pages from 0, which the CLI converts. Answers {configurations, totalCount}. The `name` of a configuration is what `notifier notify --configuration-name` takes. Read-only.",
     "scope": "project",
     "mutating": false,
     "flags": [
@@ -3224,7 +3554,7 @@ export const commandCatalog: readonly CommandEntry[] = [
     "name": "notifier notify",
     "family": "notifier",
     "summary": "Push a notification to specific users/roles, or everyone matching a subscription filter.",
-    "details": "Target with at least one of --user-ids/--roles/--subscription-filters.",
+    "details": "Target with at least one of --user-ids/--roles/--organization-ids/--subscription-filters, and pass the content as --denormalized-payload; both are checked before sending. --configuration-name is the `name` of one of the project's notification configurations (`blocks notification list`); when omitted and the project has exactly one, that one is used (the dry-run says so), otherwise the command asks for it. connectionId/responseKey/responseValue, which the service requires but a server-side send has no use for, default to server/notification/notification. Sent with only the project's x-blocks-key, as an app sends it: the notifier resolves configurations in the root tenant for an impersonated caller. Errors: notify_target_required, notify_payload_required, notification_configuration_required, notification_configuration_not_found.",
     "scope": "project",
     "mutating": true,
     "flags": [
@@ -3234,6 +3564,7 @@ export const commandCatalog: readonly CommandEntry[] = [
       "content-available",
       "denormalized-payload",
       "file",
+      "organization-ids",
       "response-key",
       "response-value",
       "roles",
@@ -3290,6 +3621,19 @@ export const commandCatalog: readonly CommandEntry[] = [
     "scope": "local",
     "mutating": false,
     "flags": []
+  },
+  {
+    "name": "pull",
+    "family": "pull",
+    "summary": "Write a read-only snapshot of the project's IAM, auth, mail, storage, release and logic setup into blocks/<service>/.",
+    "details": "Read-only on the server; overwrites the snapshot files locally. Each file is {\"_meta\": {tenantId, pulledAt, cliVersion, readOnly, secretsRedacted, service}, \"data\": ...}. --only limits it to some services. Secret fields are redacted to *** unless --include-secrets. Refuses a --project other than the workspace's own unless --force. A failing service is listed under 'failed' with a non-zero exit; the others are still written. Change state with each service's own commands, then pull again.",
+    "scope": "project",
+    "mutating": false,
+    "flags": [
+      "force",
+      "include-secrets",
+      "only"
+    ]
   },
   {
     "name": "release builds list",
@@ -3764,6 +4108,7 @@ export const commandCatalog: readonly CommandEntry[] = [
     "family": "storage",
     "summary": "Read one storage backend configuration by name.",
     "positional": "<name>",
+    "details": "Each secret shows only a status (connectionStringStatus, secretKeyStatus, accessKeyStatus, passwordStatus, sftpSecretKeyStatus: none|active|locked|archived|missing|unavailable); blocks-os never returns a secret value. A missing or archived secret needs the configuration deleted and created again.",
     "scope": "project",
     "mutating": false,
     "flags": [
@@ -3774,6 +4119,7 @@ export const commandCatalog: readonly CommandEntry[] = [
     "name": "storage config list",
     "family": "storage",
     "summary": "List storage backend configurations.",
+    "details": "Each secret shows only a status (connectionStringStatus, secretKeyStatus, accessKeyStatus, passwordStatus, sftpSecretKeyStatus: none|active|locked|archived|missing|unavailable); blocks-os never returns a secret value. A missing or archived secret needs the configuration deleted and created again.",
     "scope": "project",
     "mutating": false,
     "flags": []
@@ -3782,7 +4128,7 @@ export const commandCatalog: readonly CommandEntry[] = [
     "name": "storage config save",
     "family": "storage",
     "summary": "Upsert: omit --item-id to create; pass --update to update.",
-    "details": "Once a configuration exists (by --item-id with --update, or a create whose --name is taken) only the upload settings change: --upload-url-expiry-seconds, --download-url-expiry-seconds, --max-file-size-bytes (max 50 MB) and --upload-completion-required-for. Those four are carried from the stored record, since the server resets any left out. Provider and credential flags are refused on an existing configuration because the server would drop them.",
+    "details": "Credentials are sent on create only (blocks-os keeps them in SecretStore; a create whose --name is taken is refused). Once a configuration exists (by --item-id with --update) only the upload settings change: --upload-url-expiry-seconds, --download-url-expiry-seconds, --max-file-size-bytes (max 50 MB) and --upload-completion-required-for. Those four are carried from the stored record, since the server resets any left out. Provider and credential flags are refused on an existing configuration because the server would drop them.",
     "scope": "project",
     "mutating": true,
     "flags": [

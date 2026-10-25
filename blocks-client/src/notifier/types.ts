@@ -5,11 +5,21 @@ export type BlocksNotifierSubscriptionFilter = {
 };
 
 export type BlocksNotifyRequest = {
-  configurationName?: string;
+  /**
+   * The `name` of one of the tenant's notification configurations (created in the portal or
+   * with `blocks notification save`); it decides the channel and who may receive. Required.
+   */
+  configurationName: string;
+  /** The sender's own SignalR connection. Defaults to `"server"` -- a server-side send has none. */
   connectionId?: string;
   contentAvailable?: boolean;
-  denormalizedPayload?: string;
+  /** The notification content, usually a JSON string. Required by the service. */
+  denormalizedPayload: string;
+  /** Members of these organizations receive it. */
+  organizationIds?: string[];
+  /** Label stored on the notification. Defaults to `"notification"`. */
   responseKey?: string;
+  /** Label stored on the notification. Defaults to `"notification"`. */
   responseValue?: string;
   roles?: string[];
   saveDenormalizedPayloadAsAnObject?: boolean;

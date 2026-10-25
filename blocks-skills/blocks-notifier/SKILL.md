@@ -34,7 +34,11 @@ Once context is known, AI automation should pass it explicitly:
 blocks notifier <command> --account <name> --project <tenantId> --json
 ```
 
-- **`blocks notifier notify [--user-ids a,b] [--roles a,b] [--connection-id <id>] [--configuration-name <n>] [--subscription-filters '<json>'] [--denormalized-payload <text>] [--save-denormalized-payload-as-object] [--content-available] [--response-key <k>] [--response-value <v>] [--body '<json>'|--file <path>] [--dry-run] [--yes] [--json]`** — the request should target at least one of `--user-ids`/`--roles`/`--subscription-filters`; the CLI does not reject an empty target locally, so inspect the dry-run before approval. `--user-ids` and `--roles` are comma-separated lists; `--subscription-filters` is a raw JSON array string (e.g. `[{"context":"orders","actionName":"created","value":"*"}]`, matching `BlocksNotifierSubscriptionFilter[]`). The body is built by merging `--body`/`--file` first, then layering the convenience flags on top — so an explicit convenience flag always wins over the same field in `--body`/`--file`, and an unset one never overwrites what `--body`/`--file` supplied. `--content-available` and `--save-denormalized-payload-as-object` are true-only booleans (absent when not passed, never an explicit `false`).
+- **`blocks notifier notify [--user-ids a,b] [--roles a,b] [--organization-ids a,b] [--subscription-filters '<json>'] --denormalized-payload <text> [--configuration-name <n>] [--save-denormalized-payload-as-object] [--content-available] [--connection-id <id>] [--response-key <k>] [--response-value <v>] [--body '<json>'|--file <path>] [--dry-run] [--yes] [--json]`** — needs a target (`--user-ids`/`--roles`/`--organization-ids`/`--subscription-filters`) and `--denormalized-payload`; both are checked before anything is sent (`notify_target_required`, `notify_payload_required`). `--user-ids` and `--roles` are comma-separated lists; `--subscription-filters` is a raw JSON array string (e.g. `[{"context":"orders","actionName":"created","value":"*"}]`, matching `BlocksNotifierSubscriptionFilter[]`). The body is built by merging `--body`/`--file` first, then layering the convenience flags on top — so an explicit convenience flag always wins over the same field in `--body`/`--file`, and an unset one never overwrites what `--body`/`--file` supplied. `--content-available` and `--save-denormalized-payload-as-object` are true-only booleans (absent when not passed, never an explicit `false`).
+
+**Every send goes through a notification configuration.** `--configuration-name` is the `name` of one of the project's configurations — see blocks-notification (`blocks notification list --json`). When it is omitted and the project has exactly one, that one is used and the dry-run says so; with none or several, the command stops and says which. A name that does not exist is `notification_configuration_not_found`. The configuration's type decides who can receive: a user-specific configuration needs user ids, roles or organization ids; a filter-specific one needs `--subscription-filters`.
+
+`--connection-id`, `--response-key` and `--response-value` are required by the service but carry nothing for a server-side send (the sender's SignalR connection, and two labels stored on the notification), so they default to `server` / `notification` / `notification`. The CLI sends `notify` with only the project's `x-blocks-key` — the way the app SDK does — because the service looks configurations up in the wrong place for an impersonated caller.
 - **`blocks notifier list [--unread-only] [--page <n>] [--page-size <n>] [--sort-by <property>] [--sort-desc] [--filter <text>] [--json]`** — read-only.
 - **`blocks notifier unread [--user-id <id>] [--context <c>] [--action-name <a>] [--value <v>] [--order-by <1|2>] [--json]`** — read-only. See "The GET-with-a-body quirk" below.
 - **`blocks notifier mark-read <id> [--dry-run] [--yes] [--json]`** — `id` may be positional or `--id`; one of the two is required (`Missing --id` if neither given).
@@ -62,6 +66,7 @@ This flattening is a **best-effort workaround, and the backend does not currentl
 import { blocksClient } from "../../lib/blocks/client";
 
 await blocksClient.notifier.notify({
+  configurationName: "in-app",   // the `name` of a notification configuration in this project
   userIds: ["user-1"],
   roles: ["admin"],
   denormalizedPayload: '{"orderId":"123"}',
@@ -80,7 +85,7 @@ await blocksClient.notifier.markNotificationAsRead({ id: notificationId });
 await blocksClient.notifier.markAllNotificationAsRead();
 ```
 
-- **`notify(request: BlocksNotifyRequest)`** — fields: `configurationName?`, `connectionId?`, `contentAvailable?: boolean`, `denormalizedPayload?: string`, `responseKey?`, `responseValue?`, `roles?: string[]`, `saveDenormalizedPayloadAsAnObject?: boolean`, `subscriptionFilters?: BlocksNotifierSubscriptionFilter[]`, `userIds?: string[]`.
+- **`notify(request: BlocksNotifyRequest)`** — fields: `configurationName: string` (required — a configuration `name` from this project), `denormalizedPayload: string` (required), `userIds?: string[]`, `roles?: string[]`, `organizationIds?: string[]`, `subscriptionFilters?: BlocksNotifierSubscriptionFilter[]` (at least one target), `saveDenormalizedPayloadAsAnObject?: boolean`, `contentAvailable?: boolean`, and `connectionId?` / `responseKey?` / `responseValue?`, which the SDK fills with `server` / `notification` / `notification` when omitted. A missing or unknown configuration answers 400 with `errors.ConfigurationName`.
 - **`getUnreadNotificationsBySubscriptionFilter(request)`** — fields: `orderBy: 1 | 2` (`1` CreatedTime desc, `2` ReadStatus — **required in practice**, see below), `subscriptionFilterData?: { actionName?, context?, value? }`, `userId?`. Internally builds the same flattened query as the CLI (see above) — this is the SDK-side half of the same documented workaround.
 - **`getNotifications(options: BlocksGetNotificationsOptions = {})`** — options: `filter?`, `isUnreadOnly?`, `page?`, `pageSize?`, `sortBy?`, `sortDescending?`. Response shape: `{ notifications: Record<string, unknown>[], totalNotificationsCount: number, unReadNotificationsCount: number }`.
 - **`markAllNotificationAsRead()`** — no arguments.
@@ -112,7 +117,7 @@ Always show the `--dry-run` output and get explicit approval before re-running w
 
 ## Example trigger prompts
 
-- "Send a notification to these user IDs from my app." -> SDK `blocksClient.notifier.notify({ userIds: [...] })`.
+- "Send a notification to these user IDs from my app." -> `blocks notification list --json` for the configuration name, then SDK `blocksClient.notifier.notify({ configurationName, userIds: [...], denormalizedPayload })`.
 - "Push a notification to everyone matching this subscription filter." -> SDK `notify({ subscriptionFilters: [...] })`, or `blocks notifier notify --subscription-filters '<json>' --dry-run --json` from the terminal.
 - "Show me a user's unread notifications for the 'orders' context." -> `blocks notifier unread --user-id <id> --context orders --order-by 1 --json`, or SDK `getUnreadNotificationsBySubscriptionFilter({ orderBy: 1, userId, subscriptionFilterData: { context: "orders" } })`.
 - "List my notification inbox, unread only." -> `blocks notifier list --unread-only --json`, or SDK `getNotifications({ isUnreadOnly: true })`.

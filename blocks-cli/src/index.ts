@@ -71,6 +71,7 @@ import {
 } from "./commands/data/files/object-tree.js";
 import { iamMe } from "./commands/iam/me.js";
 import { init } from "./commands/init.js";
+import { pull } from "./commands/pull.js";
 import { localizationAssistantTranslationSuggestion } from "./commands/localization/assistant/translation-suggestion.js";
 import { localizationConfigGetWebhook } from "./commands/localization/config/get-webhook.js";
 import { localizationConfigSaveWebhook } from "./commands/localization/config/save-webhook.js";
@@ -140,6 +141,20 @@ import { logicProxyTest } from "./commands/logic/proxy/test.js";
 import { logicProxyExecutions } from "./commands/logic/proxy/executions.js";
 import { logicProxyExecution } from "./commands/logic/proxy/execution.js";
 import { logicProxyOverview } from "./commands/logic/proxy/overview.js";
+import { logicProxyOpenApiPreview } from "./commands/logic/proxy/openapi-preview.js";
+import { logicFunctionList } from "./commands/logic/function/list.js";
+import { logicFunctionGet } from "./commands/logic/function/get.js";
+import { logicFunctionCreate } from "./commands/logic/function/create.js";
+import { logicFunctionUpdate } from "./commands/logic/function/update.js";
+import { logicFunctionSave } from "./commands/logic/function/save.js";
+import { logicFunctionExport } from "./commands/logic/function/export.js";
+import { logicFunctionDelete } from "./commands/logic/function/delete.js";
+import { logicFunctionTest } from "./commands/logic/function/test.js";
+import { logicFunctionDeploy } from "./commands/logic/function/deploy.js";
+import { logicFunctionAudit, logicFunctionLimits, logicFunctionSource, logicFunctionVersions } from "./commands/logic/function/versions.js";
+import { logicFunctionBuild } from "./commands/logic/function/build.js";
+import { logicFunctionCancel, logicFunctionLogs, logicFunctionReplay, logicFunctionRun, logicFunctionRuns } from "./commands/logic/function/runs.js";
+import { logicFunctionUrl } from "./commands/logic/function/url.js";
 import { logicSchedulerCreate } from "./commands/logic/scheduler/create.js";
 import { logicSchedulerUpdate } from "./commands/logic/scheduler/update.js";
 import { logicSchedulerDelete } from "./commands/logic/scheduler/delete.js";
@@ -301,6 +316,7 @@ const commands: Partial<Record<string, CommandHandler>> = {
   "auth:refresh": authRefresh,
   "doctor": doctor,
   "init": init,
+  "pull": pull,
   "login": login,
   "logout": logout,
   "projects:create": createProject,
@@ -566,6 +582,27 @@ const commands: Partial<Record<string, CommandHandler>> = {
   "logic:proxy:executions": logicProxyExecutions,
   "logic:proxy:execution": logicProxyExecution,
   "logic:proxy:overview": logicProxyOverview,
+  "logic:proxy:openapi-preview": logicProxyOpenApiPreview,
+  "logic:function:list": logicFunctionList,
+  "logic:function:get": logicFunctionGet,
+  "logic:function:create": logicFunctionCreate,
+  "logic:function:update": logicFunctionUpdate,
+  "logic:function:save": logicFunctionSave,
+  "logic:function:export": logicFunctionExport,
+  "logic:function:delete": logicFunctionDelete,
+  "logic:function:test": logicFunctionTest,
+  "logic:function:deploy": logicFunctionDeploy,
+  "logic:function:versions": logicFunctionVersions,
+  "logic:function:source": logicFunctionSource,
+  "logic:function:build": logicFunctionBuild,
+  "logic:function:runs": logicFunctionRuns,
+  "logic:function:run": logicFunctionRun,
+  "logic:function:logs": logicFunctionLogs,
+  "logic:function:replay": logicFunctionReplay,
+  "logic:function:cancel": logicFunctionCancel,
+  "logic:function:audit": logicFunctionAudit,
+  "logic:function:limits": logicFunctionLimits,
+  "logic:function:url": logicFunctionUrl,
   "logic:scheduler:create": logicSchedulerCreate,
   "logic:scheduler:update": logicSchedulerUpdate,
   "logic:scheduler:delete": logicSchedulerDelete,
@@ -757,8 +794,18 @@ Update notice:
 
 Setup and health:
   blocks init
-    Create local Blocks workspace files: blocks.json, data schema/rules folders,
-    and .env.example.
+    Create local Blocks workspace files: blocks.json, .env.example, and the
+    blocks/ tree -- data/ (schemas, rules.json), localization/, workflows/, and
+    a README'd folder per service (iam, auth, mail, storage, release, logic).
+    Never overwrites an existing file.
+
+  blocks pull [--only iam,auth,mail,storage,release,logic] [--include-secrets]
+              [--force] [--json]
+    Write a read-only snapshot of the project's setup into blocks/<service>/ for
+    agents to read. Each file wraps the data in a _meta block (tenantId,
+    pulledAt, cliVersion). Secrets are redacted to *** unless --include-secrets.
+    Refuses a --project other than the workspace's own unless --force. A failing
+    service is reported and exits non-zero; the rest are still written.
 
   blocks doctor [--json]
     Inspect cached CLI version, Node.js, OIDC config, token, optional project,
@@ -878,7 +925,7 @@ IAM:
     blocks iam roles assignable [--json]
 
   Permissions (/iam/v4/iam/permissions*):
-    blocks iam permissions list [--page] [--page-size] [--search] [--type <0-3>]
+    blocks iam permissions list [--page] [--page-size] [--search] [--type <0-2>]
                               [--severity <0-4>] [--resource-group] [--tags a,b]
                               [--resources a,b] [--is-built-in] [--is-archived]
                               [--roles a,b] [--organization-id] [--filter '<json>'] [--json]
@@ -890,7 +937,7 @@ IAM:
     blocks iam permissions update <id> [same flags as create, plus --is-archived]
                               [--dry-run] [--yes] [--json]
     blocks iam permissions by-severity [--json]
-      --type is IAM's ResourceType: 0 None, 1 Endpoint, 2 FrontendAction, 3 DataProtection.
+      --type is IAM's ResourceType: 0 None, 1 Endpoint, 2 FrontendAction.
       --severity is PermissionSeverity, ordered most-severe-first, not least: 0 None,
       1 Critical, 2 High, 3 Medium, 4 Low.
 
@@ -1035,14 +1082,17 @@ Notifier (/logic/v4/Notifier/* — real-time/offline notification sends and inbo
 Storage (/os/v4/Storage/* — project-scoped: requires a selected project, impersonated project token only):
   blocks storage config list [--json]
   blocks storage config get <name> [--json]
+    Each secret shows only a status (<field>Status: none|active|locked|archived|missing|
+    unavailable); blocks-os never returns a secret value.
   blocks storage config save [--item-id <id>] [--name <n>] [--strategy] [--connection-string]
                               [--secret-key] [--access-key] [--region-endpoint] [--host] [--port]
                               [--username] [--password] [--remote-base-path] [--update]
                               [--upload-url-expiry-seconds] [--download-url-expiry-seconds]
                               [--max-file-size-bytes] [--upload-completion-required-for Public,Private]
                               [--body '<json>'|--file <path>] [--dry-run] [--yes] [--json]
-    Upsert: omit --item-id to create; pass --update to update. Once a configuration exists only
-    the upload settings can change; the provider and its credentials are fixed.
+    Upsert: omit --item-id to create; pass --update to update. Credentials are sent on create
+    only. Once a configuration exists only the upload settings can change; the provider and
+    its credentials are fixed.
   blocks storage config delete <name> [--dry-run] [--yes] [--json]
 
 Domain (/os/v4/Domain/* — project-scoped: requires a selected project, impersonated project token only):
@@ -1144,17 +1194,17 @@ Auth Admin (/iam/v4/auth/identity-providers*, /config, /client-credentials, /oid
                               [--password-policy-message] [--body '<json>'|--file <path>]
                               [--dry-run] [--yes] [--json]
   blocks auth client-credentials list [--json]
-    clientSecret is included in list responses; treat CLI output as sensitive.
+    The service never returns clientSecret on list.
   blocks auth client-credentials save --name <n> [--item-id <id>] [--roles a,b]
                               [--permissions a,b] [--access-token-valid-minutes] [--active]
                               [--body '<json>'|--file <path>] [--dry-run] [--yes] [--json]
-    Omit --item-id to create; pass it to update. The response carries no clientSecret;
-    read it back from 'auth client-credentials list', which returns it in full.
+    Omit --item-id to create; pass it to update. On create, the response carries
+    clientSecret once; copy it then. List never returns it.
   blocks auth client-credentials delete <id> [--dry-run] [--yes] [--json]
 
   blocks auth oidc-clients list [--json]
     List registered OAuth 2.0 / OIDC client applications for the tenant. The service
-    returns client_secret in full here; the CLI redacts it. Use rotate-secret to get one.
+    never returns client_secret here. Use rotate-secret to get one.
   blocks auth oidc-clients get <clientId> [--json]
   blocks auth oidc-clients save [--item-id <id>] [--client-display-name] [--client-type]
                               [--redirect-uris a,b] [--post-logout-redirect-uris a,b]
@@ -1167,7 +1217,7 @@ Auth Admin (/iam/v4/auth/identity-providers*, /config, /client-credentials, /oid
                               [--register-as-identity-provider] [--oidc-url] [--device-flow-client]
                               [--body '<json>'|--file <path>] [--dry-run] [--yes] [--json]
     Upsert: omit --item-id to register a new client, pass it to update an existing one.
-    The response's client_secret is shown here; the service also returns it on list/get, where the CLI redacts it.
+    On create, the response's client_secret is shown once; list/get never return it.
     --client-type is not optional in practice: IAM derives tokenEndpointAuthMethod from it,
     so omitting it stores a browser/SPA client as confidential ("client_secret_post") and
     lets it request the client_credentials grant. Pass --client-type public for any
@@ -1582,15 +1632,20 @@ Logic (blocks-logic):
     List Proxies from /logic/v4/Proxies (verbatim). --page is 0-based.
 
   blocks logic proxy create (--name/--upstream/--methods | --file <path.json>)
-                            [--enabled|--disabled] [--dry-run] [--yes] [--json]
+                            [--enabled|--disabled] [--requests-per-minute <n>]
+                            [--timeout-seconds <n>] [--dry-run] [--yes] [--json]
     Create a proxy (simple flags or full JSON file), then print the stored detail.
 
   blocks logic proxy get <proxy-id> [--json]
     Fetch one proxy. Unknown/foreign id returns {"data":null} (exit 0).
 
-  blocks logic proxy update <proxy-id> (--name/--upstream/--methods | --file)
+  blocks logic proxy update <proxy-id> (--name/--upstream/--methods/
+                                        --requests-per-minute <n|default>/
+                                        --timeout-seconds <n> | --file)
                                        [--dry-run] [--yes] [--json]
-    Read-merge-write update (PUT). Mode A merges only supplied fields.
+    Read-merge-write update (PUT). Mode A merges only supplied fields and keeps
+    access, resilience and the rate limit; refused with PROXY_VERSION_CONFLICT
+    if the proxy changed since it was read.
 
   blocks logic proxy enable <proxy-id> [--yes] [--json]
   blocks logic proxy disable <proxy-id> [--yes] [--json]
@@ -1620,6 +1675,70 @@ Logic (blocks-logic):
 
   blocks logic proxy overview <proxy-id> [--json]
     Rolling-24h metrics overview (verbatim).
+
+  blocks logic proxy openapi-preview (--spec-file <path> | --spec-url <url>)
+                                     [--proxy-id <id>] [--json]
+    Routes an OpenAPI document would produce. Read-only; send the chosen ones as
+    routes via create/update --file.
+
+  blocks logic function list [--search <s>] [--status draft|live|paused]
+                             [--sort name|updated] [--page <n>] [--page-size <n>] [--json]
+    Function summaries (never source). --page is 0-based.
+
+  blocks logic function get <function-id> [--json]
+    The saved working copy: source, trigger, variables, output actions.
+
+  blocks logic function create --name <n> [--description <d>]
+                               [--template minimal|httpecho|fetchtransform|reusedconnection]
+                               [--dry-run] [--yes] [--json]
+    New Draft function seeded from a starter template.
+
+  blocks logic function update <function-id> [--name <n>] [--description <d>]
+                               [--dry-run] [--yes] [--json]
+    Rename or re-describe.
+
+  blocks logic function export <function-id> --dir <path> [--force] [--json]
+    Write index.js, package.json, package-lock.json and function.json locally.
+
+  blocks logic function save <function-id> [--dir <path>] [--index-file <f>]
+        [--package-file <f>] [--lock-file <f>|--no-lock] [--config-file <f>]
+        [--http-methods GET,POST] [--auth public|token] [--roles a,b] [--permissions a,b]
+        [--response-mode async|sync] [--http-enabled[=false]] [--workflow-enabled[=false]]
+        [--requests-per-minute <n>|default] [--allow-install-scripts[=false]]
+        [--var KEY=VALUE]... [--unset-var A,B] [--dry-run] [--yes] [--json]
+    Save the working copy (read-merge-write). Not live until deploy.
+
+  blocks logic function test <function-id> [--input '<json>'|--input-file <f>]
+                             [--rebuild] [--wait-timeout <s>] [--json]
+    Run the saved code once (builds first if needed). Real side effects; no deploy.
+
+  blocks logic function deploy <function-id> [--note <text>] [--rebuild]
+                               [--build-id <id>] [--no-wait] [--timeout <s>]
+                               [--dry-run] [--yes] [--json]
+    Ship the saved code as a new live version; waits for a running build.
+
+  blocks logic function url <function-id> [--path <sub/path>] [--json]
+    Public invoke URL plus the methods, auth and response mode callers get.
+
+  blocks logic function versions <function-id> [--page <n>] [--page-size <n>] [--json]
+  blocks logic function source <function-id> <version-id> [--json]
+  blocks logic function build <build-id> [--json]
+    Deployed versions, a version's source, one image build and its log.
+
+  blocks logic function runs [<function-id>] [--status <s>] [--invoked-by <t>]
+                             [--search <run-id-prefix>] [--from <ISO>] [--to <ISO>]
+                             [--page <n>] [--page-size <n>] [--json]
+  blocks logic function run <run-id> [--json]
+  blocks logic function logs <run-id> [--page <n>] [--page-size <n>] [--json]
+    Run history, one run in full, and its log lines.
+
+  blocks logic function replay <run-id> [--dry-run] [--yes] [--json]
+  blocks logic function cancel <run-id> [--dry-run] [--yes] [--json]
+    Re-run a past run's input on the live version / stop a queued or running run.
+
+  blocks logic function audit <function-id> [--page <n>] [--page-size <n>] [--json]
+  blocks logic function limits [--json]
+    Who changed what and when / the fixed per-run resource profile.
 
   blocks logic scheduler create --name <n> --cron <expr> --url <url>
                                 [--method <verb>] [--header k=v]... [--payload <s>]

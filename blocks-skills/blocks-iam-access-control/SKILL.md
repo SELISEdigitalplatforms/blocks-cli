@@ -7,6 +7,8 @@ When invoking a project-scoped `blocks` command, either use the resolved account
 
 # Blocks IAM — Access Control (Permissions & Roles)
 
+**Local snapshot:** `blocks/iam/` holds a read-only snapshot of the project's roles, permissions, resource groups and features, written by `blocks pull --only iam`. Read it for context before listing things one by one; check its `_meta.tenantId` and `_meta.pulledAt`, and pull again if it's stale or after you change anything. Never edit it to change the project: editing does nothing, so use the commands below. Secret fields in it are `***`.
+
 This skill covers **permission and role definitions** in SELISE Blocks — the RBAC model itself, not who has which role (that's the blocks-iam-users skill). Everything goes through either `blocks iam roles/permissions *` (CLI) or `blocksClient.iam.*` from **`@seliseblocks/client`**, the single SDK instance every `blocks new web` scaffold wires up at `src/lib/blocks/client.ts` and exports as `blocksClient`. No raw `fetch`/`curl` for either surface.
 
 For CLI work, if account or project context is unknown, use blocks-bootstrap
@@ -42,7 +44,7 @@ Sensitive means *confirmed*, not *refused*: **any permission the seeded `cloudus
 
 - **CLI mutations are project-scoped, not account-scoped** — they run against the impersonated-project token. `blocks iam me` prefers that token when a project resolves and uses the account token only without a resolved project.
 - **Role hierarchy and permission assignment key off `slug`**, not `itemId`.
-- **Match the permission type to the symptom.** `--type 1` Endpoint is gateway-enforced (missing ⇒ **403**); `--type 2` FrontendAction is SPA-gate-enforced (missing ⇒ control silently hidden); `--type 3` DataProtection controls masking (missing ⇒ redacted data). Most features need the type 1 *and* type 2 permission, plus any `dependentPermissions`.
+- **Match the permission type to the symptom.** `--type 1` Endpoint is gateway-enforced (missing ⇒ **403**); `--type 2` FrontendAction is SPA-gate-enforced (missing ⇒ control silently hidden). Most features need the type 1 *and* type 2 permission, plus any `dependentPermissions`.
 - **Never fire a create/update/assign-permissions call — CLI or SDK — without a human confirming that specific change first.** See [flows/manage-roles-permissions.md](flows/manage-roles-permissions.md) for the full discipline.
 - **OIDC/identity-provider client provisioning is a separate concern**, independent of everything above — it runs through `blocks auth oidc-clients`/`auth idp`, not through roles and permissions.
 

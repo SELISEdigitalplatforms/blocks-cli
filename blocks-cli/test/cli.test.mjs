@@ -33,6 +33,7 @@ const bin = join(repoRoot, "bin", "run.js");
 // update notice from making live npm registry calls throughout the suite.
 // Tests that exercise the notice itself override it with an empty value.
 process.env.BLOCKS_NO_UPDATE_CHECK = "1";
+process.env.BLOCKS_NO_LINK_CHECK = "1";
 
 test("isNewerVersion orders semver correctly", () => {
   assert.equal(isNewerVersion("0.4.0", "0.3.1"), true);
@@ -699,6 +700,12 @@ test("scaffolded web app depends on @seliseblocks/client and has no custom Block
   const commonDictionary = JSON.parse(await readFile(join(appDir, "blocks", "localization", "common.en.json"), "utf8"));
   assert.equal(commonDictionary.save, "Save");
   assert.equal(commonDictionary["common.save"], undefined);
+  // Same blocks/ tree as 'blocks init': data/ plus a README'd folder per service.
+  assert.deepEqual(JSON.parse(await readFile(join(appDir, "blocks", "data", "rules.json"), "utf8")), { policies: [] });
+  assert.ok((await stat(join(appDir, "blocks", "data", "schemas"))).isDirectory());
+  for (const folder of ["data", "localization", "workflows", "iam", "auth", "mail", "storage", "release", "logic"]) {
+    assert.ok((await stat(join(appDir, "blocks", folder, "README.md"))).isFile(), `expected blocks/${folder}/README.md`);
+  }
   await assert.rejects(() => readFile(join(appDir, "blocks", "localization", "dashboard.en.json"), "utf8"), /ENOENT/, "bootstrap should not write a dashboard dictionary");
   await assert.rejects(() => readFile(join(appDir, "blocks", "localization", "assets.en.json"), "utf8"), /ENOENT/, "bootstrap should not write an assets dictionary");
   // Each SDK module is exercised in context rather than in one dedicated demo
@@ -901,31 +908,11 @@ test("auth config save drops null current fields and only forces OIDC related fi
       accountVerificationPath: "verify/",
       recoverAccountPath: "recover/",
       isOidcEnabled: true,
-      accountActionBaseUrl: "https://app.example.test",
+      // The preset app domain is replaced: OIDC activation links land on IAM's hosted page.
+      accountActionBaseUrl: "https://iam.seliseblocks.com",
       useAccountActionBaseUrlAsDefault: true,
       logoutOnPasswordChange: true
     });
-  } finally {
-    await new Promise((resolveClose) => server.close(resolveClose));
-  }
-});
-
-test("auth config dry-run fails when enabling OIDC without an account action base URL", async () => {
-  const { cwd, configDir } = await makeWorkspace();
-  await writeProjectAuth(configDir);
-  const requests = [];
-  const server = await startJsonServer((request) => {
-    requests.push({ method: request.method, url: request.url });
-    return { isOidcEnabled: false };
-  });
-
-  try {
-    const result = await runAsync([
-      "auth", "config", "save", "--oidc-enabled", "--dry-run", "--api-url", server.url, "--json"
-    ], { cwd, env: testEnv(configDir, { BLOCKS_SECRET_STORE: "file" }) });
-    assert.equal(result.status, 1);
-    assert.match(result.stderr, /requires accountActionBaseUrl/);
-    assert.equal(requests.filter((item) => item.method === "POST").length, 0);
   } finally {
     await new Promise((resolveClose) => server.close(resolveClose));
   }
@@ -2840,6 +2827,39 @@ test("storage config save --update carries upload settings and refuses provider 
     );
     assert.notEqual(refused.status, 0);
     assert.match(refused.stdout + refused.stderr, /provider and credentials are fixed/);
+  } finally {
+    await new Promise((resolveClose) => server.close(resolveClose));
+  }
+});
+
+test("storage config list shows secret status and never prints a secret value an older server sends", async () => {
+  const { cwd, configDir } = await makeWorkspace();
+  await writeProjectAuth(configDir);
+  const server = await startJsonServer((request) => {
+    const path = request.url.split("?")[0];
+    if (path === "/os/v4/Storage/Gets") {
+      return [{
+        itemId: "cfg-1",
+        name: "primary",
+        storageStrategy: "AWS",
+        accessKeyStatus: "active",
+        secretKeyStatus: "missing",
+        accessKey: "AKIA-not-real",
+        secretKey: "not-a-real-secret"
+      }];
+    }
+    return rawResponse(500, { errorMessage: `Unexpected ${request.method} ${path}` });
+  });
+
+  try {
+    const env = testEnv(configDir, { BLOCKS_SECRET_STORE: "file" });
+    const listed = await runAsync(["storage", "config", "list", "--api-url", server.url, "--json"], { cwd, env });
+    assert.equal(listed.status, 0, listed.stderr);
+    const [config] = JSON.parse(listed.stdout);
+    assert.equal(config.accessKeyStatus, "active");
+    assert.equal(config.secretKeyStatus, "missing");
+    assert.equal(config.accessKey, "***");
+    assert.equal(config.secretKey, "***");
   } finally {
     await new Promise((resolveClose) => server.close(resolveClose));
   }

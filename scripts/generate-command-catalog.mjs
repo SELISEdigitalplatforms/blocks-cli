@@ -30,9 +30,27 @@ const FLAG_INDEX_READERS = /\bflags\s*\[\s*"([a-z0-9-]+)"\s*\]/g;
 // command's behalf would look like it doesn't exist -- and `blocks` warns about flags the
 // catalog doesn't know, so a valid `--page` would warn. These are the lib helpers that read
 // a flag by a name their call site never spells out.
+//
+// The logic proxy/scheduler/function helpers build whole request bodies from flags, so
+// each maps to every flag it reads. Without these, `logic proxy update <id> --name x`
+// warned that --name "is ignored" while using it.
 const LIB_FLAG_HELPERS = [
   [/zeroBasedPageNumber\s*\(/, "page-number"],
-  [/zeroBasedPage\(/, "page"]
+  [/zeroBasedPage\(/, "page"],
+  [/resolveProxyWriteMode\s*\(/, "file"],
+  [/buildSimpleCreateBody\s*\(/, ["name", "upstream", "methods", "enabled", "disabled", "requests-per-minute", "timeout-seconds"]],
+  [/buildSimpleUpdateOverrides\s*\(/, ["name", "upstream", "methods", "requests-per-minute", "timeout-seconds"]],
+  [/parseProxyListPaging\s*\(/, ["page", "page-size"]],
+  [/parseProxyListActiveFilter\s*\(/, ["active", "inactive"]],
+  [/parseProxyPageSize\s*\(/, "page-size"],
+  [/parseZeroBasedPage\s*\(/, "page"],
+  [/buildCreateBodyFromFlags\s*\(/, ["name", "cron", "url", "method", "header", "signing-secret", "payload", "description", "start-date", "end-date"]],
+  [/buildUpdateOverrides\s*\(/, ["name", "description", "cron", "payload", "start-date", "end-date", "header", "url", "method", "signing-secret", "active", "inactive"]],
+  [/parseSchedulerPaging\s*\(/, ["page", "page-size"]],
+  [/parseFunctionPaging\s*\(/, ["page", "page-size"]],
+  [/readSaveSources\s*\(/, ["dir", "index-file", "package-file", "lock-file", "no-lock", "config-file"]],
+  [/buildSaveBody\s*\(/, ["http-methods", "auth", "roles", "permissions", "response-mode", "http-enabled", "workflow-enabled", "requests-per-minute", "allow-install-scripts", "unset-var"]],
+  [/parseVariablePairs\s*\(/, "var"]
 ];
 
 const indexSource = readFileSync(join(cliSrc, "index.ts"), "utf8");
@@ -107,8 +125,9 @@ function analyze(file, handler, seen = new Set()) {
   const text = node.getText();
   for (const match of text.matchAll(FLAG_READERS)) flags.add(match[1]);
   for (const match of text.matchAll(FLAG_INDEX_READERS)) flags.add(match[1]);
-  for (const [pattern, flag] of LIB_FLAG_HELPERS) {
-    if (pattern.test(text)) flags.add(flag);
+  for (const [pattern, helperFlags] of LIB_FLAG_HELPERS) {
+    if (!pattern.test(text)) continue;
+    for (const flag of [helperFlags].flat()) flags.add(flag);
   }
   if (/jsonBodyFlag/.test(text)) {
     flags.add("body");

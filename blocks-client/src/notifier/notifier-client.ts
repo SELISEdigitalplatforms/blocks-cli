@@ -23,10 +23,14 @@ export class BlocksNotifierClient {
   /**
    * What: pushes a notification through `POST /logic/v4/Notifier/Notify`.
    * Why: app code needs to notify specific users/roles, or everyone subscribed to a filter, in real time with an offline/persisted fallback.
-   * How: target with at least one of `userIds`/`roles`/`subscriptionFilters`; set `saveDenormalizedPayloadAsAnObject` if `denormalizedPayload` is a JSON string clients should receive parsed.
+   * How: name a `configurationName` from the tenant's notification configurations, target with at least one of
+   * `userIds`/`roles`/`organizationIds`/`subscriptionFilters`, and pass `denormalizedPayload`; set
+   * `saveDenormalizedPayloadAsAnObject` if it is a JSON string clients should receive parsed. `connectionId`,
+   * `responseKey` and `responseValue` -- required strings server-side -- are filled with defaults when omitted.
    */
   notify(request: BlocksNotifyRequest): Promise<BlocksNotifierPassThroughResponse> {
-    return this.http.request<BlocksNotifierPassThroughResponse>(`${NOTIFIER_API}/Notify`, { body: request });
+    const body = { connectionId: "server", responseKey: "notification", responseValue: "notification", ...request };
+    return this.http.request<BlocksNotifierPassThroughResponse>(`${NOTIFIER_API}/Notify`, { body });
   }
 
   /**

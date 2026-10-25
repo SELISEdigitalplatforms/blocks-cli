@@ -13,12 +13,27 @@ export class BlocksHttpClient {
   }
 
   async request<T>(path: string, options: BlocksRequestOptions = {}): Promise<T> {
+    const response = await this.send(path, { ...options, headers: withJsonAccept(options.headers) });
+    const body = await parseBody(response);
+    if (!response.ok) throw new BlocksApiError(response.status, response.statusText, body);
+    return body as T;
+  }
+
+  /**
+   * What: sends a Blocks API request and returns the raw `Response`, unread.
+   * Why: some answers carry meaning in the status and headers rather than only the
+   * body -- a function invocation's 202 vs. its synchronous answer, `Retry-After`,
+   * a streamed body -- which `request` reduces to parsed JSON.
+   * How: same credentials, `x-blocks-key`, same-origin guard and one-shot
+   * `onUnauthorized` retry as `request`; never throws on a non-2xx status. `Accept`
+   * is left to the caller's headers.
+   */
+  async send(path: string, options: BlocksRequestOptions = {}): Promise<Response> {
     const url = buildUrl(this.config.apiUrl, path, options.query);
     const rawBody = isBodyInit(options.body) ? options.body : undefined;
 
-    const send = async (accessTokenOverride?: string): Promise<Response> => {
+    const attempt = async (accessTokenOverride?: string): Promise<Response> => {
       const headers = new Headers(options.headers);
-      headers.set("Accept", "application/json");
       headers.set("x-blocks-key", this.config.xBlocksKey);
 
       if (options.body !== undefined && !rawBody && !headers.has("Content-Type")) {
@@ -36,11 +51,12 @@ export class BlocksHttpClient {
         // without this the browser never sends it back on subsequent Blocks API calls.
         credentials: "include",
         headers,
-        method: options.method ?? (options.body === undefined ? "GET" : "POST")
+        method: options.method ?? (options.body === undefined ? "GET" : "POST"),
+        signal: options.signal
       });
     };
 
-    let response = await send();
+    let response = await attempt();
 
     // A 401 on a token the caller supplied directly (options.accessToken) is the
     // caller's problem to resolve, not ours. Otherwise, give the app one chance to
@@ -48,12 +64,10 @@ export class BlocksHttpClient {
     // callers behind a single refresh) and retry exactly once with what it returns.
     if (response.status === 401 && options.auth !== false && options.accessToken === undefined && this.config.onUnauthorized) {
       const freshToken = await this.config.onUnauthorized();
-      if (freshToken) response = await send(freshToken);
+      if (freshToken) response = await attempt(freshToken);
     }
 
-    const body = await parseBody(response);
-    if (!response.ok) throw new BlocksApiError(response.status, response.statusText, body);
-    return body as T;
+    return response;
   }
 
   async external<T = unknown>(url: string, options: BlocksExternalRequestOptions = {}): Promise<T> {
@@ -90,6 +104,13 @@ function sameOriginOnly(path: string, baseUrl: string): URL {
   return target;
 }
 
+/** `request` always asks for JSON, as it did before `send` existed. */
+function withJsonAccept(headers: HeadersInit | undefined): Headers {
+  const merged = new Headers(headers);
+  merged.set("Accept", "application/json");
+  return merged;
+}
+
 function isBodyInit(value: unknown): value is BodyInit {
   return typeof Blob !== "undefined" && value instanceof Blob
     || typeof FormData !== "undefined" && value instanceof FormData
@@ -105,13 +126,18 @@ function buildUrl(baseUrl: string, path: string, query?: BlocksRequestOptions["q
     : new URL(path.replace(/^\/+/, ""), `${baseUrl}/`);
 
   for (const [key, value] of Object.entries(query ?? {})) {
-    if (value !== undefined) url.searchParams.set(key, String(value));
+    if (value === undefined) continue;
+    if (Array.isArray(value)) {
+      for (const item of value) url.searchParams.append(key, String(item));
+    } else {
+      url.searchParams.set(key, String(value));
+    }
   }
 
   return url.toString();
 }
 
-async function parseBody(response: Response): Promise<unknown> {
+export async function parseBody(response: Response): Promise<unknown> {
   if (response.status === 204) return undefined;
 
   const text = await response.text();
