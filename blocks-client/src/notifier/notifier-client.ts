@@ -27,6 +27,8 @@ export class BlocksNotifierClient {
    * `userIds`/`roles`/`organizationIds`/`subscriptionFilters`, and pass `denormalizedPayload`; set
    * `saveDenormalizedPayloadAsAnObject` if it is a JSON string clients should receive parsed. `connectionId`,
    * `responseKey` and `responseValue` -- required strings server-side -- are filled with defaults when omitted.
+   * Call it as a signed-in user whose role has `blocks-logic::notifier::send`: since 2026-10-24 blocks-logic
+   * refuses a send (401) that has neither that permission nor the services' internal sender secret.
    */
   notify(request: BlocksNotifyRequest): Promise<BlocksNotifierPassThroughResponse> {
     const body = { connectionId: "server", responseKey: "notification", responseValue: "notification", ...request };

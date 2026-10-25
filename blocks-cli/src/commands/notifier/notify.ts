@@ -2,13 +2,15 @@ import { booleanFlag, stringFlag } from "../../lib/args.js";
 import { blocksRequest } from "../../lib/api.js";
 import { confirmMutation } from "../../lib/confirm.js";
 import { isRecord } from "../../lib/data-response.js";
-import { CliActionableError } from "../../lib/errors.js";
+import { CliActionableError, withPermissionHint } from "../../lib/errors.js";
 import { compact, jsonBodyFlag, jsonFlag, listFlag } from "../../lib/json-flag.js";
 import { writeOutput } from "../../lib/output.js";
 import { requestContext } from "../../lib/request-context.js";
 import { optionalSelectedProject, parseCommand, selectedProject } from "../../lib/workspace.js";
 
 const NOTIFIER_NOTIFY_API = "/logic/v4/Notifier/Notify";
+
+export const NOTIFIER_SEND_PERMISSION = "blocks-logic::notifier::send";
 
 /**
  * Values for the request fields blocks-logic binds as required strings but a
@@ -20,10 +22,12 @@ export const NOTIFY_FIELD_DEFAULTS = { connectionId: "server", responseKey: "not
 /**
  * Send a notification through blocks-logic's Notifier.
  *
- * Sent anonymously with only the project's `x-blocks-key`, like the app SDK sends it.
- * Notify is an anonymous action, and blocks-logic resolves `configurationName` in the
- * root database for an impersonated caller -- so with the CLI's impersonated token every
- * project configuration came back `no_configuration_exist`.
+ * Since blocks-logic 2026-10-24 a send needs the services' internal `Secret` header or a token
+ * with `blocks-logic::notifier::send`; an anonymous call is refused. The CLI sends with its
+ * impersonated project session. blocks-logic still resolves `configurationName` in the ROOT
+ * database for an impersonated caller (Notification ConfigurationRepository), so a project's
+ * own configuration comes back `no_configuration_exist` until that is fixed server-side; the
+ * error below says so instead of claiming the project has no such configuration.
  */
 export async function notifierNotify(argv: string[]): Promise<void> {
   const { flags } = parseCommand(argv);
@@ -82,15 +86,26 @@ export async function notifierNotify(argv: string[]): Promise<void> {
     return;
   }
   await confirmMutation(flags, `Send notification through configuration '${String(body.configurationName)}'.`);
-  const result = await blocksRequest<unknown>(NOTIFIER_NOTIFY_API, {
+  // A send without the permission is answered 401 (NotifierController.Refused), not 403.
+  const result = await withPermissionHint(NOTIFIER_SEND_PERMISSION, blocksRequest<unknown>(NOTIFIER_NOTIFY_API, {
     acceptFailureEnvelope: true,
-    anonymousTenantId: projectKey,
     body,
-    ...requestContext(flags)
-  });
+    impersonatedProjectAuth: true,
+    ...requestContext(flags),
+    projectTenantId: projectKey
+  }), [401, 403]);
   if (isRecord(result) && result.isSuccess === false) {
     const errors = isRecord(result.errors) ? result.errors : {};
     if (errors.ConfigurationName === "no_configuration_exist") {
+      const names = projectKey ? (await configurationNames(projectKey, flags)) : [];
+      if (names.includes(String(body.configurationName))) {
+        throw new CliActionableError(
+          `The project has '${String(body.configurationName)}', but blocks-logic looks configurations up in the root project for a CLI (impersonated) send, so it cannot be sent from the CLI yet.`,
+          "notify_impersonation_unsupported",
+          "Send it from the app with @seliseblocks/client (blocks.notifier.notify) as a user whose role has blocks-logic::notifier::send.",
+          errors
+        );
+      }
       throw new CliActionableError(
         `No notification configuration named '${String(body.configurationName)}' in this project.`,
         "notification_configuration_not_found",
@@ -105,17 +120,7 @@ export async function notifierNotify(argv: string[]): Promise<void> {
 
 /** The project's notification configuration name when it has exactly one; otherwise an actionable error. */
 async function soleConfigurationName(projectKey: string, flags: Record<string, string | boolean>): Promise<string> {
-  const response = await blocksRequest<unknown>("/os/v4/Notification/Gets", {
-    impersonatedProjectAuth: true,
-    ...requestContext(flags),
-    projectTenantId: projectKey,
-    query: { Page: 0, PageSize: 50 }
-  });
-  const names = (isRecord(response) && Array.isArray(response.configurations) ? response.configurations : [])
-    .filter(isRecord)
-    .map((configuration) => configuration.name)
-    .filter((name): name is string => typeof name === "string" && name.length > 0);
-
+  const names = await configurationNames(projectKey, flags);
   if (names.length === 1) return names[0];
   if (names.length === 0) {
     throw new CliActionableError(
@@ -128,4 +133,18 @@ async function soleConfigurationName(projectKey: string, flags: Record<string, s
     `Pass --configuration-name: this project has ${names.length} notification configurations (${names.join(", ")}).`,
     "notification_configuration_required"
   );
+}
+
+/** The names of the project's notification configurations (blocks-os, first 50). */
+async function configurationNames(projectKey: string, flags: Record<string, string | boolean>): Promise<string[]> {
+  const response = await blocksRequest<unknown>("/os/v4/Notification/Gets", {
+    impersonatedProjectAuth: true,
+    ...requestContext(flags),
+    projectTenantId: projectKey,
+    query: { Page: 0, PageSize: 50 }
+  });
+  return (isRecord(response) && Array.isArray(response.configurations) ? response.configurations : [])
+    .filter(isRecord)
+    .map((configuration) => configuration.name)
+    .filter((name): name is string => typeof name === "string" && name.length > 0);
 }

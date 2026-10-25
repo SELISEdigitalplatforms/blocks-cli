@@ -38,8 +38,8 @@ These don't change anything, so there's no caveat to apply:
 |---|---|
 | `iam.users.get(id, { organizationId? })` | One user record, optionally scoped to an org. |
 | `iam.users.list(request)` | Paged/filtered user query. **This is a POST-read contract** — `list` sends `{ pageNo, pageSize, filter, search, ... }` as a POST body, it is not a GET. |
-| `iam.users.emailAvailable(query)` | Public duplicate-email check for invite/signup forms. No auth needed. |
-| `iam.users.exists(email)` | Existence check by email. |
+| `iam.users.emailAvailable(query)` | Duplicate-email check for invite forms. Needs a signed-in user with `blocks-iam::iam::email-available`; not callable before sign-in. |
+| `iam.users.exists(email)` | Existence check by email. Needs `blocks-iam::iam::users`. |
 
 ```ts
 const page = await blocksClient.iam.users.list({ pageNo: 1, pageSize: 20, search: "jane" });
@@ -91,7 +91,7 @@ Reads — no confirmation needed:
 | `blocks iam users list [--page 1] [--page-size 20] [--email <e>] [--name <n>] [--organization-id <id>[,<id>]] [--sort-by <field>] [--sort-desc] [--body '<json>'] [--json]` | Paged/filtered user query. `--organization-id` returns only members of those organizations. There is no `--filter` flag: for any filter beyond the convenience flags, pass `--body '{"filter":{...}}'` (fields: `status: {active, inactive}`, `accountStates`, `roles`, `userIds`, `organizationIds`) — the convenience flags are merged over it. |
 | `blocks iam users get <id> [--organization-id <id>] [--json]` | One user record, optionally scoped to an org. |
 | `blocks iam users exists <email> [--json]` | Existence check by email in the selected project: `{ userId, organizationIds }`, `userId` null when absent. |
-| `blocks iam email available <email> [--json]` | Duplicate-email check for the selected project: `isAvailable: true` means `users create` will accept the address. Agrees with `users exists`. |
+| `blocks iam email available <email> [--json]` | Duplicate-email check for the selected project: `isAvailable: true` means `users create` will accept the address. Agrees with `users exists`. Your account's role in the root project needs `blocks-iam::iam::email-available`; without it the command stops with `permission_required`. |
 
 Mutations — every one supports `--dry-run` (print the request body and exit, no call) and requires either `--yes` or a typed `yes` at an interactive prompt before it executes:
 

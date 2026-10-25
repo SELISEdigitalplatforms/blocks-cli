@@ -60,23 +60,27 @@
   --name …` printed "--name … is ignored" while using it -- and under
   `BLOCKS_STRICT_FLAGS=1` refused to run at all. The catalog generator now maps
   those helpers to the flags they read.
-- **`notifier notify` works against a project's own notification configuration**
-  (blocks-site 95737817). Notify is an anonymous action, and blocks-logic looks
-  `configurationName` up in the root tenant for an impersonated caller -- which
-  every project-scoped CLI call is -- so every configuration came back
-  `no_configuration_exist`. It is now sent the way an app sends it, with only the
-  project's `x-blocks-key`. `--configuration-name` defaults to the project's
-  configuration when it has exactly one (the dry-run says so); `connectionId`,
-  `responseKey` and `responseValue`, which the service requires but a
-  server-side send has no use for, default to `server`/`notification`/
+- **`notifier notify` says why a project send fails, and builds a valid request**
+  (blocks-site 95737817). blocks-logic looks `configurationName` up in the root
+  tenant for an impersonated caller -- which every project-scoped CLI call is --
+  so a project's own configuration comes back `no_configuration_exist`. That is a
+  server-side fix; until then the CLI checks the project's configurations and
+  stops with `notify_impersonation_unsupported` (send from the app with the SDK)
+  instead of claiming the configuration does not exist. Since blocks-logic
+  2026-10-24 a send also needs `blocks-logic::notifier::send` (401 otherwise),
+  reported as `permission_required`. `--configuration-name` defaults to the
+  project's configuration when it has exactly one (the dry-run says so);
+  `connectionId`, `responseKey` and `responseValue`, which the service requires
+  but a server-side send has no use for, default to `server`/`notification`/
   `notification`; a missing target or payload is refused before sending; and
   `--organization-ids` is added. An unknown name is
   `notification_configuration_not_found`.
 - **`iam email available` answers for the selected project** (blocks-site
-  3b86fd8d). It is an anonymous endpoint that ignores the token and answers for
-  the tenant in `x-blocks-key`, which on an impersonated call is the root tenant
-  -- so it checked platform accounts and said "not available" for an address
-  `iam users create` then accepted. It is now sent keyed to the project. It and
+  3b86fd8d). It used to be an anonymous endpoint, answered for the tenant in
+  `x-blocks-key` -- the root tenant on an impersonated call -- so it checked
+  platform accounts. IAM now protects it with `blocks-iam::iam::email-available`
+  and validates the token, so the project session answers for the project; a
+  role without the permission gets `permission_required`. It and
   `iam users exists` also use IAM's POST forms; the deprecated GETs put the
   address in the URL.
 - **`iam users activate` requires `--reason`** (blocks-site bacbaebd). IAM's
