@@ -6,6 +6,12 @@ type RequestOptions = {
   acceptFailureEnvelope?: boolean;
   accountAuth?: boolean;
   accountName?: string;
+  // Sends no bearer token, only `x-blocks-key: <this tenant id>` -- the way an app
+  // calls an [AllowAnonymous] action. Genesis skips token handling there and takes the
+  // tenant from x-blocks-key alone, so an impersonated call (whose x-blocks-key must be
+  // the root tenant) is answered for the root tenant, not the project: `email available`
+  // checked platform accounts and `notifier notify` looked for root's configurations.
+  anonymousTenantId?: string;
   apiUrl?: string;
   body?: unknown;
   impersonatedProjectAuth?: boolean;
@@ -43,6 +49,8 @@ export async function blocksRequest<T>(path: string, options: RequestOptions = {
 
   const send = async (forceRefresh: boolean): Promise<Response> => {
     const headers: Record<string, string> = { ...baseHeaders };
+
+    if (options.anonymousTenantId) headers["x-blocks-key"] = options.anonymousTenantId;
 
     if (options.accountAuth) {
       const account = await getAccountSession(accountName, { forceRefresh });

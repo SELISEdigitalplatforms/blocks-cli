@@ -7,6 +7,8 @@ When invoking a project-scoped `blocks` command, either use the resolved account
 
 # Blocks IAM — SSO / OIDC Configuration
 
+**Local snapshot:** `blocks/auth/` holds a read-only snapshot of the project's auth config, OIDC clients and identity providers, written by `blocks pull --only auth`. Read it for context before listing things one by one; check its `_meta.tenantId` and `_meta.pulledAt`, and pull again if it's stale or after you change anything. Never edit it to change the project: editing does nothing, so use the commands below. Secret fields in it are `***`.
+
 Setting up SSO for a Blocks project means provisioning two related tenant records: an **OIDC client** (the app-facing public client used for hosted login) and an **identity provider** (the record the hosted-login redirect/callback flow actually authenticates against). Both are exposed by real, implemented `blocks` CLI commands — this is not a portal-only action.
 
 ## The one thing to get right: which login is this?

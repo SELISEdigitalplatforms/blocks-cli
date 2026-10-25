@@ -1,5 +1,6 @@
 import { BlocksHttpClient } from "../http/http-client.js";
 import {
+  BlocksActivateUserRequest,
   BlocksBaseResponse,
   BlocksGetMyOrganizationsResponse,
   BlocksGetOrganizationResponse,
@@ -62,9 +63,10 @@ export class BlocksIAMClient {
     /**
      * What: activates a user through `POST /iam/v4/iam/users/activate`.
      * Why: admin UIs need to restore access for a previously inactive account.
-     * How: pass IAM's activate payload for the target user.
+     * How: pass `userId` and a non-empty `reason` -- IAM requires the reason (deactivate does
+     * not take one) and answers 400 without it.
      */
-    activate: (request: Record<string, unknown>): Promise<BlocksBaseResponse> =>
+    activate: (request: BlocksActivateUserRequest): Promise<BlocksBaseResponse> =>
       this.http.request<BlocksBaseResponse>("/iam/v4/iam/users/activate", { body: request }),
 
     /**
@@ -102,23 +104,24 @@ export class BlocksIAMClient {
       this.http.request<BlocksBaseResponse>("/iam/v4/iam/users/revoke-access", { body: request }),
 
     /**
-     * What: checks email availability through `GET /iam/v4/iam/email/available`.
+     * What: checks email availability through `POST /iam/v4/iam/email/available`.
      * Why: signup and invite forms can validate duplicate email state before submit.
-     * How: pass the email query fields IAM expects; this is public but still sends `x-blocks-key`.
+     * How: pass `{ email }`; public, answered for the tenant in `x-blocks-key`. The address travels in
+     * the body -- IAM deprecated the GET form because it put addresses in URLs and access logs.
      */
-    emailAvailable: (query: Record<string, string | undefined>): Promise<{ isAvailable?: boolean; IsAvailable?: boolean }> =>
+    emailAvailable: (query: { email?: string; Email?: string } & Record<string, string | undefined>): Promise<{ isAvailable?: boolean; IsAvailable?: boolean }> =>
       this.http.request<{ isAvailable?: boolean; IsAvailable?: boolean }>("/iam/v4/iam/email/available", {
         auth: false,
-        query
+        body: { email: query.email ?? query.Email }
       }),
 
     /**
-     * What: checks whether a user exists through `GET /iam/v4/iam/users/exists`.
+     * What: checks whether a user exists through `POST /iam/v4/iam/users/exists`.
      * Why: account and invite flows may need an existence check by email.
-     * How: pass the email string; the SDK sends it as the `email` query parameter.
+     * How: pass the email string; it is sent in the body (IAM deprecated the GET form).
      */
     exists: (email: string): Promise<unknown> =>
-      this.http.request<unknown>("/iam/v4/iam/users/exists", { query: { email } })
+      this.http.request<unknown>("/iam/v4/iam/users/exists", { body: { email } })
   };
 
   permissions = {
@@ -251,9 +254,11 @@ export class BlocksIAMClient {
     /**
      * What: lists organizations through `GET /iam/v4/iam/organizations`.
      * Why: admin UIs need organization browsing and selection.
-     * How: pass IAM-supported query fields such as paging/search options.
+     * How: pass IAM's query fields -- `Page` (from 0), `PageSize`, `Filter.Search`, `Filter.IsDisabled`,
+     * `Filter.ParentOrganizationId`, `Filter.Ids` (an array). IAM refuses any `Filter.*` field unless
+     * `Filter.Search` is a non-empty term; to filter without a search, filter the returned list instead.
      */
-    list: (query: Record<string, string | number | boolean | undefined> = {}): Promise<BlocksGetOrganizationsResponse> =>
+    list: (query: Record<string, string | number | boolean | ReadonlyArray<string> | undefined> = {}): Promise<BlocksGetOrganizationsResponse> =>
       this.http.request<BlocksGetOrganizationsResponse>("/iam/v4/iam/organizations", { query }),
 
     /**

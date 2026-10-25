@@ -55,7 +55,7 @@ Every method below mutates a real account. Before calling any of them, restate t
 | `iam.users.create(request)` | Invites/provisions a user in the active tenant/organization. |
 | `iam.users.update(id, request)` | Edits an IAM profile's fields. Sparse patch: an omitted or `null` field keeps the stored value, `""`/`[]` clears it. Roles, permissions and MFA state are ignored by this endpoint (the server only logs a warning) -- change access with `updateAccess` and MFA through the MFA methods. |
 | `iam.users.deactivate(request)` | Removes access without deleting the record. |
-| `iam.users.activate(request)` | Restores access for a previously deactivated account. |
+| `iam.users.activate({ userId, reason })` | Restores access for a previously deactivated account. `reason` is required — IAM answers 400 without it (`deactivate` needs only `userId`). |
 | `iam.users.updateAccess(request)` | Grants or changes roles/permissions/org access for a user. |
 | `iam.users.revokeAccess(request)` | Removes roles/permissions/org access from a user. |
 
@@ -88,10 +88,10 @@ Reads — no confirmation needed:
 
 | Command | What it does |
 |---|---|
-| `blocks iam users list [--page 1] [--page-size 20] [--email <e>] [--name <n>] [--organization-id <id>] [--sort-by <field>] [--sort-desc] [--body '<json>'] [--json]` | Paged/filtered user query. There is no `--filter` flag: for any filter beyond the convenience flags, pass `--body '{"filter":{...}}'` — the convenience flags are merged over it. |
+| `blocks iam users list [--page 1] [--page-size 20] [--email <e>] [--name <n>] [--organization-id <id>[,<id>]] [--sort-by <field>] [--sort-desc] [--body '<json>'] [--json]` | Paged/filtered user query. `--organization-id` returns only members of those organizations. There is no `--filter` flag: for any filter beyond the convenience flags, pass `--body '{"filter":{...}}'` (fields: `status: {active, inactive}`, `accountStates`, `roles`, `userIds`, `organizationIds`) — the convenience flags are merged over it. |
 | `blocks iam users get <id> [--organization-id <id>] [--json]` | One user record, optionally scoped to an org. |
-| `blocks iam users exists <email> [--json]` | Existence check by email. |
-| `blocks iam email available <email> [--json]` | Duplicate-email check. |
+| `blocks iam users exists <email> [--json]` | Existence check by email in the selected project: `{ userId, organizationIds }`, `userId` null when absent. |
+| `blocks iam email available <email> [--json]` | Duplicate-email check for the selected project: `isAvailable: true` means `users create` will accept the address. Agrees with `users exists`. |
 
 Mutations — every one supports `--dry-run` (print the request body and exit, no call) and requires either `--yes` or a typed `yes` at an interactive prompt before it executes:
 
@@ -99,7 +99,7 @@ Mutations — every one supports `--dry-run` (print the request body and exit, n
 |---|---|
 | `blocks iam users create --email <e>\|--user-name <n> [--first-name] [--last-name] [--password] [--phone-number] [--organization-id] [--roles a,b] [--permissions a,b] [--body '<json>'\|--file <path>] [--dry-run] [--yes] [--json]` | Invites/provisions a user. |
 | `blocks iam users update <id> [--first-name] [--last-name] [--phone-number] [--organization-id] [--body '<json>'\|--file <path>] [--dry-run] [--yes] [--json]` | Edits an IAM profile's fields. The endpoint is a sparse patch: omitted fields are kept, `""` via `--body` clears one. `--roles`/`--permissions`/MFA fields are rejected here (the endpoint ignores them) -- use `access grant` and the MFA commands. |
-| `blocks iam users activate <userId> [--reason <text>] [--dry-run] [--yes] [--json]` | Restores access for a previously deactivated account. |
+| `blocks iam users activate <userId> --reason <text> [--dry-run] [--yes] [--json]` | Restores access for a previously deactivated account. `--reason` is required (IAM records it); without it the command stops with `reason_required`. `deactivate` takes no reason. |
 | `blocks iam users deactivate <userId> [--dry-run] [--yes] [--json]` | Removes access without deleting the record. |
 | `blocks iam users access grant <userId> [--roles a,b] [--permissions a,b] [--organization-id] [--dry-run] [--yes] [--json]` | Grants roles/permissions/org access (requires at least one of `--roles`/`--permissions`). A non-empty list **replaces** that organization's current list; an omitted one is kept. The dry-run prints `current` -- pass the complete set the user should end up with. |
 | `blocks iam users access revoke <userId> [--organization-id] [--dry-run] [--yes] [--json]` | Revokes org access for a user. |

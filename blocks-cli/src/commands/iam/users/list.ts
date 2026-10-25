@@ -1,6 +1,6 @@
 import { booleanFlag, zeroBasedPage, integerFlag, stringFlag } from "../../../lib/args.js";
 import { blocksRequest } from "../../../lib/api.js";
-import { compact, jsonBodyFlag } from "../../../lib/json-flag.js";
+import { compact, jsonBodyFlag, listFlag } from "../../../lib/json-flag.js";
 import { writeOutput } from "../../../lib/output.js";
 import { requestContext } from "../../../lib/request-context.js";
 import { parseCommand, selectedProject } from "../../../lib/workspace.js";
@@ -9,12 +9,18 @@ export async function iamUsersList(argv: string[]): Promise<void> {
   const { flags } = parseCommand(argv);
   const projectKey = await selectedProject(flags);
 
+  const bodyFilter = { ...((await jsonBodyFlag(flags)).filter as Record<string, unknown> | undefined) };
+  // IAM's GetUsersFilter binds `organizationIds` (a list); the singular `organizationId`
+  // this command used to send matched nothing, so every user came back. A --body filter
+  // written with the singular name is translated too.
+  const legacyOrganizationId = typeof bodyFilter.organizationId === "string" ? [bodyFilter.organizationId] : undefined;
+  delete bodyFilter.organizationId;
   const filter = {
-    ...(await jsonBodyFlag(flags)).filter as Record<string, unknown> | undefined,
+    ...bodyFilter,
     ...compact({
       email: stringFlag(flags, "email") || undefined,
       name: stringFlag(flags, "name") || undefined,
-      organizationId: stringFlag(flags, "organization-id") || undefined
+      organizationIds: listFlag(flags, "organization-id") ?? legacyOrganizationId
     })
   };
 

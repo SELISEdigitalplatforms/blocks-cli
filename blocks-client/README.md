@@ -119,6 +119,7 @@ await blocks.mail.sendToAny({
 });
 
 await blocks.notifier.notify({
+  configurationName: "in-app", // the `name` of a notification configuration in this project
   userIds: ["user-id"],
   denormalizedPayload: JSON.stringify({ orderId: "123" }),
   saveDenormalizedPayloadAsAnObject: true
@@ -132,6 +133,40 @@ await blocks.notifier.markAllNotificationAsRead();
 `mail.send`/`mail.sendToAny` call `/logic/v4/Mail/Send`/`SendToAny`. `notifier.*` calls `/logic/v4/Notifier/*`
 for sending/reading notifications; tenant notification *channel configuration* (`/os/v4/Notification/*`)
 is an admin concern handled by `@seliseblocks/cli-os`'s `notification *` commands, not this SDK.
+
+## Functions And Proxies
+
+```ts
+// A deployed Blocks function -- sync or async, you get the value:
+const quote = await blocks.logic.functions.call<{ total: number }>("<functionId>", {
+  path: "quotes",
+  body: { items: [{ sku: "A1", qty: 2 }] }
+});
+
+// Or the transport-level result:
+const outcome = await blocks.logic.functions.invoke("<functionId>", { respondAsync: true });
+if (outcome.kind === "accepted") {
+  const run = await blocks.logic.functions.waitForResult(outcome, { timeoutMs: 30_000 });
+}
+
+// A third-party API through a Blocks proxy (upstream URL and keys stay server-side):
+const charge = await blocks.logic.proxy.request("stripe", { path: "charges/ch_123" });
+```
+
+A failed or timed-out run throws `BlocksFunctionRunError`; platform refusals throw `BlocksApiError`
+(`body.code` is `FUNCTION_INVOKE_*` or `PROXY_GATEWAY_*`). `invokeRaw()` returns the unread `Response`
+for streaming handlers. Creating, saving and deploying functions and configuring proxies is CLI work
+(`blocks logic function|proxy *`).
+
+Writing a function? Its handler types ship type-only under a subpath:
+
+```js
+/** @type {import("@seliseblocks/client/functions").FunctionHandler} */
+export default async function handler(input, ctx) {
+  ctx.log.info("called", { path: input.path });
+  return { ok: true, region: ctx.env.REGION };
+}
+```
 
 ## Common Runtime Calls
 
@@ -197,9 +232,9 @@ const selectedKeys = await blocks.localization.keysByNames({
 
 See [`AGENT_GUIDE.md`](AGENT_GUIDE.md)'s Service Map for the full method-level
 list under `blocks.auth`, `blocks.iam`, `blocks.data`, `blocks.localization`,
-`blocks.mfa`, `blocks.mail`, and `blocks.notifier`.
+`blocks.logic`, `blocks.mfa`, `blocks.mail`, and `blocks.notifier`.
 
-Professional class names are exported for advanced typing and adapters: `BlocksAuthenticationClient`, `BlocksIAMClient`, `BlocksDataClient`, `BlocksLocalizationClient`, `BlocksMfaClient`, `BlocksMailClient`, and `BlocksNotifierClient`. `BlocksApiError` is exported for typed error handling - every non-2xx response from `http.request`/`http.external` throws it, exposing `status`, `statusText`, and the parsed `body`. That holds even when the body is not really JSON: a proxy or WAF answering with an HTML error page under a JSON content type surfaces as a `BlocksApiError` carrying the status and the raw text, not as a `SyntaxError`.
+Professional class names are exported for advanced typing and adapters: `BlocksAuthenticationClient`, `BlocksIAMClient`, `BlocksDataClient`, `BlocksLocalizationClient`, `BlocksLogicClient` (with `BlocksFunctionsClient` / `BlocksProxyClient` and `BlocksFunctionRunError`), `BlocksMfaClient`, `BlocksMailClient`, and `BlocksNotifierClient`. `BlocksApiError` is exported for typed error handling - every non-2xx response from `http.request`/`http.external` throws it, exposing `status`, `statusText`, and the parsed `body`. That holds even when the body is not really JSON: a proxy or WAF answering with an HTML error page under a JSON content type surfaces as a `BlocksApiError` carrying the status and the raw text, not as a `SyntaxError`.
 
 ```ts
 try {
@@ -225,6 +260,7 @@ This package must not contain:
 - framework UI components
 - Localization authoring/admin endpoints
 - Data schema/rules mutation endpoints
+- Function create/save/deploy or proxy configuration endpoints
 
 ## Package Checks
 

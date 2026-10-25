@@ -1,5 +1,159 @@
 # Changelog
 
+## 0.11.0
+
+### Added
+
+- **`blocks logic function *` -- Blocks Functions from the terminal.** blocks-logic
+  now runs tenant-written Node 24 functions, and the CLI had no way to reach them,
+  so writing one meant the Studio editor. Twenty commands cover the whole
+  lifecycle against `/logic/v4/Functions/*`:
+  - `list`, `get`, `create` (from the `Minimal`/`HttpEcho`/`FetchTransform`/
+    `ReusedConnection` starters), `update` (name/description), `delete`
+    (`--force` past `FUNCTION_DELETE_BLOCKED` when workflow steps still use it).
+  - `export <id> --dir` writes `index.js`, `package.json`, `package-lock.json`
+    and a `function.json` of settings; `save <id> --dir` reads the same layout
+    back. Functions/Save replaces the whole working copy, so `save` reads the
+    stored function first and only what is supplied changes -- source files,
+    `function.json`, and flags for HTTP methods, Public/Token access, roles and
+    permissions, sync/async response, the rate limit, install scripts and
+    variables (`--var KEY=VALUE`, `--unset-var`).
+  - `test` runs the saved code without deploying; `deploy` ships it, and when the
+    image is still building it watches the build and deploys exactly that one
+    (`--no-wait` / `--build-id` to split the two steps).
+  - `url` prints the public invoke URL with the `x-blocks-key`, methods, auth and
+    response mode a caller needs -- skills may not cite raw gateway paths, so
+    this is how an agent hands a webhook provider the address.
+  - `runs`, `run`, `logs`, `replay`, `cancel`, `versions`, `source`, `build`,
+    `audit`, `limits` for debugging and history.
+  - The management API answers errors as `{ isSuccess:false, errors }` with the
+    meaning in the status code; these come back as `FUNCTION_NOT_FOUND`,
+    `FUNCTION_VALIDATION`, `FUNCTION_FORBIDDEN_CONTENT` (a typed credential --
+    use `{{secret.<id>}}`), `FUNCTION_BUILD_FAILED` (with the build id to read),
+    `FUNCTION_DELETE_BLOCKED`, `FUNCTION_RATE_LIMITED`, `FUNCTION_UNAVAILABLE`.
+- **`blocks logic proxy openapi-preview`** reports the routes an OpenAPI 3
+  document (`--spec-file` or `--spec-url`) would produce, flagging ones a proxy
+  already has (`--proxy-id`). Read-only; the chosen operations go into a
+  create/update `--file`.
+- **`--requests-per-minute` and `--timeout-seconds` on `logic proxy create|update`**
+  for the proxy-wide rate limit (P-3) and upstream timeout.
+- **`blocks pull` writes `blocks/logic/functions.json`** (summaries; source comes
+  from `logic function export`).
+- `blocks new web` scaffolds pin `@seliseblocks/client` `^0.3.0`, the release that
+  adds `blocks.logic` (functions and proxies). Publish the client before this CLI.
+
+### Fixed
+
+- **`logic proxy update` no longer wipes a proxy's rate limit and resilience
+  settings.** Proxies gained `resilience` (timeout/retry/circuit breaker) and
+  `requestsPerMinute`, and PUT resets either one when it is left out. The update
+  carried over a fixed list of fields that predated both, so `--name` alone
+  silently removed a proxy's retry policy and rate limit. Both are carried now,
+  and a `--timeout-seconds` change keeps the stored retry and breaker.
+- **`logic proxy update` can no longer overwrite someone else's change.** It now
+  sends the `expectedVersion` it read; a proxy changed in between is refused
+  with `PROXY_VERSION_CONFLICT` (409) instead of being clobbered. The 409 body
+  only reaches the CLI as its message, so it is recognised from that too.
+- **`logic proxy` and `logic scheduler` flags are no longer reported as
+  ignored.** The command catalog only saw flags read in a command's own file, and
+  these commands read theirs through `lib/` helpers, so `logic proxy create
+  --name …` printed "--name … is ignored" while using it -- and under
+  `BLOCKS_STRICT_FLAGS=1` refused to run at all. The catalog generator now maps
+  those helpers to the flags they read.
+- **`notifier notify` works against a project's own notification configuration**
+  (blocks-site 95737817). Notify is an anonymous action, and blocks-logic looks
+  `configurationName` up in the root tenant for an impersonated caller -- which
+  every project-scoped CLI call is -- so every configuration came back
+  `no_configuration_exist`. It is now sent the way an app sends it, with only the
+  project's `x-blocks-key`. `--configuration-name` defaults to the project's
+  configuration when it has exactly one (the dry-run says so); `connectionId`,
+  `responseKey` and `responseValue`, which the service requires but a
+  server-side send has no use for, default to `server`/`notification`/
+  `notification`; a missing target or payload is refused before sending; and
+  `--organization-ids` is added. An unknown name is
+  `notification_configuration_not_found`.
+- **`iam email available` answers for the selected project** (blocks-site
+  3b86fd8d). It is an anonymous endpoint that ignores the token and answers for
+  the tenant in `x-blocks-key`, which on an impersonated call is the root tenant
+  -- so it checked platform accounts and said "not available" for an address
+  `iam users create` then accepted. It is now sent keyed to the project. It and
+  `iam users exists` also use IAM's POST forms; the deprecated GETs put the
+  address in the URL.
+- **`iam users activate` requires `--reason`** (blocks-site bacbaebd). IAM's
+  activate request requires it, so leaving it out was always a 400; it is now
+  refused locally with `reason_required`.
+- **`iam users list --organization-id` filters by organization** (blocks-site
+  1fc467dd). The CLI sent `organizationId`, but IAM's filter binds
+  `organizationIds` (a list), so every user in the project came back. It takes a
+  CSV now, and a `--body` filter's singular `organizationId` is translated.
+- **`iam organizations list` and `notification list` start at the first page**
+  (blocks-site 1fc467dd, 95737817). Both services page from 0 and the CLI sent
+  its 1-based `--page` unchanged, so the default page skipped the first results.
+  `organizations list` also sent `--ids` as one comma-joined value (one id
+  server-side), and IAM refuses `--is-disabled`/`--ids`/`--parent-organization-id`
+  without a search term ("The Search field is required"); without `--search` the
+  CLI now reads all organizations and applies those filters itself.
+- **Enabling OIDC points account-action links at the IAM host** (blocks-site
+  8daf76c6). `auth config save --oidc-enabled` kept a project's preset
+  `accountActionBaseUrl` -- its app domain -- and `new web` did too, so before an
+  app was deployed the first user's activation link 404'd; with no stored value,
+  `auth config save` refused to run at all. Under OIDC the links land on IAM's
+  hosted `oidc/activate/` page, so both now use the account's IAM host (IAM pins
+  it there on save too). `auth config save` checks that the page answers and
+  warns on stderr when it does not (skip with `BLOCKS_NO_LINK_CHECK=1`).
+
+### Changed
+
+- `iam permissions create|update` take `--type 0-2` (DataProtection is gone).
+  The client's switch-organization and validation-error fixes ship in client
+  0.3.0 (see its CHANGELOG).
+- `storage config list|get` show each secret as a status only
+  (`<field>Status: none|active|locked|archived|missing|unavailable`): blocks-os now
+  keeps storage credentials in SecretStore and never returns a value. Secret-named
+  fields are still redacted, in case an older blocks-os echoes them back.
+- `auth oidc-clients list|get` and `auth idp list|get` help no longer says the
+  secret comes back on reads: IAM returns it once, on create, and
+  `oidc-clients rotate-secret` gives a new one. Output is still redacted.
+
+## 0.10.0
+
+### Added
+
+- **Every app gets the same `blocks/` tree, with a folder per service.**
+  `blocks init` used to create only `blocks/data/`, and `blocks new web` only
+  `blocks/localization/`. So an app's layout depended on which command made it,
+  and nothing pointed agents at the other services. Both commands now write
+  the same tree:
+  - `data/` (with `schemas/` and `rules.json`), `localization/` and `workflows/`,
+    which work as before;
+  - new `iam/`, `auth/`, `mail/`, `storage/`, `release/` and `logic/` folders.
+
+  Each folder has a README saying what belongs in it and which commands change
+  it. `init` still never overwrites an existing file, and now also records
+  `localization.dictionaries` in `blocks.json`.
+
+- **`blocks pull` writes a read-only snapshot of the project's setup** into
+  those six folders: roles, permissions, resource groups and features; auth
+  config, OIDC clients and identity providers; mail configs and templates;
+  storage configs; release repos; proxies and schedules. Agents can read the
+  project's setup from files instead of making a dozen list calls.
+  - **Source stamp:** each file wraps its data in a `_meta` block (`tenantId`,
+    `pulledAt`, `cliVersion`, `readOnly`, `secretsRedacted`, `service`), so a
+    stale or other-project snapshot is visible.
+  - **Secrets:** redacted to `***` unless `--include-secrets` is passed. That
+    covers the shared secret-field list plus `secretKey`, `sftpSecretKey` and
+    the raw proxy `upstream`; `Storage/Gets` returns the raw storage entity,
+    credentials included.
+  - **Tenant check:** a `--project` that isn't the workspace's own is refused
+    unless `--force`.
+  - **Partial failure:** one failing service is reported under `failed` with a
+    non-zero exit, while the rest are still written.
+  - **Location:** files are written next to `blocks.json`, even when `pull`
+    runs from a subdirectory. `--only iam,auth` pulls a subset.
+
+  The snapshots are not a way to change anything: editing them does nothing,
+  and changes still go through each service's own commands.
+
 ## 0.9.2
 
 ### Fixed

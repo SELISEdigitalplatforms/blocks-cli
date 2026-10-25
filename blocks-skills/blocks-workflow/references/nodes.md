@@ -109,6 +109,12 @@ Routes a request through the Proxy service (no upstream credential in the node).
 - `slug`: string (required); `routeMethod`: HTTP method (required); `routePath`: route template with `{name}` segments
 - `pathParams`: `{ [name]: expression }`; `haveQuery`: bool; `queryParams`: `{ [k]: expression }`; `haveBody`: bool; `body`: JSON/expression
 
+### `function`
+Runs a deployed Blocks function and waits for its result (the step's output is the handler's parsed return value). The function must be deployed and have `workflowEnabled` on its trigger; find ids with `blocks logic function list`. The step waits for the function's own 30 s limit — a wait setting is ignored.
+- `functionId`: string (required)
+- `inputMode`: `"item"` (default — the incoming item's output is the handler's `input`) or `"expression"`
+- `inputExpression`: JSON/expression, used only when `inputMode` is `"expression"`
+
 ---
 
 ## Minimal example

@@ -61,7 +61,7 @@ For anything that isn't a feature inside a running Blocks app (one-off lookups, 
 
 | CLI command | Maps to | Notes |
 |---|---|---|
-| `blocks iam organizations list` | `organizations.list()` | `--search`, `--is-disabled`, `--parent-organization-id`, `--ids <a,b>`, `--page`, `--page-size`, `--sort-by`, `--sort-desc`. Read-only. |
+| `blocks iam organizations list` | `organizations.list()` | `--search`, `--is-disabled`, `--parent-organization-id`, `--ids <a,b>`, `--page` (1-based), `--page-size`, `--sort-by`, `--sort-desc`. IAM only accepts the filters together with a search term, so without `--search` the CLI applies them itself (output carries `filteredBy: "cli"`). From the SDK, `Page` starts at 0, and any `Filter.*` field needs a non-empty `Filter.Search` alongside it — without a search term, filter the returned list in app code. Read-only. |
 | `blocks iam organizations get <id>` (or `--id`) | `organizations.get(id)` | Read-only. |
 | `blocks iam organizations my` | `organizations.my()` | Read-only. |
 | `blocks iam organizations create --name <n> [...]` | `organizations.create()` | `--name` (required), `--description`, `--email`, `--phone-number`, `--website-url`, `--default-permissions`, `--default-roles`, or a full `--body '<json>'`/`--file <path.json>`. Mutation. |

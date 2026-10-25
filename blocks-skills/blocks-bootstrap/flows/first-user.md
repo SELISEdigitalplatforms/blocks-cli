@@ -32,6 +32,8 @@ Check the address is free first — creating over a collision is a worse failure
 blocks iam email available "<email>" --json
 ```
 
+`isAvailable` answers for this project, not the whole platform: the operator's own Blocks account address is still available here when the project has no such user. `blocks iam users exists "<email>" --json` gives the same answer with the user id when it is taken.
+
 Decide roles before creating, not after. `blocks iam roles list --json` shows what exists, and `blocks iam roles assignable --json` shows what this account may actually grant. Confirm the choice with the user rather than assigning something administrative on your own judgement.
 
 ### 3a. Preferred — let the user set their own password

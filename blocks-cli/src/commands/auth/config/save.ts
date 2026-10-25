@@ -1,4 +1,5 @@
 import { booleanFlag, optionalBooleanFlag, optionalIntegerFlag, stringFlag } from "../../../lib/args.js";
+import { iamAccountActionBaseUrl, OIDC_ACTIVATION_PATH, unreachableActionPageWarning } from "../../../lib/account-action.js";
 import { blocksRequest } from "../../../lib/api.js";
 import { confirmMutation } from "../../../lib/confirm.js";
 import { compact, jsonBodyFlag } from "../../../lib/json-flag.js";
@@ -47,16 +48,20 @@ export async function authConfigSave(argv: string[]): Promise<void> {
 
   // Turning isOidcEnabled on isn't a single independent flag: the
   // activation-link flow keys off accountActivationPath, which has to point
-  // at the OIDC variant once OIDC is on, or activation emails break.
-  // accountActionBaseUrl has no safe default this command can guess across
-  // environments, so the caller must supply it explicitly when the tenant
-  // doesn't already have one.
-  const missingActionBaseUrl = Boolean(body.isOidcEnabled) && !body.accountActionBaseUrl;
-  if (body.isOidcEnabled) body.accountActivationPath = "oidc/activate/";
-
-  if (missingActionBaseUrl) {
-    throw new Error("Enabling OIDC login requires accountActionBaseUrl, and this tenant doesn't have one set. Pass --account-action-base-url <https://your-iam-host>.");
+  // at the OIDC variant once OIDC is on, or activation emails break. Those
+  // links land on IAM's hosted page, so the base URL is the IAM host -- not
+  // the project's preset app domain, which serves nothing until an app is
+  // deployed (the first user's activation link 404'd). IAM pins it the same
+  // way on save; an explicit --account-action-base-url is still sent as given.
+  const warnings: string[] = [];
+  if (body.isOidcEnabled) {
+    body.accountActivationPath = OIDC_ACTIVATION_PATH;
+    if (!overrides.accountActionBaseUrl) body.accountActionBaseUrl = await iamAccountActionBaseUrl(flags);
+    const warning = await unreachableActionPageWarning(String(body.accountActionBaseUrl));
+    if (warning) warnings.push(warning);
   }
+  // stderr, so a --json document on stdout stays parseable.
+  for (const warning of warnings) console.error(`Warning: ${warning}`);
 
   if (booleanFlag(flags, "dry-run")) {
     writeOutput({ dryRun: true, endpoint: "/iam/v4/auth/config", request: body }, flags);

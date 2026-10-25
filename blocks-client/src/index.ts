@@ -14,6 +14,9 @@ export { BlocksApiError } from "./http/errors.js";
 export type { BlocksHttpClient } from "./http/http-client.js";
 export { BlocksIAMClient } from "./iam/iam-client.js";
 export { BlocksLocalizationClient } from "./localization/localization-client.js";
+export { BlocksLogicClient } from "./logic/logic-client.js";
+export { BlocksFunctionRunError, BlocksFunctionsClient } from "./logic/functions-client.js";
+export { BlocksProxyClient } from "./logic/proxy-client.js";
 export { BlocksMailClient } from "./mail/mail-client.js";
 export { BlocksMfaClient } from "./mfa/mfa-client.js";
 export { BlocksNotifierClient } from "./notifier/notifier-client.js";
@@ -36,6 +39,7 @@ export type {
 } from "./auth/auth-client.js";
 export type { BlocksExternalRequestOptions, BlocksRequestOptions } from "./types.js";
 export type {
+  BlocksActivateUserRequest,
   BlocksBaseResponse,
   BlocksGetMyOrganizationsResponse,
   BlocksGetOrganizationResponse,
@@ -138,3 +142,16 @@ export type {
   BlocksNotifyRequest,
   BlocksOfflineNotification
 } from "./notifier/types.js";
+export type {
+  BlocksFunctionAccepted,
+  BlocksFunctionAnswer,
+  BlocksFunctionCallOptions,
+  BlocksFunctionInvokeOptions,
+  BlocksFunctionInvokeResult,
+  BlocksFunctionRunResult,
+  BlocksFunctionTerminalStatus,
+  BlocksFunctionWaitOptions,
+  BlocksHttpMethod,
+  BlocksProxyRequestOptions,
+  BlocksQueryValue
+} from "./logic/types.js";
