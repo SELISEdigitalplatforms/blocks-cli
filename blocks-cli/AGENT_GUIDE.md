@@ -640,6 +640,11 @@ blocks notifier mark-read <notificationId> --dry-run --json
 blocks notifier mark-all-read --dry-run --json
 ```
 
+A send needs `blocks-logic::notifier::send` on your role (401 → `permission_required`). blocks-logic
+still resolves configurations in the root project for the CLI's impersonated session, so sending
+through a project's own configuration fails with `notify_impersonation_unsupported` until that is
+fixed server-side — send from the app with `@seliseblocks/client` meanwhile.
+
 ## Logic: Functions
 
 Serverless Node 24 handlers on blocks-logic (`/logic/v4/Functions/*`). The lifecycle is **create → save (working copy) → test → deploy**; saving never changes what callers get, and trigger settings are snapshotted at deploy.

@@ -130,9 +130,9 @@ await blocksClient.auth.signup({ email, password, firstName, lastName });
 
 ## Signup/invite dedup checks
 
-Useful inside a signup or invite form before submit — both still send `x-blocks-key` even though they don't require a signed-in user:
+Useful inside an invite form before submit. Both need a signed-in user: `emailAvailable` needs the `blocks-iam::iam::email-available` permission and `exists` needs `blocks-iam::iam::users` (IAM protects them, since an answer reveals whether an address is registered). A pre-login self-signup form can't call them — let `auth.signup` report the duplicate instead.
 
-- **`iam.users.emailAvailable(query)`** — no auth required. Returns an availability flag (`isAvailable`/`IsAvailable` — IAM's casing varies, check both) for a candidate email.
+- **`iam.users.emailAvailable(query)`** — Returns an availability flag (`isAvailable`/`IsAvailable` — IAM's casing varies, check both) for a candidate email.
 - **`iam.users.exists(email)`** — Existence check by email.
 
 ```ts
