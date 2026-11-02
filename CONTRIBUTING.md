@@ -22,7 +22,7 @@ Do not open a public issue for a suspected vulnerability. Follow the private dis
 
 - `blocks-cli/`: `@seliseblocks/cli-os`, the terminal/admin/AI control plane package.
 - `blocks-client/`: `@seliseblocks/client`, the framework-neutral frontend TypeScript SDK package.
-- `blocks-skills/`: AI workflow skills for agents building on Blocks. Repo-only — not shipped in either npm package; consumers copy the skills they want from here.
+- `blocks-skills/`: a signpost. The agent skills moved to [`SELISEdigitalplatforms/blocks-skills`](https://github.com/SELISEdigitalplatforms/blocks-skills); contribute skill changes there.
 - `docs/AI_ROUTING_GUIDE.md`: first-stop routing guide for AI agents entering the Blocks workflow.
 
 ## Running the checks
@@ -33,13 +33,13 @@ Install workspace dependencies from the repository root:
 npm install
 ```
 
-Run all package tests plus the skill and CLI contract linters:
+Run all package tests plus the docs and CLI contract linters:
 
 ```bash
 npm test
 ```
 
-The root test gate includes `blocks-skills/lint.mjs` and checks that project-authenticated requests carry an explicit tenant id and composed commands forward account/project/API context. It also verifies that the generated command catalog is current.
+The root test gate includes `scripts/lint-docs-commands.mjs`, which checks every `blocks …` command in the consumer-facing READMEs, agent guides and `docs/AI_ROUTING_GUIDE.md` is registered, and checks that project-authenticated requests carry an explicit tenant id and composed commands forward account/project/API context. It also verifies that the generated command catalog is current.
 
 ## Command catalog
 
@@ -112,7 +112,7 @@ npm pack --dry-run
 
 Review the dry-run file list before publishing. The CLI tarball should contain
 `bin/`, `dist/`, and the four root files; the client tarball `dist/` and the
-four root files. `blocks-skills/` is deliberately not packaged.
+four root files.
 
 The public package must not include secrets, local auth state, unpublished
 credentials, or generated files outside the package's intended `files` list.
@@ -123,7 +123,7 @@ AI agents should start with [docs/AI_ROUTING_GUIDE.md](docs/AI_ROUTING_GUIDE.md)
 
 - `blocks-cli/AGENT_GUIDE.md` for CLI command contracts, flags, and failure behavior.
 - `blocks-client/AGENT_GUIDE.md` for SDK usage rules and method boundaries.
-- `blocks-skills/<name>/SKILL.md` for consumer Blocks app workflows.
+- The agent skills in [`blocks-skills`](https://github.com/SELISEdigitalplatforms/blocks-skills) for consumer Blocks app workflows.
 
 Do not inspect or expose local CLI storage files. Use `blocks doctor --json`, `blocks auth status --json`, and other supported `blocks` commands instead.
 
@@ -133,5 +133,5 @@ The CLI, SDK, and skill workflows are consumed by external users and AI agents. 
 
 - Keep existing exported SDK names working where practical and mark renamed exports with `@deprecated`.
 - Keep CLI command aliases, flags, JSON shapes, and documented failure codes stable unless a breaking change is intentional and documented.
-- Keep skill names and high-level workflow handoffs stable when possible.
+- A change to a command a skill cites needs a matching PR in `blocks-skills` — nothing in this repo fails when a skill goes stale.
 - Update `README.md`, `docs/AI_ROUTING_GUIDE.md`, package `AGENT_GUIDE.md` files, and tests with behavioral changes.

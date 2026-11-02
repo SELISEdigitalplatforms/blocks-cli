@@ -114,21 +114,21 @@ Use the matching Blocks skill as the routing and safety layer, then the CLI or c
 |---|---|
 | Data schema/rules/configuration | `blocks-cli/AGENT_GUIDE.md` |
 | Runtime CRUD/GraphQL in app code | `blocks-client/AGENT_GUIDE.md` |
-| Files/DMS upload/download | `blocks-skills/blocks-data-storage/SKILL.md`, then the CLI or client guide for the chosen surface |
+| Files/DMS upload/download | the `blocks-data-storage` skill, then the CLI or client guide for the chosen surface |
 | Runtime translations in app code | `blocks-client/AGENT_GUIDE.md` |
 | Translation authoring/push/pull | `blocks-cli/AGENT_GUIDE.md` |
 | Hosted login callback/login button | `blocks-client/AGENT_GUIDE.md` |
 | OIDC client/identity provider setup | `blocks-cli/AGENT_GUIDE.md` |
 | Current user's account/profile/password | `blocks-client/AGENT_GUIDE.md` |
-| Admin user management | `blocks-skills/blocks-iam-users/SKILL.md`, then the CLI or client guide |
-| Roles and permissions | `blocks-skills/blocks-iam-access-control/SKILL.md`, then the CLI or client guide |
-| MFA | `blocks-skills/blocks-iam-mfa/SKILL.md`, then the CLI or client guide |
-| Organizations/signup settings | `blocks-skills/blocks-iam-organizations/SKILL.md`, then the CLI or client guide |
+| Admin user management | the `blocks-iam-users` skill, then the CLI or client guide |
+| Roles and permissions | the `blocks-iam-access-control` skill, then the CLI or client guide |
+| MFA | the `blocks-iam-mfa` skill, then the CLI or client guide |
+| Organizations/signup settings | the `blocks-iam-organizations` skill, then the CLI or client guide |
 | Local HTTPS dev loop | Scaffolded app README/scripts |
 | Release deployment | `blocks-cli/AGENT_GUIDE.md` |
 | Mail settings/templates | `blocks-cli/AGENT_GUIDE.md` |
 | Notification channel configuration | `blocks-cli/AGENT_GUIDE.md` |
-| Sending/reading notifications | `blocks-skills/blocks-notifier/SKILL.md`, then the CLI or client guide |
+| Sending/reading notifications | the `blocks-notifier` skill, then the CLI or client guide |
 | Storage provider configuration | `blocks-cli/AGENT_GUIDE.md` |
 
 Then use `blocks-client/AGENT_GUIDE.md` for app-code method rules and `blocks-cli/AGENT_GUIDE.md` for terminal command flags.

@@ -1,8 +1,8 @@
 # SELISE Blocks Packages
 
-This repository contains the public npm packages and AI workflow assets for building with SELISE Blocks.
+This repository contains the public npm packages for building with SELISE Blocks.
 
-SELISE Blocks provides a CLI for project setup and administration, a framework-neutral frontend SDK for runtime application code, and a set of AI workflow skills, kept in this repository, that guide agents through supported Blocks workflows.
+SELISE Blocks provides a CLI for project setup and administration, a framework-neutral frontend SDK for runtime application code, and AI agent guides for both. The agent skills that guide agents through Blocks workflows live in a separate repo, [`blocks-skills`](https://github.com/SELISEdigitalplatforms/blocks-skills).
 
 ## Packages
 
@@ -17,7 +17,7 @@ SELISE Blocks provides a CLI for project setup and administration, a framework-n
 .
 |-- blocks-cli/          # @seliseblocks/cli-os source, README, agent guide, tests
 |-- blocks-client/       # @seliseblocks/client source, README, agent guide, tests
-|-- blocks-skills/       # AI workflow skills (repo-only; not shipped in either package)
+|-- blocks-skills/       # signpost only: the skills moved to the blocks-skills repo
 |-- docs/                # Cross-package documentation, including the AI routing guide
 |-- AGENTS.md            # Repository instructions for AI coding agents
 |-- CONTRIBUTING.md      # Contribution workflow
@@ -86,15 +86,15 @@ Use these package-specific guides for exact contracts:
 
 ### Skills
 
-The task-level workflow skills live in [`blocks-skills/`](blocks-skills/) in this
-repository. They are **not** part of either npm package — the supported way to
-get them into your agent is [seliseblocks.com/bootstrap](https://seliseblocks.com/bootstrap),
-not a manual copy from this repo.
+The task-level workflow skills live in their own repo,
+[`SELISEdigitalplatforms/blocks-skills`](https://github.com/SELISEdigitalplatforms/blocks-skills).
+They are **not** part of either npm package. Install them as a plugin (Claude Code,
+Cursor) or with the vendoring runbook ([seliseblocks.com/bootstrap](https://seliseblocks.com/bootstrap))
+— that repo's README covers both.
 
-Each skill is self-contained by design: it assumes only the installed `blocks`
-CLI and a project-local `@seliseblocks/client`, and never links to a sibling
-skill or to this repository's layout. `blocks-skills/lint.mjs` enforces that,
-and runs as part of `npm test`.
+Skills cite this CLI's commands, and that repo's CI lints them against the published
+CLI. When you rename, remove, or change a command, check whether a skill cites it and
+open the matching `blocks-skills` PR.
 
 ## Development
 
