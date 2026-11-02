@@ -10,7 +10,7 @@ const repoRoot = resolve(import.meta.dirname, "..");
 const bin = join(repoRoot, "bin", "run.js");
 process.env.BLOCKS_NO_UPDATE_CHECK = "1";
 
-// The exact minimal example from the blocks-workflow skill (references/nodes.md) that
+// The exact minimal example from the blocks-workflow skill (blocks-skills repo, references/nodes.md) that
 // 500ed on Workflow/Create in the field.
 const webhookWorkflow = {
   name: "Webhook Sanity Test",
