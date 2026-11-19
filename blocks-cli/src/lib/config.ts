@@ -49,12 +49,13 @@ const DEFAULT_PROFILE_TIMESTAMP = "2026-01-01T00:00:00.000Z";
 const DEFAULT_ROOT_TENANT_ID = "d7e5554c758541db8a18694b64ef423d";
 const DEFAULT_SCOPE = "openid profile offline_access";
 
+// Each host is a setting (I00-WP10). With the variable unset, the value is today's default.
 export function defaults(): { apiUrl: string; osClientId: string; oidcUrl: string; osUrl: string; rootTenantId: string; scope: string } {
   return {
-    apiUrl: DEFAULT_API_URL,
+    apiUrl: nonEmptyEnv("BLOCKS_CLI_API_URL") ?? DEFAULT_API_URL,
     osClientId: DEFAULT_OS_CLIENT_ID,
-    oidcUrl: DEFAULT_OIDC_URL,
-    osUrl: DEFAULT_OS_URL,
+    oidcUrl: nonEmptyEnv("BLOCKS_CLI_OIDC_URL") ?? DEFAULT_OIDC_URL,
+    osUrl: nonEmptyEnv("BLOCKS_CLI_OS_URL") ?? DEFAULT_OS_URL,
     rootTenantId: DEFAULT_ROOT_TENANT_ID,
     scope: DEFAULT_SCOPE
   };
